@@ -62,7 +62,7 @@ export default function DatosGenerales() {
       ]} />
       <h2 className="sub">Contacto</h2>
       <Cajas ps={[
-        ['hotel.whatsapp', 'WhatsApp del hotel: solo números con código de país (ej. 5491155551234)'],
+        ['hotel.whatsapp', 'WhatsApp general del hotel (lo usan todos los botones de WhatsApp que no tengan su propio número). Solo números con código de país, ej. 5491155551234'],
         ['hotel.telefonoRecepcion', 'Teléfono de recepción, con código de país (ej. +5491155551234)'],
         ['hotel.mapaRecomendados', 'Link de tu lista de lugares en Google Maps (https://…)']
       ]} />

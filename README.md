@@ -16,6 +16,11 @@ Huésped → guía (React, Vercel) ──lee──▶ Supabase ◀──guarda c
 5. **Guardar cambios** los manda a la base. **Descartar** vuelve a lo último guardado. La base conserva las últimas 20 versiones.
 
 Los íconos y el orden de las pantallas no se editan desde el panel. Cada pantalla tiene su link directo para los QR: `/#/wifi`, `/#/emergencias`, `/#/checkin`, `/#/checkout`…
+**A dónde lleva cada botón** también se cambia desde el panel, debajo del botón o del lugar:
+   - Botones de WhatsApp: "Número de WhatsApp de este botón". Vacío = usa el número general (Datos generales). Con número = ese botón escribe a otro WhatsApp.
+   - "Cómo llegar" y "Ver hospital": "Link de Google Maps de este botón". Vacío = se arma solo.
+   - Cada lugar (dónde comer, qué hacer, compras): "Link de Google Maps de este lugar". Vacío = busca por nombre.
+   - Reseñas, lista de mapa y teléfono de recepción: su link o número está en la caja del botón.
 
 ## Probarlo en tu laptop
 Necesita [Node 20 o superior](https://nodejs.org) y Git.
