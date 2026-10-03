@@ -218,3 +218,4 @@ dd{margin:3px 0 0;font-size:15px;line-height:1.45}
 .barra-admin .btn.claro{background:var(--hueso);border:0}
 .mapa-link{background:none;border:0;color:var(--terracota-texto);justify-content:flex-start;min-height:44px;width:auto;padding:0}
 .oscuro .mapa-link{color:var(--mostaza)}
+.ed-ok{margin:8px 0 0;color:var(--verde);font-size:14px;font-weight:700}

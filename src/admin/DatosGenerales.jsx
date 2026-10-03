@@ -1,6 +1,41 @@
+import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { Cajas } from '../components/Editable.jsx';
 import { useDatos } from '../data/DataContext.jsx';
+
+// Cambio de la clave del panel (se guarda en la base como hash, nunca en texto).
+function CambiarClave() {
+  const { cambiarClave } = useDatos();
+  const [nueva, setNueva] = useState('');
+  const [repetida, setRepetida] = useState('');
+  const [aviso, setAviso] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+
+  const enviar = async (e) => {
+    e.preventDefault();
+    if (nueva !== repetida) { setAviso({ ok: false, mensaje: 'Las dos claves no coinciden.' }); return; }
+    setEnviando(true);
+    const r = await cambiarClave(nueva);
+    setEnviando(false);
+    setAviso(r);
+    if (r.ok) { setNueva(''); setRepetida(''); }
+  };
+
+  return (
+    <form onSubmit={enviar}>
+      <label className="caja">
+        <span>Clave nueva (mínimo 10 caracteres)</span>
+        <input type="password" autoComplete="new-password" minLength={10} required value={nueva} onChange={(e) => setNueva(e.target.value)} />
+      </label>
+      <label className="caja">
+        <span>Repetí la clave nueva</span>
+        <input type="password" autoComplete="new-password" minLength={10} required value={repetida} onChange={(e) => setRepetida(e.target.value)} />
+      </label>
+      {aviso && <p className={aviso.ok ? 'ed-ok' : 'ed-error'} role="status">{aviso.mensaje}</p>}
+      <div className="btns"><button type="submit" className="btn" disabled={enviando}>Cambiar clave</button></div>
+    </form>
+  );
+}
 
 // Datos que hacen funcionar la guía pero no se ven como un texto suelto.
 export default function DatosGenerales() {
@@ -45,6 +80,8 @@ export default function DatosGenerales() {
         ['resena.booking', 'Link de Booking (https://…)'],
         ['resena.tripadvisor', 'Link de TripAdvisor (https://…)']
       ]} />
+      <h2 className="sub">Clave del panel</h2>
+      <CambiarClave />
     </>
   );
 }
