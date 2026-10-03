@@ -6,7 +6,7 @@ import { leer, guardar, versiones, defaults } from './db.js';
 import { validar } from '../src/data/mezclar.js';
 
 const PUERTO = Number(process.env.PORT) || 3001;
-const produccion = process.env.NODE_ENV === 'production';
+const produccion = process.env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
 // En desarrollo sirve "admin"; en producción hay que definir ADMIN_PASSWORD o el panel queda cerrado.
 const CLAVE = process.env.ADMIN_PASSWORD || (produccion ? '' : 'admin');
 if (!process.env.ADMIN_PASSWORD) {

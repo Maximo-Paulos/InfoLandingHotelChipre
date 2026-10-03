@@ -7,7 +7,8 @@
     "dev": "vite",
     "server": "node --no-warnings server/index.js",
     "build": "vite build",
-    "start": "NODE_ENV=production node --no-warnings server/index.js",
+    "local": "vite build && node --no-warnings server/index.js",
+    "start": "node --no-warnings server/index.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -19,5 +20,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.1",
     "vite": "^8.3.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

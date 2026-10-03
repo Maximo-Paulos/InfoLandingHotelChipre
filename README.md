@@ -8,17 +8,32 @@ Todo el contenido vive en una base de datos **SQLite**. El dueño lo edita desde
 Huésped → guía (React) → API → SQLite ← API ← panel del dueño (#/admin)
 ```
 
-## Probarlo en local
-Necesita Node 22 o superior.
-```
-npm install
-npm run server     # base de datos + API en http://localhost:3001
-npm run dev        # guía en http://localhost:5173 (en otra terminal)
-```
-- Guía de los huéspedes: http://localhost:5173/
-- Panel del dueño: http://localhost:5173/#/admin (en desarrollo la clave es `admin`)
+## Probarlo en tu laptop
+Funciona igual en Windows y en Mac. Necesitás [Node 22 o superior](https://nodejs.org) (el instalador "LTS" más nuevo) y Git.
 
-La base se crea sola en `server/data/guia.db` con el contenido de ejemplo de `src/data/hotel.js`. Esa carpeta no se sube a git.
+```
+git clone https://github.com/Maximo-Paulos/InfoLandingHotelChipre.git
+cd InfoLandingHotelChipre
+npm install
+npm run local
+```
+
+Cuando termine, en la terminal aparece `Guía del hotel en http://localhost:3001`. Dejá esa ventana abierta (con Ctrl+C se apaga) y abrí:
+
+- **Guía de los huéspedes:** http://localhost:3001
+- **Panel del dueño:** http://localhost:3001/#/admin (clave: `admin`)
+
+**Recorrido corto para probarlo**
+1. Entrá al panel, abrí **Check-in** y cambiá la hora en la caja "Hora de check-in". Mirá cómo se actualiza arriba.
+2. Tocá **Guardar cambios**.
+3. Abrí la guía en otra pestaña (o el botón **Ver guía**) y recargá: tiene que mostrar la hora nueva.
+4. Probá agregar una pregunta frecuente, cambiar un teléfono en Emergencias y el WhatsApp en **Datos generales**.
+
+**Verla desde tu celular** (con la laptop y el celular en la misma red Wi-Fi): averiguá la IP de la laptop (Windows: `ipconfig`; Mac: `ipconfig getifaddr en0`) y abrí `http://ESA-IP:3001` en el celular. Si no abre, puede ser el firewall de la laptop.
+
+**Empezar de cero:** apagá el servidor y borrá `server/data/guia.db`; al volver a encender se carga el contenido de ejemplo.
+
+**Si cambiás el código** (no hace falta para probar): `npm run server` y `npm run dev` en dos terminales; la guía queda en http://localhost:5173 y se recarga sola.
 
 ## Cómo edita el dueño
 1. Entrar a `/#/admin` con la clave.
@@ -32,11 +47,11 @@ Los íconos y la estructura de cada pantalla no se editan desde el panel.
 ## Publicarlo
 ```
 npm run build
-ADMIN_PASSWORD="una-clave-larga" npm start
+NODE_ENV=production ADMIN_PASSWORD="una-clave-larga" npm start
 ```
-`npm start` sirve la guía compilada y la API en un solo proceso (puerto 3001, o el de la variable `PORT`).
+`npm start` sirve la guía compilada y la API en un solo proceso (puerto 3001, o el de la variable `PORT`). En un hosting se definen `NODE_ENV=production` y `ADMIN_PASSWORD` en su panel de variables (Render ya cuenta como producción).
 
-- Sin `ADMIN_PASSWORD` el panel queda deshabilitado en producción.
+- Sin `ADMIN_PASSWORD` el panel queda deshabilitado en producción. La clave `admin` solo sirve en tu laptop.
 - La base es un archivo (`DB_PATH` para cambiar su ubicación), así que el servidor necesita **disco persistente**: Railway, Render, Fly.io o un VPS. En Vercel las funciones no conservan archivos y lo que guarde el dueño se perdería; para publicar ahí hay que cambiar `server/db.js` por una base en la nube (Supabase, Turso). La API y las pantallas no cambian.
 - Hacé copia de seguridad de `guia.db` de vez en cuando.
 
