@@ -62,8 +62,13 @@ export function T({ p, as: Tag = 'span', className, style, etiqueta }) {
 // En el panel se dibuja sin acción y debajo aparecen las cajas para cambiar texto y destino.
 export function Btn({ label, cls = '', icon, wa, tel, url, to, href, mini, fila, onClick, extra = [] }) {
   const { D, editing } = useDatos();
+  // Cada botón puede tener su propio número (`<label>Num`) o su propio link (`<label>Link`);
+  // si están vacíos se usa el WhatsApp general o el link automático.
+  const num = String(get(D, `${label}Num`) ?? '').trim();
+  const link = String(get(D, `${label}Link`) ?? '').trim();
   let destino = href;
-  if (wa) destino = waUrl(D.hotel.whatsapp, get(D, wa) ?? '');
+  if (href && link) destino = urlSegura(link);
+  if (wa) destino = waUrl(num.replace(/\D/g, '').length >= 8 ? num : D.hotel.whatsapp, get(D, wa) ?? '');
   else if (tel) destino = telUrl(get(D, tel) ?? '');
   else if (url) destino = urlSegura(get(D, url) ?? '');
   else if (to) destino = to;
@@ -83,7 +88,9 @@ export function Btn({ label, cls = '', icon, wa, tel, url, to, href, mini, fila,
         <div className={clase}>{contenido}</div>
         <Cajas ps={[
           [label, 'Texto del botón'],
+          wa && [`${label}Num`, 'Número de WhatsApp de este botón, con código de país (vacío = el número general del hotel)'],
           wa && [wa, 'Mensaje de WhatsApp que se envía'],
+          href && !onClick && [`${label}Link`, 'Link de Google Maps de este botón (vacío = se arma solo con la dirección)'],
           tel && [tel, 'Teléfono al que llama'],
           url && [url, 'Link al que lleva (https://…)'],
           ...extra

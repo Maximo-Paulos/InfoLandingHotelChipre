@@ -3,11 +3,15 @@ import Icon from '../components/Icon.jsx';
 import { Btn, Cajas, Lista, T, V } from '../components/Editable.jsx';
 import { Box, Cabecera } from '../components/ui.jsx';
 import { useDatos } from '../data/DataContext.jsx';
-import { maps } from '../lib.js';
+import { maps, urlSegura } from '../lib.js';
 
-function LinkMaps({ q, p }) {
+// `link`: link de Google Maps propio del lugar; si está vacío se busca por nombre.
+const LINK_ETQ = 'Link de Google Maps de este lugar (vacío = se busca por nombre)';
+
+function LinkMaps({ q, p, link }) {
+  const propio = String(link ?? '').trim();
   return (
-    <a className="maps" href={maps(q)} target="_blank" rel="noopener noreferrer">
+    <a className="maps" href={propio ? urlSegura(propio) : maps(q)} target="_blank" rel="noopener noreferrer">
       <Icon name="pin" size={16} sw={1.8} /><V p={p} />
     </a>
   );
@@ -36,8 +40,8 @@ export function Comer() {
           </div>
           <p className="meta"><V p={`${ruta}.meta`} /></p>
           <p className="tip"><V p={`${ruta}.tip`} /></p>
-          <LinkMaps q={`${l.nombre} ${D.hotel.ciudad}`} p="comer.btnMaps" />
-          <Cajas ps={[[`${ruta}.nombre`, 'Nombre del lugar'], [`${ruta}.meta`, 'Tipo · precio · distancia'], [`${ruta}.tip`, 'Consejo']]} />
+          <LinkMaps q={`${l.nombre} ${D.hotel.ciudad}`} p="comer.btnMaps" link={l.link} />
+          <Cajas ps={[[`${ruta}.nombre`, 'Nombre del lugar'], [`${ruta}.meta`, 'Tipo · precio · distancia'], [`${ruta}.tip`, 'Consejo'], [`${ruta}.link`, LINK_ETQ]]} />
           {editing && (
             <label className="ed-check">
               <input type="checkbox" checked={!!l.favorito} onChange={(e) => set(`${ruta}.favorito`, e.target.checked)} /> Marcar como favorito
@@ -82,9 +86,9 @@ function HacerLista() {
             <p className="texto"><V p={`${ruta}.texto`} /></p>
             <div className="pie-card">
               <span className="chip"><V p={`${ruta}.ideal`} /></span>
-              <LinkMaps q={`${x.nombre} ${D.hotel.ciudad}`} p="hacer.btnMaps" />
+              <LinkMaps q={`${x.nombre} ${D.hotel.ciudad}`} p="hacer.btnMaps" link={x.link} />
             </div>
-            <Cajas ps={[[`${ruta}.tipo`, 'Tipo (Paseo, Cultura…)'], [`${ruta}.nombre`, 'Nombre del lugar'], [`${ruta}.dist`, 'Distancia'], [`${ruta}.texto`, 'Consejo'], [`${ruta}.ideal`, 'Ideal para…']]} />
+            <Cajas ps={[[`${ruta}.tipo`, 'Tipo (Paseo, Cultura…)'], [`${ruta}.nombre`, 'Nombre del lugar'], [`${ruta}.dist`, 'Distancia'], [`${ruta}.texto`, 'Consejo'], [`${ruta}.ideal`, 'Ideal para…'], [`${ruta}.link`, LINK_ETQ]]} />
             {quitar}
           </div>
         </article>
@@ -99,16 +103,16 @@ export function Compras() {
   return (
     <>
       <Cabecera num="08" id="compras" />
-      <Lista p="compras.items" tag="ul" className="lista" style={{ marginTop: 10 }} plantilla={['tienda', 'Nuevo servicio', 'Detalle · a 300 m']} agregar="Agregar servicio" render={(it, _i, ruta, quitar) => (
+      <Lista p="compras.items" tag="ul" className="lista" style={{ marginTop: 10 }} plantilla={['tienda', 'Nuevo servicio', 'Detalle · a 300 m', '']} agregar="Agregar servicio" render={(it, _i, ruta, quitar) => (
         <li className="lugares">
           <span className="ico"><Icon name={it[0]} size={20} /></span>
           <div>
             <h2><V p={`${ruta}.1`} /></h2>
             <p><V p={`${ruta}.2`} /></p>
-            <Cajas ps={[[`${ruta}.1`, 'Nombre'], [`${ruta}.2`, 'Horario y distancia']]} />
+            <Cajas ps={[[`${ruta}.1`, 'Nombre'], [`${ruta}.2`, 'Horario y distancia'], [`${ruta}.3`, LINK_ETQ]]} />
             {quitar}
           </div>
-          <a className="pin" href={maps(`${it[1]} ${D.hotel.ciudad}`)} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${it[1]} en Google Maps`}>
+          <a className="pin" href={it[3]?.trim() ? urlSegura(it[3]) : maps(`${it[1]} ${D.hotel.ciudad}`)} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${it[1]} en Google Maps`}>
             <Icon name="pin" size={18} sw={1.8} />
           </a>
         </li>
