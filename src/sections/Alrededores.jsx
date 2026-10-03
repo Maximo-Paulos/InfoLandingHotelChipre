@@ -1,37 +1,53 @@
 import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
-import { BtnWa, Box, Cabecera, LinkMaps } from '../components/ui.jsx';
-import { D, H, maps } from '../lib.js';
+import { Btn, Cajas, Lista, T, V } from '../components/Editable.jsx';
+import { Box, Cabecera } from '../components/ui.jsx';
+import { useDatos } from '../data/DataContext.jsx';
+import { maps } from '../lib.js';
+
+function LinkMaps({ q, p }) {
+  return (
+    <a className="maps" href={maps(q)} target="_blank" rel="noopener noreferrer">
+      <Icon name="pin" size={16} sw={1.8} /><V p={p} />
+    </a>
+  );
+}
 
 export function Comer() {
+  const { D, editing, set } = useDatos();
   const C = D.comer;
-  const [cat, setCat] = useState(C.categorias[0].id);
-  const [titulo, ...resto] = C.desayunoHotel.split(':');
+  const [cat, setCat] = useState(C.categorias[0]?.id);
   return (
     <>
-      <Cabecera num="06" eyebrow="Cerca del hotel" titulo="Dónde comer" />
-      <p className="note"><strong>{titulo}:</strong>{resto.join(':')}</p>
+      <Cabecera num="06" id="comer" />
+      <p className="note"><strong><V p="comer.desayunoEtq" /></strong> <V p="comer.desayunoTexto" /></p>
+      <Cajas ps={[['comer.desayunoEtq', 'Título del aviso'], ['comer.desayunoTexto', 'Texto del aviso']]} />
       <div className="chips" role="group" aria-label="Filtrar lugares">
         {C.categorias.map((c) => (
           <button key={c.id} type="button" aria-pressed={c.id === cat} onClick={() => setCat(c.id)}>{c.nombre}</button>
         ))}
       </div>
-      {C.lugares.filter((l) => l.cat === cat).map((l) => (
-        <article className="cardi" key={l.nombre}>
+      <Cajas ps={C.categorias.map((c, i) => [`comer.categorias.${i}.nombre`, `Nombre de la categoría ${i + 1}`])} />
+      <Lista p="comer.lugares" filtro={(l) => l.cat === cat} plantilla={() => ({ cat, nombre: 'Nuevo lugar', meta: 'Tipo · $$ · a 300 m', tip: 'Un consejo', favorito: false })} agregar="Agregar lugar" render={(l, _i, ruta, quitar) => (
+        <article className="cardi">
           <div className="cab" style={{ alignItems: 'flex-start' }}>
-            <h2>{l.nombre}</h2>
-            {l.favorito && <span className="chip fav">Nuestro favorito</span>}
+            <h2><V p={`${ruta}.nombre`} /></h2>
+            {l.favorito && <span className="chip fav"><V p="comer.favorito" /></span>}
           </div>
-          <p className="meta">{l.meta}</p>
-          <p className="tip">{l.tip}</p>
-          <LinkMaps q={`${l.nombre} ${H.ciudad}`} />
+          <p className="meta"><V p={`${ruta}.meta`} /></p>
+          <p className="tip"><V p={`${ruta}.tip`} /></p>
+          <LinkMaps q={`${l.nombre} ${D.hotel.ciudad}`} p="comer.btnMaps" />
+          <Cajas ps={[[`${ruta}.nombre`, 'Nombre del lugar'], [`${ruta}.meta`, 'Tipo · precio · distancia'], [`${ruta}.tip`, 'Consejo']]} />
+          {editing && (
+            <label className="ed-check">
+              <input type="checkbox" checked={!!l.favorito} onChange={(e) => set(`${ruta}.favorito`, e.target.checked)} /> Marcar como favorito
+            </label>
+          )}
+          {quitar}
         </article>
-      ))}
-      <div className="btns">
-        <a className="btn claro" href={H.mapaRecomendados} target="_blank" rel="noopener noreferrer">
-          <Icon name="mapa" size={20} />Ver todos en el mapa
-        </a>
-      </div>
+      )} />
+      <Cajas ps={[['comer.favorito', 'Etiqueta de favorito'], ['comer.btnMaps', 'Texto del link a Google Maps']]} />
+      <div className="btns"><Btn label="comer.btnMapa" url="hotel.mapaRecomendados" icon="mapa" cls="claro" /></div>
     </>
   );
 }
@@ -39,53 +55,66 @@ export function Comer() {
 export function Hacer() {
   return (
     <>
-      <Cabecera num="07" eyebrow="Para disfrutar" titulo="Qué hacer" lead="Nuestros favoritos, a pie o a pocos minutos." />
-      <div className="btns">
-        <a className="btn" href={H.mapaRecomendados} target="_blank" rel="noopener noreferrer">
-          <Icon name="mapa" size={20} />Ver todo en el mapa
-        </a>
-      </div>
+      <Cabecera num="07" id="hacer" />
+      <div className="btns"><Btn label="hacer.btnMapa" url="hotel.mapaRecomendados" icon="mapa" /></div>
       <div style={{ marginTop: 6 }}>
-        {D.hacer.map((x) => (
-          <article className="cardi hacer" key={x.nombre}>
-            <span className="ico"><Icon name={x.icono} size={22} /></span>
-            <div className="hacer-cuerpo">
-              <p className="tipo">{x.tipo}</p>
-              <h2>{x.nombre}</h2>
-              <p className="dist">{x.dist}</p>
-              <p className="texto">{x.texto}</p>
-              <div className="pie-card">
-                <span className="chip">{x.ideal}</span>
-                <LinkMaps q={`${x.nombre} ${H.ciudad}`} texto="Ver en Maps" />
-              </div>
-            </div>
-          </article>
-        ))}
+        <HacerLista />
       </div>
-      <Box azul titulo="¿Querés una excursión?" texto="Te ayudamos a reservar paseos y traslados desde recepción.">
-        <BtnWa mini texto="Consultar por WhatsApp" msg="Hola, quiero consultar por excursiones." cls="negro" />
+      <Box azul titulo="hacer.excursionTitulo" texto="hacer.excursionTexto">
+        <Btn mini label="hacer.btn" wa="hacer.msg" icon="wa" cls="negro" />
       </Box>
     </>
   );
 }
 
-export function Compras() {
+function HacerLista() {
+  const { D } = useDatos();
+  const nuevo = { tipo: 'Paseo', icono: 'brujula', nombre: 'Nuevo lugar', dist: 'A 500 m · 7 min caminando', texto: 'Un consejo', ideal: 'Ideal para…' };
   return (
     <>
-      <Cabecera num="08" eyebrow="Lo que necesites" titulo="Compras y servicios" />
-      <ul className="lista" style={{ marginTop: 10 }}>
-        {D.compras.map(([icono, nombre, detalle]) => (
-          <li className="lugares" key={nombre}>
-            <span className="ico"><Icon name={icono} size={20} /></span>
-            <div><h2>{nombre}</h2><p>{detalle}</p></div>
-            <a className="pin" href={maps(`${nombre} ${H.ciudad}`)} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${nombre} en Google Maps`}>
-              <Icon name="pin" size={18} sw={1.8} />
-            </a>
-          </li>
-        ))}
-      </ul>
-      <Box titulo="¿Necesitás un taxi o remís?" texto="Te lo pedimos desde recepción en minutos.">
-        <BtnWa mini texto="Pedir un taxi" msg="Hola, necesito un taxi para las __:__." cls="terra" />
+      <Lista p="hacer.items" plantilla={nuevo} agregar="Agregar lugar" render={(x, _i, ruta, quitar) => (
+        <article className="cardi hacer">
+          <span className="ico"><Icon name={x.icono} size={22} /></span>
+          <div className="hacer-cuerpo">
+            <p className="tipo"><V p={`${ruta}.tipo`} /></p>
+            <h2><V p={`${ruta}.nombre`} /></h2>
+            <p className="dist"><V p={`${ruta}.dist`} /></p>
+            <p className="texto"><V p={`${ruta}.texto`} /></p>
+            <div className="pie-card">
+              <span className="chip"><V p={`${ruta}.ideal`} /></span>
+              <LinkMaps q={`${x.nombre} ${D.hotel.ciudad}`} p="hacer.btnMaps" />
+            </div>
+            <Cajas ps={[[`${ruta}.tipo`, 'Tipo (Paseo, Cultura…)'], [`${ruta}.nombre`, 'Nombre del lugar'], [`${ruta}.dist`, 'Distancia'], [`${ruta}.texto`, 'Consejo'], [`${ruta}.ideal`, 'Ideal para…']]} />
+            {quitar}
+          </div>
+        </article>
+      )} />
+      <Cajas ps={[['hacer.btnMaps', 'Texto del link a Google Maps']]} />
+    </>
+  );
+}
+
+export function Compras() {
+  const { D } = useDatos();
+  return (
+    <>
+      <Cabecera num="08" id="compras" />
+      <Lista p="compras.items" tag="ul" className="lista" style={{ marginTop: 10 }} plantilla={['tienda', 'Nuevo servicio', 'Detalle · a 300 m']} agregar="Agregar servicio" render={(it, _i, ruta, quitar) => (
+        <li className="lugares">
+          <span className="ico"><Icon name={it[0]} size={20} /></span>
+          <div>
+            <h2><V p={`${ruta}.1`} /></h2>
+            <p><V p={`${ruta}.2`} /></p>
+            <Cajas ps={[[`${ruta}.1`, 'Nombre'], [`${ruta}.2`, 'Horario y distancia']]} />
+            {quitar}
+          </div>
+          <a className="pin" href={maps(`${it[1]} ${D.hotel.ciudad}`)} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${it[1]} en Google Maps`}>
+            <Icon name="pin" size={18} sw={1.8} />
+          </a>
+        </li>
+      )} />
+      <Box titulo="compras.taxiTitulo" texto="compras.taxiTexto">
+        <Btn mini label="compras.btn" wa="compras.msg" icon="wa" cls="terra" />
       </Box>
     </>
   );
@@ -97,32 +126,23 @@ const Estrella = () => (
   </svg>
 );
 
-function FilaResena({ texto, url, cls = '' }) {
-  return (
-    <a className={`btn fila ${cls}`} href={url} target="_blank" rel="noopener noreferrer">
-      <span>{texto}</span><Icon name="ext" size={18} sw={2} />
-    </a>
-  );
-}
-
 export function Resena() {
-  const R = D.resena;
   return (
     <>
-      <Cabecera num="12" eyebrow="Tu opinión" titulo="¿Cómo fue tu estadía?" />
-      <p className="intro">Tu reseña ayuda a otros viajeros a elegirnos y a nosotros a mejorar. Te lleva un minuto.</p>
+      <Cabecera num="12" id="resena" />
+      <T as="p" className="intro" p="resena.intro" />
       <div className="estrellas" aria-hidden="true">{[0, 1, 2, 3, 4].map((i) => <Estrella key={i} />)}</div>
       <div className="btns">
-        <FilaResena texto="Dejar reseña en Google" url={R.google} />
-        <FilaResena texto="Opinar en Booking" url={R.booking} cls="claro" />
-        <FilaResena texto="Opinar en TripAdvisor" url={R.tripadvisor} cls="claro" />
+        <Btn fila label="resena.btnGoogle" url="resena.google" />
+        <Btn fila label="resena.btnBooking" url="resena.booking" cls="claro" />
+        <Btn fila label="resena.btnTripadvisor" url="resena.tripadvisor" cls="claro" />
       </div>
       <div style={{ marginTop: 22 }}>
-        <Box azul titulo="¿Algo para mejorar?" texto="Contanos en privado: lo leemos todos los días y lo resolvemos.">
-          <BtnWa mini texto="Escribinos por WhatsApp" msg="Hola, quiero contarles cómo fue mi estadía: " cls="negro" />
+        <Box azul titulo="resena.mejorarTitulo" texto="resena.mejorarTexto">
+          <Btn mini label="resena.btn" wa="resena.msg" icon="wa" cls="negro" />
         </Box>
       </div>
-      <p className="cierre">Gracias por hospedarte con nosotros. ¡Volvé cuando quieras!</p>
+      <T as="p" className="cierre" p="resena.cierre" />
     </>
   );
 }

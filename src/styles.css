@@ -190,3 +190,31 @@ dd{margin:3px 0 0;font-size:15px;line-height:1.45}
 .box.azul{margin-top:14px}
 .btn.terra{color:var(--texto)}
 .pasos-wifi b{display:inline}
+
+/* ---------- panel del dueño ---------- */
+.caja{display:block;margin:6px 0 12px}
+.caja>span{display:block;margin-bottom:3px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--terracota-texto)}
+.caja textarea,.caja input{display:block;width:100%;padding:9px 10px;border:1.5px dashed var(--terracota);border-radius:8px;background:#fffdf9;color:var(--texto);font:400 14px/1.4 var(--sans);resize:vertical}
+.caja textarea:focus,.caja input:focus{outline:2px solid var(--verde);outline-offset:1px;border-style:solid}
+.oscuro .caja>span{color:var(--mostaza)}
+.oscuro .caja textarea,.oscuro .caja input{background:rgba(255,255,255,.08);color:var(--hueso)}
+.ed-add{display:block;width:100%;min-height:44px;margin:10px 0;border:1.5px dashed var(--verde);border-radius:10px;background:transparent;color:var(--verde);font-size:14px;font-weight:700}
+.ed-quitar{min-height:36px;margin:2px 0 10px;padding:0 12px;border:1px solid #b3472f;border-radius:8px;background:transparent;color:#a23b25;font-size:13px;font-weight:700}
+.ed-check{display:flex;align-items:center;gap:8px;min-height:44px;font-size:14px}
+.ed-error{margin:8px 0 0;color:#a23b25;font-size:14px;font-weight:700}
+.tile-wrap{min-width:0}
+.tile-wrap .tile{height:auto}
+.tile-datos{border-style:dashed;border-color:var(--verde)}
+.faq-ed{padding:12px 0;border-bottom:1px solid var(--linea)}
+.faq-ed h3{margin:0;font-size:15px}
+.faq-ed p{margin:4px 0 0;font-size:14px;color:var(--texto-suave)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.login h1{margin-top:0}
+.login .btn{margin-top:4px}
+.barra-admin{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;background:var(--verde-oscuro);color:var(--hueso);font-size:14px;box-shadow:0 4px 14px rgba(34,51,42,.3)}
+.barra-admin .estado{flex:1 1 140px;color:var(--mostaza);font-size:13px}
+.barra-admin .acciones{display:flex;flex-wrap:wrap;gap:6px}
+.barra-admin .btn.mini{margin-top:0;min-height:40px;padding:0 14px}
+.barra-admin .btn.claro{background:var(--hueso);border:0}
+.mapa-link{background:none;border:0;color:var(--terracota-texto);justify-content:flex-start;min-height:44px;width:auto;padding:0}
+.oscuro .mapa-link{color:var(--mostaza)}
