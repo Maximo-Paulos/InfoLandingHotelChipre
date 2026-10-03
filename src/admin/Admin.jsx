@@ -1,23 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pantalla } from '../App.jsx';
 import { get, setIn } from '../components/Editable.jsx';
+import { cambiarClave, guardarContenido, leerContenido, textoError, verificarClave } from '../data/api.js';
 import { DataContext } from '../data/DataContext.jsx';
 import respaldo from '../data/hotel.js';
 import { mezclar } from '../data/mezclar.js';
 
 const CLAVE_SESION = 'chipre-clave';
-
-async function api(ruta, { clave, metodo = 'GET', cuerpo } = {}) {
-  const r = await fetch(ruta, {
-    method: metodo,
-    headers: { 'Content-Type': 'application/json', ...(clave ? { 'x-clave': clave } : {}) },
-    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
-    cache: 'no-store'
-  });
-  const datos = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(datos.error || 'No se pudo completar la operación.'), { status: r.status });
-  return datos;
-}
 
 const horaLocal = (d) => d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 
@@ -26,6 +15,7 @@ export default function Admin({ ruta }) {
   const [fase, setFase] = useState('verificando'); // verificando | login | ok
   const [clave, setClave] = useState('');
   const [error, setError] = useState('');
+  const [entrando, setEntrando] = useState(false);
   const [draft, setDraft] = useState(null);
   const [guardado, setGuardado] = useState(null);
   const [estado, setEstado] = useState('');
@@ -34,8 +24,10 @@ export default function Admin({ ruta }) {
   const entrar = useCallback(async (k) => {
     setError('');
     try {
-      await api('/api/login', { clave: k, metodo: 'POST' });
-      const { contenido } = await api('/api/contenido');
+      const r = await verificarClave(k);
+      if (!r.ok) throw Object.assign(new Error(r.error), { codigo: r.error });
+      let contenido = respaldo;
+      try { contenido = (await leerContenido()).contenido; } catch { /* base vacía: se parte del contenido de ejemplo */ }
       const c = mezclar(respaldo, contenido);
       setDraft(c);
       setGuardado(c);
@@ -44,7 +36,7 @@ export default function Admin({ ruta }) {
       setFase('ok');
     } catch (e) {
       sessionStorage.removeItem(CLAVE_SESION);
-      setError(e.status === 401 ? 'Clave incorrecta.' : e.status ? e.message : 'No se pudo conectar con el servidor.');
+      setError(textoError(e));
       setFase('login');
     }
   }, []);
@@ -69,8 +61,20 @@ export default function Admin({ ruta }) {
     base: '#/admin/',
     set: (p, v) => setDraft((d) => setIn(d, p, v)),
     add: (p, item) => setDraft((d) => setIn(d, p, [...get(d, p), item])),
-    remove: (p, i) => setDraft((d) => setIn(d, p, get(d, p).filter((_, k) => k !== i)))
-  }), [draft]);
+    remove: (p, i) => setDraft((d) => setIn(d, p, get(d, p).filter((_, k) => k !== i))),
+    // Solo existe en el panel: cambia la clave del dueño y la recuerda para esta sesión.
+    cambiarClave: async (nueva) => {
+      try {
+        const r = await cambiarClave(clave, nueva);
+        if (!r.ok) return { ok: false, mensaje: textoError({ codigo: r.error }) };
+        setClave(nueva);
+        sessionStorage.setItem(CLAVE_SESION, nueva);
+        return { ok: true, mensaje: 'Clave cambiada. Usá la nueva la próxima vez que entres.' };
+      } catch (e) {
+        return { ok: false, mensaje: textoError(e) };
+      }
+    }
+  }), [draft, clave]);
 
   const salir = () => { sessionStorage.removeItem(CLAVE_SESION); setDraft(null); setClave(''); setFase('login'); };
 
@@ -78,12 +82,16 @@ export default function Admin({ ruta }) {
     setTrabajando(true);
     setEstado('Guardando…');
     try {
-      await api('/api/contenido', { clave, metodo: 'PUT', cuerpo: draft });
+      const r = await guardarContenido(clave, draft);
+      if (!r.ok) {
+        if (r.error === 'clave_incorrecta') { salir(); setError('La sesión venció. Ingresá de nuevo.'); return; }
+        setEstado(`No se guardó: ${textoError({ codigo: r.error })}`);
+        return;
+      }
       setGuardado(draft);
       setEstado(`Guardado a las ${horaLocal(new Date())}`);
     } catch (e) {
-      if (e.status === 401) { salir(); setError('La sesión venció. Ingresá de nuevo.'); return; }
-      setEstado(`No se guardó: ${e.message}`);
+      setEstado(`No se guardó: ${textoError(e)}`);
     } finally {
       setTrabajando(false);
     }
@@ -99,14 +107,14 @@ export default function Admin({ ruta }) {
         <main className="card login">
           <h1>Panel del dueño</h1>
           {fase === 'verificando' ? <p>Entrando…</p> : (
-            <form onSubmit={(e) => { e.preventDefault(); entrar(e.currentTarget.elements.clave.value); }}>
+            <form onSubmit={async (e) => { e.preventDefault(); const k = e.currentTarget.elements.clave.value; setEntrando(true); await entrar(k); setEntrando(false); }}>
               <p className="lead">Ingresá tu clave para editar la guía.</p>
               <label className="caja">
                 <span>Clave</span>
                 <input name="clave" type="password" autoComplete="current-password" autoFocus />
               </label>
               {error && <p className="ed-error" role="alert">{error}</p>}
-              <div className="btns"><button type="submit" className="btn">Entrar</button></div>
+              <div className="btns"><button type="submit" className="btn" disabled={entrando}>{entrando ? 'Entrando…' : 'Entrar'}</button></div>
             </form>
           )}
         </main>
