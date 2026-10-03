@@ -1,18 +1,18 @@
-import D from './data/hotel.js';
+// Ayudas puras: no leen datos globales, reciben lo que necesitan.
 
-export const H = D.hotel;
-export { D };
-
-export const wa = (msg) => `https://wa.me/${H.whatsapp}?text=${encodeURIComponent(msg)}`;
+export const wa = (numero, msg) => `https://wa.me/${String(numero).replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
 export const maps = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 export const tel = (n) => `tel:${String(n).replace(/[^\d+]/g, '')}`;
-export const hora = (t) => t.replace(/^0/, '');
+export const hora = (t) => String(t).replace(/^0/, '');
+
+// Solo se aceptan links http(s): un dato mal cargado no puede ejecutar código.
+export const urlSegura = (u) => (/^https?:\/\//i.test(String(u).trim()) ? String(u).trim() : '#');
 
 // Hora y día actuales en la zona horaria del hotel.
-function ahora() {
+function ahora(zona) {
   try {
     const partes = new Intl.DateTimeFormat('en-GB', {
-      timeZone: H.zonaHoraria, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+      timeZone: zona, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
     }).formatToParts(new Date());
     const o = {};
     partes.forEach((x) => { o[x.type] = x.value; });
@@ -23,12 +23,12 @@ function ahora() {
     return { min: d.getHours() * 60 + d.getMinutes(), dia: d.getDay() };
   }
 }
-const aMin = (t) => { const [h, m] = t.split(':'); return +h * 60 + +m; };
+const aMin = (t) => { const [h, m] = String(t).split(':'); return (+h || 0) * 60 + (+m || 0); };
 
-export function estado(f) {
+export function estado(f, zona) {
   if (f.siempre) return { txt: 'Abierta 24 h', cls: 'ok' };
   if (f.conTurno) return { txt: 'Con turno', cls: 'turno' };
-  const n = ahora();
+  const n = ahora(zona);
   if (f.diasSemana && !f.diasSemana.includes(n.dia)) return { txt: 'Hoy cerrado', cls: '' };
   if (n.min >= aMin(f.abre) && n.min < aMin(f.cierra)) return { txt: 'Abierto ahora', cls: 'ok' };
   if (n.min < aMin(f.abre)) return { txt: `Abre a las ${hora(f.abre)}`, cls: '' };

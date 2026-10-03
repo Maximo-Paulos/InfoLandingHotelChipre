@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node --no-warnings server/index.js",
     "build": "vite build",
+    "local": "vite build && node --no-warnings server/index.js",
+    "start": "node --no-warnings server/index.js",
     "preview": "vite preview"
   },
   "dependencies": {
+    "express": "^5.2.1",
     "qrcode-generator": "^2.0.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
@@ -16,5 +20,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.1",
     "vite": "^8.3.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

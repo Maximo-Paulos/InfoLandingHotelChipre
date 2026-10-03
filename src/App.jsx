@@ -1,45 +1,55 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Menu from './Menu.jsx';
+import Admin from './admin/Admin.jsx';
+import DatosGenerales from './admin/DatosGenerales.jsx';
 import { ToastContext } from './components/ui.jsx';
-import { Checkin, Wifi, Emergencias, Checkout } from './sections/Esenciales.jsx';
-import { Habitacion, Instalaciones, Normas, Preguntas } from './sections/Estadia.jsx';
-import { Comer, Hacer, Compras, Resena } from './sections/Alrededores.jsx';
-import { H } from './lib.js';
+import { PublicoProvider, useDatos } from './data/DataContext.jsx';
+import { SECCIONES } from './secciones.jsx';
 
-// Orden y datos del menú. `id` es el link directo (#/wifi) para los QR.
-const SECCIONES = [
-  { id: 'checkin', titulo: 'Check-in', icono: 'llave', hot: true, Vista: Checkin },
-  { id: 'wifi', titulo: 'Wi-Fi', icono: 'wifi', hot: true, Vista: Wifi },
-  { id: 'habitacion', titulo: 'Tu habitación', icono: 'cama', Vista: Habitacion },
-  { id: 'instalaciones', titulo: 'Instalaciones', icono: 'olas', Vista: Instalaciones },
-  { id: 'normas', titulo: 'Normas', icono: 'normas', Vista: Normas },
-  { id: 'comer', titulo: 'Dónde comer', icono: 'cubierto', Vista: Comer },
-  { id: 'hacer', titulo: 'Qué hacer', icono: 'brujula', Vista: Hacer },
-  { id: 'compras', titulo: 'Compras', icono: 'bolsa', Vista: Compras },
-  { id: 'emergencias', titulo: 'Emergencias', icono: 'alerta', oscuro: true, Vista: Emergencias },
-  { id: 'preguntas', titulo: 'Preguntas', icono: 'duda', Vista: Preguntas },
-  { id: 'checkout', titulo: 'Check-out', icono: 'valija', Vista: Checkout },
-  { id: 'resena', titulo: 'Tu reseña', icono: 'estrella', Vista: Resena }
-];
+const leerHash = () => location.hash.replace(/^#\/?/, '').split('?')[0];
 
-const leerRuta = () => location.hash.replace(/^#\/?/, '').split('?')[0];
-
-function useRuta() {
-  const [ruta, setRuta] = useState(leerRuta);
+function useHash() {
+  const [hash, setHash] = useState(leerHash);
   useEffect(() => {
-    const alCambiar = () => setRuta(leerRuta());
+    const alCambiar = () => setHash(leerHash());
     window.addEventListener('hashchange', alCambiar);
     return () => window.removeEventListener('hashchange', alCambiar);
   }, []);
-  return ruta;
+  return hash;
+}
+
+// La tarjeta de una pantalla (menú o sección). Sirve igual para la guía y para el panel del dueño.
+export function Pantalla({ ruta }) {
+  const { D, editing } = useDatos();
+  const seccion = SECCIONES.find((s) => s.id === ruta);
+  const datos = editing && ruta === 'datos';
+  const tarjeta = useRef(null);
+
+  useEffect(() => {
+    const parte = seccion ? `${D[seccion.id].titulo} · ` : datos ? 'Datos generales · ' : 'Guía del huésped · ';
+    document.title = `${editing ? 'Panel · ' : ''}${parte}${D.hotel.nombre}`;
+    window.scrollTo(0, 0);
+    tarjeta.current?.focus({ preventScroll: true });
+    // Solo al cambiar de pantalla, no al editar un texto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ruta]);
+
+  return (
+    <div className="page">
+      <main ref={tarjeta} tabIndex={-1} className={`card${seccion?.oscuro ? ' oscuro' : ''}`}>
+        {seccion ? <seccion.Vista /> : datos ? <DatosGenerales /> : <Menu />}
+      </main>
+      <p className="pie">{D.hotel.nombre} · {D.hotel.pie}</p>
+    </div>
+  );
 }
 
 export default function App() {
-  const ruta = useRuta();
-  const seccion = SECCIONES.find((s) => s.id === ruta);
-  const tarjeta = useRef(null);
-  const [aviso, setAviso] = useState('');
+  const hash = useHash();
+  const esAdmin = hash === 'admin' || hash.startsWith('admin/');
+  const ruta = esAdmin ? hash.slice(6).replace(/^\//, '') : hash;
 
+  const [aviso, setAviso] = useState('');
   const toast = useCallback((msg) => setAviso(msg), []);
   useEffect(() => {
     if (!aviso) return undefined;
@@ -47,20 +57,9 @@ export default function App() {
     return () => clearTimeout(t);
   }, [aviso]);
 
-  useEffect(() => {
-    document.title = `${seccion ? `${seccion.titulo} · ` : 'Guía del huésped · '}${H.nombre}`;
-    window.scrollTo(0, 0);
-    tarjeta.current?.focus({ preventScroll: true });
-  }, [seccion]);
-
   return (
     <ToastContext.Provider value={toast}>
-      <div className="page">
-        <main ref={tarjeta} tabIndex={-1} className={`card${seccion?.oscuro ? ' oscuro' : ''}`}>
-          {seccion ? <seccion.Vista /> : <Menu secciones={SECCIONES} />}
-        </main>
-        <p className="pie">{H.nombre} · Recepción abierta las 24 h</p>
-      </div>
+      {esAdmin ? <Admin ruta={ruta} /> : <PublicoProvider><Pantalla ruta={ruta} /></PublicoProvider>}
       {aviso && <p className="toast" role="status">{aviso}</p>}
     </ToastContext.Provider>
   );
