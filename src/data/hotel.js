@@ -1,6 +1,6 @@
 // Todo el contenido de la guía vive acá. Cambiar los datos no toca el diseño.
 // Más adelante este objeto puede venir de una base de datos (ver README).
-window.HOTEL_DATA = {
+export default {
   hotel: {
     nombre: "Hotel Chipre",
     sigla: "HC",
