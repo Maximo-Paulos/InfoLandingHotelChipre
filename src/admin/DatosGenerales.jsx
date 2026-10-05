@@ -2,6 +2,24 @@ import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { Cajas } from '../components/Editable.jsx';
 import { useDatos } from '../data/DataContext.jsx';
+import { IDIOMAS, IDIOMAS_POR_DEFECTO } from '../idioma.js';
+
+// Qué idiomas ofrece el selector de la guía. La traducción es automática (traductor de Google).
+function Idiomas() {
+  const { D, set } = useDatos();
+  const activos = Array.isArray(D.hotel.idiomas) ? D.hotel.idiomas : IDIOMAS_POR_DEFECTO;
+  const alternar = (code, on) => set('hotel.idiomas', IDIOMAS.map((i) => i.code).filter((c) => (c === code ? on : activos.includes(c))));
+  return (
+    <>
+      <p className="lead">Los huéspedes eligen el idioma arriba a la derecha y la guía completa se traduce sola, también lo que edites. Es una traducción automática: revisá en tu idioma favorito cómo queda.</p>
+      {IDIOMAS.map((i) => (
+        <label key={i.code} className="ed-check">
+          <input type="checkbox" checked={i.code === 'es' || activos.includes(i.code)} disabled={i.code === 'es'} onChange={(e) => alternar(i.code, e.target.checked)} /> {i.nombre}
+        </label>
+      ))}
+    </>
+  );
+}
 
 // Cambio de la clave del panel (se guarda en la base como hash, nunca en texto).
 function CambiarClave() {
@@ -80,6 +98,8 @@ export default function DatosGenerales() {
         ['resena.booking', 'Link de Booking (https://…)'],
         ['resena.tripadvisor', 'Link de TripAdvisor (https://…)']
       ]} />
+      <h2 className="sub">Idiomas</h2>
+      <Idiomas />
       <h2 className="sub">Clave del panel</h2>
       <CambiarClave />
     </>

@@ -10,12 +10,12 @@ export default function Menu() {
     <div className="menu">
       <header style={{ position: 'relative' }}>
         <div className="tag" aria-hidden="true"><i>{H.sigla}</i></div>
-        <p className="eyebrow" style={{ padding: '6px 0 0 60px', minHeight: 22 }}>{H.nombre}</p>
+        <p className="eyebrow" translate="no" style={{ padding: '6px 0 0 60px', minHeight: 22 }}>{H.nombre}</p>
         <T as="h1" p="menu.titulo" etiqueta="Título del menú" />
         <T as="p" className="lead" p="menu.lead" etiqueta="Bajada" />
       </header>
       <nav className="grid" aria-label="Secciones de la guía">
-        {SECCIONES.map((s) => {
+        {SECCIONES.filter((s) => !s.fuera).map((s) => {
           const tile = (
             <a key={s.id} className={`tile${s.hot ? ' hot' : ''}`} href={`${base}${s.id}`}>
               <Icon name={s.icono} size={24} sw={s.hot ? 1.7 : 1.6} />
@@ -36,6 +36,12 @@ export default function Menu() {
       <p className="note"><strong><V p="menu.apuroTitulo" /></strong> <V p="menu.apuroTexto" /></p>
       <Cajas ps={[['menu.apuroTitulo', 'Título del aviso'], ['menu.apuroTexto', 'Texto del aviso']]} />
       <div className="btns"><Btn label="menu.btnWa" wa="menu.msgWa" icon="wa" cls="negro" /></div>
+      <a className="link-terminos" href={`${base}terminos`}>
+        <Icon name="normas" size={20} sw={1.6} />
+        <span><V p="menu.btnTerminos" /></span>
+        <Icon name="adelante" size={16} sw={2} />
+      </a>
+      <Cajas ps={[['menu.btnTerminos', 'Texto del link a Términos y condiciones']]} />
     </div>
   );
 }

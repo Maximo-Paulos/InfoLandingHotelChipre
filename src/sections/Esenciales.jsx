@@ -73,10 +73,10 @@ export function Wifi() {
       <Cabecera num="02" id="wifi" />
       <section className="wifi" aria-label="Datos de la red">
         <p className="etq"><V p="wifi.redEtq" /></p>
-        <p className="red"><V p="hotel.wifi.red" /></p>
+        <p className="red" translate="no"><V p="hotel.wifi.red" /></p>
         <hr />
         <p className="etq"><V p="wifi.claveEtq" /></p>
-        <p className="clave"><V p="hotel.wifi.clave" /></p>
+        <p className="clave" translate="no"><V p="hotel.wifi.clave" /></p>
         <Btn label="wifi.btnCopiar" icon="copiar" onClick={alCopiar} extra={[['wifi.copiado', 'Aviso al copiar la clave']]} />
       </section>
       <Cajas ps={[['wifi.redEtq', 'Título de la red'], ['hotel.wifi.red', 'Nombre de la red Wi-Fi'], ['wifi.claveEtq', 'Título de la clave'], ['hotel.wifi.clave', 'Clave del Wi-Fi']]} />

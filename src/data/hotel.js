@@ -12,7 +12,8 @@ export default {
     mapaRecomendados: "https://www.google.com/maps",
     horarios: { checkin: "15:00", checkout: "10:00", lateCheckout: "14:00" },
     wifi: { red: "HotelChipre_Huespedes", clave: "chipre2026" },
-    pie: "Recepción abierta las 24 h"
+    pie: "Recepción abierta las 24 h",
+    idiomas: ["es", "en", "pt", "fr", "it", "de", "zh-CN", "ja"]
   },
 
   menu: {
@@ -22,6 +23,7 @@ export default {
     apuroTexto: "Check-out hasta las 10:00 · Wi-Fi: HotelChipre_Huespedes · Recepción: marcá 9 desde tu habitación.",
     btnWa: "Escribinos por WhatsApp",
     msgWa: "Hola, necesito ayuda con mi estadía.",
+    btnTerminos: "Términos y condiciones",
     tiles: {
       checkin: "Check-in", wifi: "Wi-Fi", habitacion: "Tu habitación", instalaciones: "Instalaciones",
       normas: "Normas", comer: "Dónde comer", hacer: "Qué hacer", compras: "Compras",
@@ -272,5 +274,11 @@ export default {
     btn: "Escribinos por WhatsApp",
     msg: "Hola, quiero contarles cómo fue mi estadía: ",
     cierre: "Gracias por hospedarte con nosotros. ¡Volvé cuando quieras!"
+  },
+
+  terminos: {
+    eyebrow: "Lo que tenés que saber",
+    titulo: "Términos y condiciones",
+    texto: "# Alojamiento\nEste es un texto de ejemplo. Reemplazalo por los términos y condiciones reales del hotel.\n\n# Reservas y cancelaciones\n- Las reservas se confirman con una seña.\n- Las cancelaciones se rigen por la política informada al reservar.\n\n# Responsabilidad\nEl hotel no se hace responsable por objetos de valor que no estén guardados en la caja fuerte."
   }
 };
