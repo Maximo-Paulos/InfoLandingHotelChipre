@@ -15,24 +15,42 @@ export const IDIOMAS = [
 ];
 export const IDIOMAS_POR_DEFECTO = IDIOMAS.map((i) => i.code);
 
+const CLAVE_IDIOMA = 'chipre-idioma';
+
+const valido = (c) => (IDIOMAS.some((i) => i.code === c) ? c : 'es');
+
+// La fuente de verdad es lo que se guardó en el celular. La cookie del traductor solo se usa
+// como respaldo: si quedara una vieja, el idioma elegido igual manda.
 export function idiomaActual() {
+  try {
+    const g = localStorage.getItem(CLAVE_IDIOMA);
+    if (g) return valido(g);
+  } catch { /* sin almacenamiento */ }
   const m = document.cookie.match(/(?:^|;\s*)googtrans=\/[^/]*\/([^;]+)/);
-  const code = m ? decodeURIComponent(m[1]) : 'es';
-  return IDIOMAS.some((i) => i.code === code) ? code : 'es';
+  return valido(m ? decodeURIComponent(m[1]) : 'es');
 }
 
 function borrarCookie() {
   const caduca = 'expires=Thu, 01 Jan 1970 00:00:00 GMT';
-  const host = location.hostname;
+  const partes = location.hostname.split('.');
   document.cookie = `googtrans=; path=/; ${caduca}`;
-  document.cookie = `googtrans=; path=/; domain=${host}; ${caduca}`;
-  document.cookie = `googtrans=; path=/; domain=.${host}; ${caduca}`;
+  for (let i = 0; i < partes.length - 1; i += 1) {
+    const dominio = partes.slice(i).join('.');
+    document.cookie = `googtrans=; path=/; domain=${dominio}; ${caduca}`;
+    document.cookie = `googtrans=; path=/; domain=.${dominio}; ${caduca}`;
+  }
 }
 
-// Cambia el idioma y recarga: es lo más seguro para que el traductor arranque desde cero.
-export function cambiarIdioma(code) {
+function fijarCookie(code) {
   borrarCookie();
   if (code !== 'es') document.cookie = `googtrans=/es/${code}; path=/; max-age=31536000; SameSite=Lax`;
+}
+
+// Cambia el idioma y recarga: es lo más seguro para que el traductor arranque (o no) desde cero.
+// Al volver al español no se carga el traductor, así que se ve el texto original sin tocar.
+export function cambiarIdioma(code) {
+  try { localStorage.setItem(CLAVE_IDIOMA, code); } catch { /* sin almacenamiento */ }
+  fijarCookie(code);
   location.reload();
 }
 
@@ -56,7 +74,9 @@ export function protegerDomDelTraductor() {
 // Carga el traductor solo si hay un idioma distinto del español. `alFallar` se llama si no pudo traducir.
 export function iniciarTraductor(permitidos, alFallar) {
   const code = idiomaActual();
-  if (code === 'es' || window.iniciarTraductorGoogle) return;
+  if (code === 'es') { fijarCookie('es'); return; }
+  if (window.iniciarTraductorGoogle) return;
+  fijarCookie(code);
   window.iniciarTraductorGoogle = () => {
     // eslint-disable-next-line no-new
     new window.google.translate.TranslateElement(
