@@ -15,10 +15,10 @@ export function setIn(o, p, v) {
 
 /* ---------- cajas para editar (solo aparecen en el panel) ---------- */
 
-export function Caja({ p, etiqueta = 'Editar texto' }) {
+export function Caja({ p, etiqueta = 'Editar texto', filas: fijas }) {
   const { D, set } = useDatos();
   const v = String(get(D, p) ?? '');
-  const filas = Math.min(6, Math.max(1, Math.ceil(v.length / 42)));
+  const filas = fijas ?? Math.min(6, Math.max(1, Math.ceil(v.length / 42)));
   return (
     <label className="caja">
       <span>{etiqueta}</span>

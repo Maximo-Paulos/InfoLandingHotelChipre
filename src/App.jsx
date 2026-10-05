@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Menu from './Menu.jsx';
 import Admin from './admin/Admin.jsx';
 import DatosGenerales from './admin/DatosGenerales.jsx';
+import Idioma from './components/Idioma.jsx';
 import { ToastContext } from './components/ui.jsx';
 import { PublicoProvider, useDatos } from './data/DataContext.jsx';
 import { SECCIONES } from './secciones.jsx';
@@ -36,10 +37,11 @@ export function Pantalla({ ruta }) {
 
   return (
     <div className="page">
+      {!editing && <Idioma />}
       <main ref={tarjeta} tabIndex={-1} className={`card${seccion?.oscuro ? ' oscuro' : ''}`}>
         {seccion ? <seccion.Vista /> : datos ? <DatosGenerales /> : <Menu />}
       </main>
-      <p className="pie">{D.hotel.nombre} · {D.hotel.pie}</p>
+      <p className="pie"><span translate="no">{D.hotel.nombre}</span> · {D.hotel.pie}</p>
     </div>
   );
 }
