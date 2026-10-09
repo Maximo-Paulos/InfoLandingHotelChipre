@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "seed": "node scripts/seed.mjs",
     "local": "node scripts/local.mjs",
-    "test": "node scripts/test-validar.mjs && node scripts/test-apps-script.mjs",
+    "test": "node scripts/test-validar.mjs && node scripts/test-apps-script.mjs && node scripts/test-frenos.mjs",
     "test:e2e": "node scripts/e2e-checkin.mjs"
   },
   "dependencies": {

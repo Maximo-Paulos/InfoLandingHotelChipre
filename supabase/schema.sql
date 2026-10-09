@@ -33,11 +33,44 @@ alter table private.historial enable row level security;
 alter table private.admin enable row level security;
 alter table private.intentos enable row level security;
 
+-- IP de quien llama, para los frenos de intentos. Cloudflare (cf-connecting-ip) y el gateway de Supabase
+-- (sb-forwarded-for) la escriben ellos y el cliente no la puede cambiar. El primer valor de x-forwarded-for
+-- lo escribe cualquiera (el proxy agrega la IP real al final), así que solo se usa el último. Las IPv6 se
+-- agrupan por /64 (una persona tiene miles de direcciones dentro de su /64).
+create or replace function private.ip_actual()
+returns text language plpgsql stable security definer set search_path = '' as $$
+declare
+  h json;
+  v text;
+begin
+  begin
+    h := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::json;
+  exception when others then
+    h := '{}'::json;
+  end;
+  v := coalesce(nullif(btrim(h ->> 'cf-connecting-ip'), ''), nullif(btrim(h ->> 'sb-forwarded-for'), ''),
+                nullif(btrim(reverse(split_part(reverse(coalesce(h ->> 'x-forwarded-for', '')), ',', 1))), ''));
+  if v is null then
+    return 'desconocida';
+  end if;
+  v := regexp_replace(v, '^::ffff:', '', 'i');
+  if position(':' in v) > 0 then
+    begin
+      v := host(network(set_masklen(v::inet, 64)));
+    exception when others then
+      null;
+    end;
+  end if;
+  return left(v, 45);
+end;
+$$;
+revoke all on function private.ip_actual() from public, anon, authenticated;
+
 create or replace function private.comprobar_clave(p_clave text)
 returns text language plpgsql security definer set search_path = '' as $$
 declare v_ip text;
 begin
-  v_ip := coalesce(nullif(trim(split_part(coalesce((nullif(current_setting('request.headers', true), '')::json) ->> 'x-forwarded-for', ''), ',', 1)), ''), 'desconocida');
+  v_ip := private.ip_actual();
   if (select count(*) from private.intentos where ip = v_ip and at > now() - interval '1 minute') >= 8 then
     return 'demasiados_intentos';
   end if;

@@ -93,10 +93,7 @@ alter table private.checkin_auditoria enable row level security;
 
 -- ---------------------------------------------------------------- ayudas internas
 
-create or replace function private.ip_actual()
-returns text language sql stable security definer set search_path = '' as $$
-  select coalesce(nullif(trim(split_part(coalesce((nullif(current_setting('request.headers', true), '')::json) ->> 'x-forwarded-for', ''), ',', 1)), ''), 'desconocida');
-$$;
+-- (private.ip_actual() está en schema.sql: la IP real de quien llama, que no se puede falsificar con x-forwarded-for)
 
 create or replace function private.limite_alcanzado(p_tipo text, p_max int)
 returns boolean language sql stable security definer set search_path = '' as $$

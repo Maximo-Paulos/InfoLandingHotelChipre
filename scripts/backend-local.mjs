@@ -97,6 +97,7 @@ export async function iniciarBackend({ puerto = 54321, silencioso = true } = {})
   const secretoDe = async () => (await db.query('select foto_secreto from private.checkin_config where id = 1')).rows[0].foto_secreto;
 
   // Llama a una función pública como lo haría PostgREST: con el rol "anon" y las cabeceras de la IP.
+  // `ip` puede ser un texto (va en x-forwarded-for) o un objeto con todas las cabeceras (cf-connecting-ip, etc.).
   const llamar = async (nombre, args = {}, ip = '203.0.113.7') => {
     if (!/^[a-z_]+$/.test(nombre)) throw new Error('nombre');
     const claves = Object.keys(args);
@@ -104,7 +105,8 @@ export async function iniciarBackend({ puerto = 54321, silencioso = true } = {})
     const lista = claves.map((k, i) => `${k} => $${i + 1}`).join(', ');
     const valores = claves.map((k) => (args[k] !== null && typeof args[k] === 'object' ? JSON.stringify(args[k]) : args[k]));
     return db.transaction(async (tx) => {
-      await tx.query(`select set_config('request.headers', $1, true)`, [JSON.stringify({ 'x-forwarded-for': ip })]);
+      const cabeceras = typeof ip === 'object' && ip !== null ? ip : { 'x-forwarded-for': ip };
+      await tx.query(`select set_config('request.headers', $1, true)`, [JSON.stringify(cabeceras)]);
       await tx.exec('set local role anon');
       const r = await tx.query(`select public.${nombre}(${lista}) as r`, valores);
       return r.rows[0].r;
@@ -122,7 +124,8 @@ export async function iniciarBackend({ puerto = 54321, silencioso = true } = {})
     try {
       const url = new URL(req.url, `http://localhost:${puerto}`);
       if (req.method === 'OPTIONS') return responder(res, 204, '');
-      const ip = String(req.headers['x-forwarded-for'] ?? '203.0.113.7');
+      // Igual que en Supabase: llegan todas las cabeceras del pedido (así se prueba que x-forwarded-for falso no sirve).
+      const ip = { 'x-forwarded-for': String(req.headers['x-forwarded-for'] ?? '203.0.113.7'), ...(req.headers['cf-connecting-ip'] ? { 'cf-connecting-ip': String(req.headers['cf-connecting-ip']) } : {}) };
 
       if (url.pathname === '/rest/v1/contenido' && req.method === 'GET') {
         const r = await db.query('select data, actualizado from public.contenido where id = 1');
