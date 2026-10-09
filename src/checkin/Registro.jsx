@@ -74,6 +74,7 @@ function RegistroHuesped() {
   const [cargaFalla, setCargaFalla] = useState(false);
   const [reintento, setReintento] = useState(0);
   const formulario = useRef(null);
+  const campoCodigo = useRef(null);
   const camara = useRef(null);
   const galeria = useRef(null);
   const ahora = useAhora(1000);
@@ -106,6 +107,11 @@ function RegistroHuesped() {
     })();
     return () => { vivo = false; };
   }, [reintento]);
+
+  // El campo del código se deshabilita mientras se verifica y pierde el cursor: cuando vuelve a habilitarse (código mal), queda listo para escribir de nuevo.
+  useEffect(() => {
+    if (paso === 'codigo' && !enviando) campoCodigo.current?.focus();
+  }, [paso, enviando]);
 
   // Guarda lo escrito por si se recarga o se cambia de idioma (la foto no se guarda).
   useEffect(() => {
@@ -287,7 +293,7 @@ function RegistroHuesped() {
         <p className="intro"><V p="registro.codigoAyuda" /></p>
         <form onSubmit={(e) => { e.preventDefault(); if (codigo.length === 6 && !enviando) probarCodigo(codigo); }}>
           <label className="solo-lector" htmlFor="registro-codigo">Código de 6 números</label>
-          <input id="registro-codigo" className="codigo-input" value={codigo} onChange={alCodigo} inputMode="numeric" autoComplete="one-time-code"
+          <input id="registro-codigo" ref={campoCodigo} className="codigo-input" value={codigo} onChange={alCodigo} inputMode="numeric" autoComplete="one-time-code"
             pattern="[0-9]*" maxLength={7} placeholder="······" disabled={enviando} autoFocus aria-describedby={errorCodigo ? 'registro-codigo-error' : undefined} aria-invalid={errorCodigo ? 'true' : undefined} />
           {errorCodigo && <p className="ed-error" id="registro-codigo-error" role="alert">{errorCodigo}</p>}
           <div className="btns">

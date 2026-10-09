@@ -330,6 +330,7 @@ dd{margin:3px 0 0;font-size:15px;line-height:1.45}
 .modal-cab{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .modal-cab h2{font-size:22px}
 .modal-x{flex:none;width:44px;height:44px;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgba(34,51,42,.16);border-radius:50%;background:var(--superficie);color:var(--texto)}
+.modal-pie{position:sticky;bottom:-26px;z-index:2;margin:18px -18px -26px;padding:14px 18px 26px;background:var(--hueso);box-shadow:0 -10px 14px -10px rgba(34,51,42,.22)}
 .nota-tiempo{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:var(--verde-claro);color:var(--verde-oscuro);font-size:14px;font-weight:700}
 .nota-tiempo.vencido{background:#f9d9cf;color:#7a2a15}
 

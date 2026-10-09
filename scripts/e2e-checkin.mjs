@@ -3,7 +3,7 @@
 //
 //   Requiere Playwright instalado (npm i -D playwright) y un Chromium.   Uso: node scripts/e2e-checkin.mjs
 //   Variables: CAPTURAS=/carpeta  guarda capturas de cada pantalla (celular)  ·  CHROMIUM=/ruta/al/chromium
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -16,6 +16,7 @@ const require = createRequire(import.meta.url);
 const raiz = fileURLToPath(new URL('..', import.meta.url));
 const PUERTO_BACK = 54321;
 const PUERTO_WEB = 4174;
+const PUERTO_DEV = 4175;
 const BASE = `http://localhost:${PUERTO_WEB}/`;
 const CAPTURAS = process.env.CAPTURAS || '';
 
@@ -80,6 +81,8 @@ async function sinDesborde(page, donde) {
   const r = await page.evaluate(() => ({ ancho: window.innerWidth, scroll: document.documentElement.scrollWidth }));
   ok(r.scroll <= r.ancho + 1, `${donde}: la página no se ensancha más que la pantalla (${r.scroll} de ${r.ancho} px)`);
 }
+// ¿Está el cursor en el campo con ese nombre? (si se escapa, en el celular se baja el teclado)
+const enfocado = (page, nombre) => page.evaluate((n) => document.activeElement?.name === n, nombre);
 const menuVisible = (page) => page.getByRole('link', { name: 'Realizar check-in' }).isVisible().catch(() => false);
 async function entrarAdmin(page, destino = '#/admin') {
   await page.goto(BASE + destino);
@@ -240,12 +243,20 @@ await seccion('3. Check-in completo: recepción muestra el código, el huésped 
   await ingresarCodigo(hue.page, '000000');
   await hue.page.getByText('El código no es correcto o ya venció').waitFor();
   ok(true, 'código equivocado: mensaje claro');
+  await hasta(() => hue.page.evaluate(() => document.activeElement?.id === 'registro-codigo'), 3000);
+  ok(await hue.page.evaluate(() => document.activeElement?.id === 'registro-codigo'), 'tras un código equivocado el cursor vuelve al campo para escribir de nuevo');
   await ingresarCodigo(hue.page, codigo);
   await hue.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
   ok(true, 'código correcto: abre el formulario');
   ok(/Te quedan 29:|Te quedan 30:/.test(await hue.page.locator('.chip.tiempo').innerText()), 'cuenta regresiva de ~30 minutos');
   await sinDesborde(hue.page, 'formulario');
   await captura(hue.page, '12-formulario', { fullPage: true });
+  // escribir despacio no pierde letras ni el foco (el formulario se redibuja cada segundo por la cuenta regresiva)
+  const mail = hue.page.getByLabel('Email', { exact: true });
+  await mail.click();
+  await hue.page.keyboard.type('maria.lucia@correo.com', { delay: 200 });
+  ok((await mail.inputValue()) === 'maria.lucia@correo.com' && await enfocado(hue.page, 'email'), 'escribiendo despacio en el formulario no se pierden letras ni el foco (5 segundos)');
+  await mail.fill('');
 
   // datos inválidos
   await hue.page.getByRole('button', { name: 'Enviar formulario' }).click();
@@ -299,10 +310,17 @@ await seccion('3. Check-in completo: recepción muestra el código, el huésped 
   await hasta(async () => (await rec.page.getByRole('dialog').getByLabel('Teléfono', { exact: true }).inputValue()) !== '+541155551234');
   ok((await rec.page.getByRole('dialog').getByLabel('Teléfono', { exact: true }).inputValue()) === '011 5555-1234', 'al editar el teléfono se ve en formato local (011 5555-1234), no como +541155551234');
   await captura(rec.page, '32-recepcion-edicion');
-  await rec.page.getByRole('dialog').getByLabel('Habitación').fill('204');
+  ok(await enfocado(rec.page, 'habitacion'), 'al abrir la edición el cursor ya está en Habitación (todavía sin habitación)');
+  await rec.page.keyboard.type('204', { delay: 900 });
+  ok((await rec.page.getByRole('dialog').getByLabel('Habitación').inputValue()) === '204' && await enfocado(rec.page, 'habitacion'), 'escribir la habitación despacio no pierde el foco ni los números (la ventana se redibuja cada segundo)');
+  await rec.page.waitForTimeout(3500);
+  ok(await enfocado(rec.page, 'habitacion'), 'ni cuando la pantalla de recepción se actualiza sola (consulta a la base cada 3 segundos)');
+  ok((await rec.page.getByRole('button', { name: 'Guardar cambios' }).isVisible()), 'el botón "Guardar cambios" queda siempre a la vista');
   await rec.page.getByRole('dialog').getByLabel('Localidad', { exact: true }).fill('Buenos Aires');
   await rec.page.getByRole('button', { name: 'Guardar cambios' }).click();
   await rec.page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await hasta(() => rec.page.evaluate(() => document.activeElement?.classList.contains('hab-boton')), 3000);
+  ok(await rec.page.evaluate(() => document.activeElement?.classList.contains('hab-boton')), 'al cerrarse la ventana el foco vuelve al botón que la abrió');
   await hasta(async () => /204/.test(await rec.page.locator('.planilla tbody tr').first().innerText()));
   ok(/204/.test(await rec.page.locator('.planilla tbody tr').first().innerText()), 'la habitación aparece en la planilla');
   ok((await sql1('select habitacion, datos ->> \'localidad\' as l, editado_por from private.checkins order by id desc limit 1')).l === 'Buenos Aires', 'la corrección de recepción quedó guardada');
@@ -418,7 +436,11 @@ await seccion('6. Ventana de edición: pasados los minutos, recepción ya no edi
   await adm.page.getByRole('button', { name: /Editar/ }).first().click();
   await adm.page.getByRole('dialog').waitFor();
   ok(!(await adm.page.locator('.nota-tiempo').count()), 'el admin no tiene límite de tiempo');
-  await adm.page.getByRole('dialog').getByLabel('Nombre', { exact: true }).fill('Anita');
+  const nom = adm.page.getByRole('dialog').getByLabel('Nombre', { exact: true });
+  await nom.fill('');
+  await nom.click();
+  await adm.page.keyboard.type('Anita', { delay: 600 });
+  ok((await nom.inputValue()) === 'Anita' && await enfocado(adm.page, 'nombre'), 'admin: escribir despacio en la edición tampoco pierde el foco');
   await adm.page.getByRole('dialog').getByLabel('Habitación').fill('305');
   await adm.page.getByRole('button', { name: 'Guardar cambios' }).click();
   await adm.page.getByText('Cambios guardados.').waitFor();
@@ -442,7 +464,10 @@ await seccion('6. Ventana de edición: pasados los minutos, recepción ya no edi
   await adm.page.getByRole('dialog').waitFor({ state: 'hidden' });
   await captura(adm.page, '23-admin-huespedes', { fullPage: true });
 
-  await adm.page.getByLabel(/Buscar por nombre/).fill('PEREZ');
+  const buscar = adm.page.getByLabel(/Buscar por nombre/);
+  await buscar.click();
+  await adm.page.keyboard.type('PEREZ', { delay: 500 });
+  ok((await buscar.inputValue()) === 'PEREZ' && await adm.page.evaluate(() => document.activeElement?.id === 'buscar'), 'admin: escribir despacio en el buscador no pierde letras ni el foco (aunque la lista se recargue sola)');
   await hasta(async () => (await adm.page.locator('.planilla tbody tr').count()) === 1);
   ok((await adm.page.locator('.planilla tbody tr').count()) === 1, 'la búsqueda ignora mayúsculas y tildes (PEREZ = Pérez)');
   await adm.page.getByLabel(/Buscar por nombre/).fill('zzzz');
@@ -621,6 +646,42 @@ await seccion('9. Seguridad de la base', async () => {
   let r;
   for (let i = 0; i < 7; i += 1) r = await back.llamar('checkin_canjear', { p_codigo: '000000' }, '198.51.100.240');
   ok(r.error === 'demasiados_intentos', 'los códigos al azar se frenan (6 intentos por minuto por IP)');
+});
+
+await seccion('10. Modo desarrollo (React en modo estricto, como con npm run dev / npm run local)', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 120 });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  const est = await back.llamar('recepcion_estado', { p_clave: CLAVE_RECEPCION });
+  const ses = await back.llamar('checkin_canjear', { p_codigo: String(est.codigo.valor) });
+  await back.llamar('checkin_enviar', { p_token: ses.token, p_idioma: 'es', p_acepta: true, p_datos: { nombre: 'Ana María', apellido: 'Pérez García', email: 'ana@correo.com', telefono: '+541155551234', nacionalidad: 'Argentina', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: '30123456' } });
+  const dev = spawn('npx', ['vite', '--port', String(PUERTO_DEV), '--strictPort'], {
+    cwd: raiz, stdio: 'ignore', env: { ...process.env, VITE_SUPABASE_URL: `http://localhost:${PUERTO_BACK}`, VITE_SUPABASE_KEY: 'local-key' }
+  });
+  try {
+    ok(await hasta(() => fetch(`http://localhost:${PUERTO_DEV}/`).then((r) => r.ok).catch(() => false), 40000, 500), 'el servidor de desarrollo arranca');
+    // un celular de verdad: toca con el dedo
+    const rec = await contexto({ hasTouch: true, isMobile: true });
+    rec.page.setDefaultTimeout(40000);
+    await rec.page.goto(`http://localhost:${PUERTO_DEV}/#/recepcion`);
+    await rec.page.locator('input[name=clave]').fill(CLAVE_RECEPCION);
+    await rec.page.getByRole('button', { name: 'Entrar' }).click();
+    await rec.page.locator('.planilla tbody tr').first().waitFor();
+    await rec.page.locator('.hab-boton').first().tap();
+    await rec.page.getByRole('dialog').waitFor();
+    ok(await enfocado(rec.page, 'habitacion'), 'en desarrollo: al tocar "Sin asignar" se abre la ventana con el cursor en Habitación');
+    await rec.page.keyboard.type('306', { delay: 800 });
+    ok((await rec.page.getByRole('dialog').getByLabel('Habitación').inputValue()) === '306' && await enfocado(rec.page, 'habitacion'), 'en desarrollo: se escribe la habitación despacio sin perder el foco');
+    await rec.page.getByRole('button', { name: 'Guardar cambios' }).tap();
+    await rec.page.getByRole('dialog').waitFor({ state: 'hidden', timeout: 10000 });
+    ok(true, 'en desarrollo: tocar "Guardar cambios" cierra la ventana (no se queda en "Guardando…")');
+    await hasta(async () => /306/.test(await rec.page.locator('.planilla tbody tr').first().innerText()), 10000);
+    ok(/306/.test(await rec.page.locator('.planilla tbody tr').first().innerText()), 'en desarrollo: la planilla muestra enseguida la habitación guardada');
+    ok(rec.errores.filter((e) => !/Failed to load resource|ERR_FAILED/.test(e)).length === 0, 'sin errores en la consola ' + rec.errores.join('|'));
+    await rec.ctx.close();
+  } finally {
+    dev.kill();
+  }
 });
 
 await navegador.close();

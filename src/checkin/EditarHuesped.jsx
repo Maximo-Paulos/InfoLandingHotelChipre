@@ -5,6 +5,19 @@ import { cargarTelefono } from './telefono.js';
 import { mensajeDe, validarHuesped, valoresDesdeDatos } from './validar.js';
 import { enfocarPrimerError, minSeg, useAhora } from './util.js';
 
+// Cuenta regresiva de la ventana de edición. Es un componente aparte: se redibuja ella sola cada segundo
+// y no toca el formulario mientras la persona escribe.
+function NotaTiempo({ venceEn }) {
+  const ahora = useAhora(1000);
+  const restante = Math.max(0, Math.ceil((venceEn - ahora) / 1000));
+  const vencido = restante === 0;
+  return (
+    <p className={`nota-tiempo${vencido ? ' vencido' : ''}`} role="status">
+      {vencido ? 'Se terminó el tiempo para editar. Si hay que corregir algo, pedíselo al administrador.' : `Podés editar durante ${minSeg(restante)} más.`}
+    </p>
+  );
+}
+
 // Edición de un huésped (recepción: dentro de la ventana de tiempo; admin: siempre).
 //   venceEn: hora (ms) hasta la que se puede editar, o null si no hay límite
 //   onGuardar(datos, habitacion) -> { ok, mensaje?, campos? }
@@ -13,13 +26,24 @@ export default function EditarHuesped({ fila, venceEn = null, onGuardar, onCerra
   const [errores, setErrores] = useState({});
   const [aviso, setAviso] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const ahora = useAhora(1000);
+  const [vencido, setVencido] = useState(() => venceEn != null && venceEn <= Date.now());
   const cerrado = useRef(false);
   const formulario = useRef(null);
-  const restante = venceEn ? Math.max(0, Math.ceil((venceEn - ahora) / 1000)) : null;
-  const vencido = restante === 0;
 
-  useEffect(() => () => { cerrado.current = true; }, []);
+  // En desarrollo React monta, desmonta y vuelve a montar (StrictMode): hay que "reabrir" al montar o nunca se cierra.
+  useEffect(() => {
+    cerrado.current = false;
+    return () => { cerrado.current = true; };
+  }, []);
+
+  // Pasado el tiempo se bloquea el guardado (la base también lo rechaza).
+  useEffect(() => {
+    if (venceEn == null) return undefined;
+    const falta = venceEn - Date.now();
+    if (falta <= 0) { setVencido(true); return undefined; }
+    const t = setTimeout(() => setVencido(true), falta);
+    return () => clearTimeout(t);
+  }, [venceEn]);
 
   // El teléfono se guarda como +5491155551234: al editar se muestra con su país y el número en formato local.
   useEffect(() => {
@@ -73,15 +97,11 @@ export default function EditarHuesped({ fila, venceEn = null, onGuardar, onCerra
   const nombre = `${fila.datos.nombre ?? ''} ${fila.datos.apellido ?? ''}`.trim();
   return (
     <Modal titulo={`Editar a ${nombre}`} onCerrar={() => onCerrar(false)}>
-      {restante !== null && (
-        <p className={`nota-tiempo${vencido ? ' vencido' : ''}`} role="status">
-          {vencido ? 'Se terminó el tiempo para editar. Si hay que corregir algo, pedíselo al administrador.' : `Podés editar durante ${minSeg(restante)} más.`}
-        </p>
-      )}
+      {venceEn != null && <NotaTiempo venceEn={venceEn} />}
       <form onSubmit={guardar} noValidate ref={formulario}>
-        <FormHuesped valores={valores} errores={errores} onCambio={cambia} conHabitacion deshabilitado={guardando || vencido} />
+        <FormHuesped valores={valores} errores={errores} onCambio={cambia} conHabitacion sugerencias={false} deshabilitado={guardando || vencido} />
         {aviso && <p className="ed-error" role="alert">{aviso}</p>}
-        <div className="btns">
+        <div className="btns modal-pie">
           <button type="submit" className="btn" disabled={guardando || vencido}>{guardando ? 'Guardando…' : 'Guardar cambios'}</button>
           <button type="button" className="btn claro" onClick={() => onCerrar(false)}>Cancelar</button>
         </div>

@@ -8,7 +8,9 @@ export const ETIQUETAS = {
 };
 
 // Los campos del huésped. Lo usan el formulario del huésped, la edición de recepción y la del admin.
-export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas = ETIQUETAS, conHabitacion = false, deshabilitado = false }) {
+// `sugerencias` = false: el navegador no ofrece autocompletar (en la edición de recepción y admin se cargan datos de OTRA persona,
+// y el navegador de quien edita no tiene que meterle su propio domicilio o email).
+export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas = ETIQUETAS, conHabitacion = false, deshabilitado = false, sugerencias = true }) {
   const id = useId();
   const [lib, setLib] = useState(null);
   useEffect(() => {
@@ -28,13 +30,15 @@ export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas
   );
   const props = (clave, extra = {}) => ({
     id: `${id}-${clave}`, name: clave, value: valores[clave] ?? '', onChange: cambia(clave), disabled: deshabilitado,
-    'aria-invalid': errores[clave] ? 'true' : undefined, 'aria-describedby': errores[clave] ? `${id}-${clave}-msg` : undefined, ...extra
+    'aria-invalid': errores[clave] ? 'true' : undefined, 'aria-describedby': errores[clave] ? `${id}-${clave}-msg` : undefined, ...extra,
+    ...(sugerencias ? {} : { autoComplete: 'off' })
   });
   const esDNI = valores.doc_tipo === 'DNI';
 
   return (
     <>
-      {conHabitacion && campo('habitacion', etiquetas.habitacion, <input {...props('habitacion', { maxLength: 12, autoComplete: 'off', placeholder: 'Ej. 204' })} />, 'La carga solo recepción.')}
+      {/* Lo primero que hace recepción es cargar la habitación: si está vacía, el cursor ya queda ahí y la tecla del celular dice "Listo". */}
+      {conHabitacion && campo('habitacion', etiquetas.habitacion, <input {...props('habitacion', { maxLength: 12, autoComplete: 'off', placeholder: 'Ej. 204', autoFocus: !valores.habitacion, enterKeyHint: 'done' })} />, 'La carga solo recepción.')}
       {campo('nombre', etiquetas.nombre, <input {...props('nombre', { maxLength: 60, autoComplete: 'given-name' })} />)}
       {campo('apellido', etiquetas.apellido, <input {...props('apellido', { maxLength: 60, autoComplete: 'family-name' })} />)}
       {campo('email', etiquetas.email, <input {...props('email', { type: 'email', inputMode: 'email', maxLength: 120, autoComplete: 'email', autoCapitalize: 'none' })} />)}
