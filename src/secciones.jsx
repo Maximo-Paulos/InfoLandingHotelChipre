@@ -1,7 +1,11 @@
+import { lazy } from 'react';
 import { Checkin, Wifi, Emergencias, Checkout } from './sections/Esenciales.jsx';
 import { Habitacion, Instalaciones, Normas, Preguntas } from './sections/Estadia.jsx';
 import { Comer, Hacer, Compras, Resena } from './sections/Alrededores.jsx';
 import { Terminos } from './sections/Terminos.jsx';
+
+// El check-in se descarga recién cuando alguien lo abre.
+const Registro = lazy(() => import('./checkin/Registro.jsx'));
 
 // Orden del menú. `id` es el link directo de cada pantalla (#/wifi) y la clave de sus textos.
 export const SECCIONES = [
@@ -18,5 +22,6 @@ export const SECCIONES = [
   { id: 'checkout', icono: 'valija', Vista: Checkout },
   { id: 'resena', icono: 'estrella', Vista: Resena },
   // `fuera`: no es un botón de la grilla; se abre desde el link del final del menú.
-  { id: 'terminos', icono: 'normas', fuera: true, Vista: Terminos }
+  { id: 'terminos', icono: 'normas', fuera: true, Vista: Terminos },
+  { id: 'registro', icono: 'llave', fuera: true, Vista: Registro }
 ];

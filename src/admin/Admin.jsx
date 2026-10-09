@@ -58,7 +58,7 @@ export default function Admin({ ruta }) {
   const valor = useMemo(() => draft && ({
     D: draft,
     editing: true,
-    base: '#/admin/',
+    base: '#/admin/editar/',
     set: (p, v) => setDraft((d) => setIn(d, p, v)),
     add: (p, item) => setDraft((d) => setIn(d, p, [...get(d, p), item])),
     remove: (p, i) => setDraft((d) => setIn(d, p, get(d, p).filter((_, k) => k !== i))),
@@ -130,6 +130,7 @@ export default function Admin({ ruta }) {
         <div className="acciones">
           <button type="button" className="btn mini" onClick={guardar} disabled={!sucio || trabajando}>Guardar cambios</button>
           <button type="button" className="btn mini claro" onClick={descartar} disabled={!sucio || trabajando}>Descartar</button>
+          <a className="btn mini claro" href="#/admin" onClick={(e) => { if (sucio && !window.confirm('Hay cambios sin guardar. ¿Salir igual?')) e.preventDefault(); }}>Inicio</a>
           <a className="btn mini claro" href="#/" target="_blank" rel="noopener noreferrer">Ver guía</a>
           <button type="button" className="btn mini claro" onClick={salir}>Salir</button>
         </div>

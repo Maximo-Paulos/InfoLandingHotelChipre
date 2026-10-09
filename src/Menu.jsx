@@ -1,11 +1,26 @@
+import { useEffect, useState } from 'react';
 import Icon from './components/Icon.jsx';
+import { estadoCheckin } from './checkin/checkinApi.js';
 import { Btn, Cajas, T, V } from './components/Editable.jsx';
 import { useDatos } from './data/DataContext.jsx';
 import { SECCIONES } from './secciones.jsx';
 
+// El botón de check-in solo se muestra si el administrador prendió el check-in digital.
+function useCheckinActivo(consultar) {
+  const [activo, setActivo] = useState(false);
+  useEffect(() => {
+    if (!consultar) return undefined;
+    let vivo = true;
+    estadoCheckin().then((e) => { if (vivo) setActivo(!!e?.activo); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [consultar]);
+  return activo;
+}
+
 export default function Menu() {
   const { D, editing, base } = useDatos();
   const H = D.hotel;
+  const checkinActivo = useCheckinActivo(!editing);
   return (
     <div className="menu">
       <header style={{ position: 'relative' }}>
@@ -42,6 +57,15 @@ export default function Menu() {
         <Icon name="adelante" size={16} sw={2} />
       </a>
       <Cajas ps={[['menu.btnTerminos', 'Texto del link a Términos y condiciones']]} />
+      {(editing || checkinActivo) && (
+        <>
+          <div className="btns">
+            <a className="btn terra" href={`${base}registro`}><Icon name="llave" size={20} sw={1.7} /><span><V p="menu.btnRegistro" /></span></a>
+          </div>
+          <Cajas ps={[['menu.btnRegistro', 'Texto del botón Realizar check-in']]} />
+          {editing && <p className="ayuda">Este botón les aparece a los huéspedes solo cuando el check-in digital está encendido (Inicio → Ver huéspedes → Configuración). Tocándolo acá editás los textos del check-in.</p>}
+        </>
+      )}
     </div>
   );
 }
