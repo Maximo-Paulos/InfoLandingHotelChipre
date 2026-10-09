@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { SUPABASE_KEY, SUPABASE_URL } from '../config.js';
+import { leerContenido } from '../data/api.js';
 import { adminClaveRecepcion, adminConfig, adminConfigGuardar, textoCodigo } from '../checkin/checkinApi.js';
 import { probarConexion } from '../checkin/foto.js';
 import codigoScript from '../../apps-script/Codigo.gs?raw';
@@ -139,6 +140,9 @@ export function ConfigCheckin({ clave, config, recargar }) {
   );
 }
 
+const ZONA_INICIAL = 'America/Argentina/Buenos_Aires';
+const ZONA_VALIDA = /^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+){0,2}$/;
+
 const idDeCarpeta = (texto) => {
   const t = String(texto ?? '').trim();
   const m = t.match(/\/folders\/([A-Za-z0-9_-]{10,})/) || t.match(/[?&]id=([A-Za-z0-9_-]{10,})/) || t.match(/^([A-Za-z0-9_-]{20,})$/);
@@ -152,16 +156,26 @@ export function ConectarDrive({ clave, config, recargar }) {
   const [msg, setMsg] = useState(null);
   const [trabajando, setTrabajando] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  const [zona, setZona] = useState(ZONA_INICIAL);
 
   useEffect(() => { if (config) setUrl(config.foto_url ?? ''); }, [config]);
+  // El nombre de la foto lleva la hora del hotel: se toma la zona horaria cargada en Datos generales.
+  useEffect(() => {
+    let vivo = true;
+    leerContenido().then(({ contenido }) => {
+      const z = contenido?.hotel?.zonaHoraria;
+      if (vivo && typeof z === 'string' && ZONA_VALIDA.test(z)) setZona(z);
+    }).catch(() => { /* queda la zona de Argentina */ });
+    return () => { vivo = false; };
+  }, []);
   const carpetaId = idDeCarpeta(carpeta);
 
   const codigo = useMemo(() => (config && carpetaId
     ? codigoScript
       .replace('%%SUPABASE_URL%%', () => SUPABASE_URL).replace('%%SUPABASE_KEY%%', () => SUPABASE_KEY)
       .replace('%%SECRETO%%', () => config.foto_secreto).replace('%%CARPETA_ID%%', () => carpetaId)
-      .replace('%%ZONA%%', () => 'America/Argentina/Buenos_Aires')
-    : ''), [config, carpetaId]);
+      .replace('%%ZONA%%', () => zona)
+    : ''), [config, carpetaId, zona]);
 
   if (!config) return null;
 

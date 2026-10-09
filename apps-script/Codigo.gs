@@ -78,7 +78,7 @@ function decodificar_(base64) {
 }
 
 function limpiar_(texto, largo) {
-  var t = String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  var t = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   t = t.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, largo);
   return t || 'sin-nombre';
 }

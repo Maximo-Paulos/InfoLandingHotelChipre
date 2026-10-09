@@ -461,7 +461,8 @@ await seccion('7. Foto del documento → Drive (simulado) y asistente de conexi�
   await configurar({ activo: true, codigo_seg: 120 });
   await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
 
-  // asistente en el admin
+  // asistente en el admin (el nombre de la foto lleva la hora del hotel: se usa la zona cargada en Datos generales)
+  await back.sql(`update public.contenido set data = jsonb_set(data, '{hotel,zonaHoraria}', '"America/Montevideo"') where id = 1`);
   const adm = await contexto({ viewport: { width: 1000, height: 900 } });
   await entrarAdmin(adm.page, '#/admin/huespedes');
   await adm.page.getByText('Conectar Drive para las fotos').click();
@@ -469,6 +470,7 @@ await seccion('7. Foto del documento → Drive (simulado) y asistente de conexi�
   const codigo = await adm.page.getByLabel('Código del script').inputValue();
   const secreto = (await sql1('select foto_secreto from private.checkin_config where id = 1')).foto_secreto;
   ok(codigo.includes("CARPETA_ID: 'CARPETA1234567890'") && codigo.includes(`SECRETO: '${secreto}'`) && !codigo.includes('%%'), 'el asistente arma el código del script con la carpeta y la clave ya cargadas');
+  ok(await hasta(async () => (await adm.page.getByLabel('Código del script').inputValue()).includes("ZONA: 'America/Montevideo'"), 6000), 'y con la zona horaria que tiene cargada el hotel (America/Montevideo en la prueba)');
   await adm.page.getByLabel('URL de la aplicación web').fill('https://malo.com/x');
   await adm.page.getByRole('button', { name: 'Guardar y probar' }).click();
   await adm.page.getByText(/tiene que terminar en \/exec/).waitFor();

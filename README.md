@@ -92,6 +92,7 @@ Levanta una base de prueba **en memoria** (con los mismos archivos SQL que produ
 Pruebas automáticas (no usan la base real):
 - `node scripts/test-validar.mjs`: reglas de validación del formulario (teléfonos, documentos, etc.).
 - `node scripts/test-apps-script.mjs`: la lógica del script de Google con un Drive simulado.
+- `node scripts/test-frenos.mjs`: los frenos de intentos (claves y código de 6 números) cuentan por la IP real y no se esquivan escribiendo un `X-Forwarded-For` falso.
 - `node scripts/e2e-checkin.mjs`: punta a punta con navegador (huésped y recepción a la vez). Requiere Playwright (`npm i -D playwright`) y Chromium; `CAPTURAS=carpeta` guarda capturas de cada pantalla.
 
 ## Probarlo en tu laptop
@@ -116,7 +117,7 @@ El proyecto de Vercel está conectado a este repo: cada cambio en `main` se publ
   ```sql
   update private.admin set hash = extensions.crypt('clave-nueva-larga', extensions.gen_salt('bf')) where id = 1;
   ```
-- Hay un freno: 8 intentos fallidos por minuto y por IP.
+- Hay un freno: 8 intentos fallidos por minuto y por IP. La IP sale de lo que escriben Cloudflare y Supabase (`cf-connecting-ip` / `sb-forwarded-for`), no del `X-Forwarded-For` que manda el cliente, y las IPv6 se agrupan por /64.
 
 ## Seguridad
 La URL de Supabase y la clave `publishable` van en el navegador **a propósito**: son públicas por diseño. Lo que protege los datos son las reglas de la base (`supabase/schema.sql`):
