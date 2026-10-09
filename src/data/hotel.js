@@ -24,6 +24,7 @@ export default {
     btnWa: "Escribinos por WhatsApp",
     msgWa: "Hola, necesito ayuda con mi estadía.",
     btnTerminos: "Términos y condiciones",
+    btnRegistro: "Realizar check-in",
     tiles: {
       checkin: "Check-in", wifi: "Wi-Fi", habitacion: "Tu habitación", instalaciones: "Instalaciones",
       normas: "Normas", comer: "Dónde comer", hacer: "Qué hacer", compras: "Compras",
@@ -280,5 +281,45 @@ export default {
     eyebrow: "Lo que tenés que saber",
     titulo: "Términos y condiciones",
     texto: "# Alojamiento\nEste es un texto de ejemplo. Reemplazalo por los términos y condiciones reales del hotel.\n\n# Reservas y cancelaciones\n- Las reservas se confirman con una seña.\n- Las cancelaciones se rigen por la política informada al reservar.\n\n# Responsabilidad\nEl hotel no se hace responsable por objetos de valor que no estén guardados en la caja fuerte."
+  },
+
+  registro: {
+    eyebrow: "Tu llegada",
+    titulo: "Realizar check-in",
+    lead: "Completá tus datos para agilizar el ingreso. Te lleva un par de minutos.",
+    codigoTitulo: "Ingresá el código de recepción",
+    codigoAyuda: "Pedile al recepcionista el código de 6 números. Cambia cada pocos segundos.",
+    btnCodigo: "Continuar",
+    errCodigo: "El código no es correcto o ya venció. Pedile uno nuevo a recepción.",
+    errIntentos: "Hiciste demasiados intentos. Esperá un minuto y probá de nuevo.",
+    errNoDisponible: "El check-in digital no está disponible ahora. Hacelo en recepción.",
+    errRed: "No pudimos conectar. Revisá tu conexión e intentá de nuevo.",
+    formTitulo: "Tus datos",
+    tiempo: "Te quedan",
+    campos: {
+      nombre: "Nombre",
+      apellido: "Apellido",
+      email: "Email",
+      telefono: "Teléfono",
+      nacionalidad: "Nacionalidad",
+      localidad: "Localidad",
+      domicilio: "Domicilio",
+      docTipo: "Tipo de documento",
+      docNumero: "Número de documento",
+      foto: "Foto del documento"
+    },
+    fotoAyuda: "Sacale una foto al frente de tu DNI o pasaporte, o elegí una de tu galería. Tiene que leerse bien.",
+    btnSacarFoto: "Sacar foto",
+    btnGaleria: "Elegir de la galería",
+    btnCambiarFoto: "Cambiar foto",
+    btnQuitarFoto: "Quitar foto",
+    consentimiento: "Acepto que el hotel guarde y use mis datos para registrar mi estadía y cumplir con las normas de alojamiento. Leí los",
+    consentimientoLink: "Términos y condiciones",
+    btnEnviar: "Enviar formulario",
+    errCampos: "Revisá los campos marcados en rojo.",
+    errSesion: "Se terminó el tiempo para completar el formulario. Pedile un código nuevo a recepción.",
+    okTitulo: "¡Check-in realizado!",
+    okTexto: "Gracias. En unos segundos volvés al inicio de la guía.",
+    btnInicio: "Ir al inicio ahora"
   }
 };

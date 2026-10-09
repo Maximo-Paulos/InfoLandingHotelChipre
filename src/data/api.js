@@ -22,7 +22,7 @@ export function textoError(e) {
   return 'No se pudo conectar con la base de datos. Revisá tu conexión.';
 }
 
-async function rpc(nombre, cuerpo) {
+export async function rpc(nombre, cuerpo) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${nombre}`, {
     method: 'POST', headers: cabeceras, body: JSON.stringify(cuerpo), cache: 'no-store', signal: AbortSignal.timeout(TOPE_MS)
   });
