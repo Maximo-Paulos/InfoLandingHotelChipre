@@ -131,8 +131,8 @@ function Panel({ clave, salir }) {
 
   const segundosEdicion = (f) => (estado?.config?.edicion_activa ? Math.max(0, f.editable_seg - (ahora - estado.recibido) / 1000) : 0);
 
-  const guardar = async (datos, habitacion) => {
-    const r = await recepcionEditar(clave, editando.id, datos, habitacion);
+  const guardar = async (datos, habitacion, medioPago) => {
+    const r = await recepcionEditar(clave, editando.id, datos, habitacion, medioPago);
     if (r.ok) return { ok: true };
     return { ok: false, mensaje: textoCodigo(r.error), campos: r.campos };
   };
@@ -199,6 +199,7 @@ function Panel({ clave, salir }) {
         <EditarHuesped
           fila={editando}
           venceEn={editando.venceEn}
+          medios={estado?.medios_pago ?? null}
           onGuardar={guardar}
           onCerrar={(guardado) => { setEditando(null); if (guardado) refrescar(); }}
         />

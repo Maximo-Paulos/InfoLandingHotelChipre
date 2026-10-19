@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon.jsx';
-import { adminAuditoria, adminHuespedEditar, adminHuespedes, textoCodigo } from '../checkin/checkinApi.js';
+import { adminAuditoria, adminHuespedEditar, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
 import EditarHuesped from '../checkin/EditarHuesped.jsx';
 import Planilla from '../checkin/Planilla.jsx';
 import { fechaHora } from '../checkin/util.js';
 import { ConectarDrive, ConfigCheckin, useConfigCheckin } from './PanelCheckin.jsx';
+import PanelMediosPago from './PanelMediosPago.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
 
 const POR_PAGINA = 50;
@@ -26,7 +27,15 @@ function Contenido({ clave, salir }) {
   const [error, setError] = useState('');
   const [editando, setEditando] = useState(null);
   const [aviso, setAviso] = useState('');
+  const [medios, setMedios] = useState(null); // todos los medios de pago (también los quitados); null = todavía no cargaron
   const pedido = useRef(0);
+
+  // Si la base todavía no tiene los medios de pago, la pantalla sigue andando sin ellos.
+  useEffect(() => {
+    let vivo = true;
+    adminMediosPago(clave).then((r) => { if (vivo && r?.ok) setMedios(r.medios); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [clave]);
 
   const cargar = useCallback(async (mas = false) => {
     const n = ++pedido.current;
@@ -59,8 +68,8 @@ function Contenido({ clave, salir }) {
     return () => clearTimeout(t);
   }, [escrito]);
 
-  const guardar = async (datos, habitacion) => {
-    const r = await adminHuespedEditar(clave, editando.id, datos, habitacion);
+  const guardar = async (datos, habitacion, medioPago) => {
+    const r = await adminHuespedEditar(clave, editando.id, datos, habitacion, medioPago);
     if (r.ok) return { ok: true };
     return { ok: false, mensaje: textoCodigo(r.error), campos: r.campos };
   };
@@ -81,6 +90,7 @@ function Contenido({ clave, salir }) {
 
         {errorConfig && <p className="ed-error" role="alert">{errorConfig}</p>}
         <ConfigCheckin clave={clave} config={config} recargar={recargar} />
+        <PanelMediosPago clave={clave} medios={medios} alGuardar={(lista) => { setMedios(lista); cargar(false); }} />
         <ConectarDrive clave={clave} config={config} recargar={recargar} />
 
         <div className="head-row">
@@ -104,6 +114,7 @@ function Contenido({ clave, salir }) {
       {editando && (
         <EditarHuesped
           fila={editando}
+          medios={medios ? medios.filter((m) => m.activo).map(({ id, nombre }) => ({ id, nombre })) : null}
           onGuardar={guardar}
           onCerrar={(guardado) => { setEditando(null); if (guardado) { setAviso('Cambios guardados.'); cargar(false); } }}
         />
@@ -112,8 +123,8 @@ function Contenido({ clave, salir }) {
   );
 }
 
-const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo' };
-const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación' };
+const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', medios_pago: 'cambió los medios de pago' };
+const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación', medio_pago: 'medio de pago' };
 
 // Quién cambió qué y cuándo (no guarda los valores, solo los nombres de los campos).
 function Historial({ clave }) {

@@ -4,13 +4,14 @@ import { cargarTelefono, codigoDe } from './telefono.js';
 
 export const ETIQUETAS = {
   nombre: 'Nombre', apellido: 'Apellido', email: 'Email', telefono: 'Teléfono', nacionalidad: 'Nacionalidad',
-  localidad: 'Localidad', domicilio: 'Domicilio', docTipo: 'Tipo de documento', docNumero: 'Número de documento', habitacion: 'Habitación'
+  localidad: 'Localidad', domicilio: 'Domicilio', docTipo: 'Tipo de documento', docNumero: 'Número de documento', habitacion: 'Habitación', medioPago: 'Medio de pago'
 };
 
 // Los campos del huésped. Lo usan el formulario del huésped, la edición de recepción y la del admin.
+// `medios` = [{ id, nombre }]: si viene (solo en la edición de recepción y admin) se pide también el medio de pago.
 // `sugerencias` = false: el navegador no ofrece autocompletar (en la edición de recepción y admin se cargan datos de OTRA persona,
 // y el navegador de quien edita no tiene que meterle su propio domicilio o email).
-export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas = ETIQUETAS, conHabitacion = false, deshabilitado = false, sugerencias = true }) {
+export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas = ETIQUETAS, conHabitacion = false, deshabilitado = false, sugerencias = true, medios = null }) {
   const id = useId();
   const [lib, setLib] = useState(null);
   useEffect(() => {
@@ -39,6 +40,11 @@ export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas
     <>
       {/* Lo primero que hace recepción es cargar la habitación: si está vacía, el cursor ya queda ahí y la tecla del celular dice "Listo". */}
       {conHabitacion && campo('habitacion', etiquetas.habitacion, <input {...props('habitacion', { maxLength: 12, autoComplete: 'off', placeholder: 'Ej. 204', autoFocus: !valores.habitacion, enterKeyHint: 'done' })} />, 'La carga solo recepción.')}
+      {conHabitacion && medios && campo('medio_pago', etiquetas.medioPago ?? ETIQUETAS.medioPago, (
+        <select {...props('medio_pago', { autoComplete: 'off' })}>
+          {medios.map((m) => <option key={m.id} value={String(m.id)}>{m.nombre}</option>)}
+        </select>
+      ), 'Cómo abonó el huésped.')}
       {campo('nombre', etiquetas.nombre, <input {...props('nombre', { maxLength: 60, autoComplete: 'given-name' })} />)}
       {campo('apellido', etiquetas.apellido, <input {...props('apellido', { maxLength: 60, autoComplete: 'family-name' })} />)}
       {campo('email', etiquetas.email, <input {...props('email', { type: 'email', inputMode: 'email', maxLength: 120, autoComplete: 'email', autoCapitalize: 'none' })} />)}

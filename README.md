@@ -63,6 +63,15 @@ Otros valores quedan fijos en la base (`private.checkin_config`): el huésped ti
 - El script solo acepta fotos con un **permiso firmado y de pocos minutos** que la base le da al huésped que canjeó un código (hasta 3 fotos por huésped); solo escribe en esa carpeta y no comparte ni borra nada.
 - Conexión (una vez, unos 10 minutos): *Admin → Ver huéspedes → Conectar Drive para las fotos*: 1) crear la carpeta y pegar su link, 2) pegar en [script.google.com](https://script.google.com) el código que arma el asistente, 3) *Implementar → Aplicación web → ejecutar como yo → acceso: cualquier persona*, 4) pegar la URL que termina en `/exec` y tocar *Guardar y probar* (guarda un archivo de prueba en la carpeta).
 
+### Medio de pago
+Cada huésped tiene un **medio de pago** que carga recepción (junto con la habitación, en la misma ventana y durante el mismo tiempo de edición) o el admin. Se elige de una lista desplegable y se ve como una columna más de la planilla.
+
+- **Lista inicial:** Efectivo, Transferencia, USD efectivo, PayPal, Link de pago y Otros.
+- **El dueño la edita** en *Admin → Ver huéspedes → Medios de pago*: cambiar un nombre, **agregar** uno escribiendo su nombre y **quitar** los que no use. Los cambios los ve recepción enseguida, sin recargar.
+- **Nunca queda vacío:** los huéspedes que ya estaban cargados quedaron en **Otros**, y los que se carguen de ahora en más también arrancan en Otros hasta que recepción elija. «Otros» no se puede quitar (sí cambiarle el nombre).
+- **Quitar no borra nada:** el medio deja de ofrecerse, pero los huéspedes que ya lo tenían lo siguen mostrando (se ve en la lista de «Quitados» y se puede **volver a poner**). Cambiar el nombre de un medio cambia cómo se ve en todos los huéspedes que lo tienen, sin tocar sus registros.
+- **Base de datos:** la tabla `private.medios_pago` y la columna `private.checkins.medio_pago_id`. Si la base ya tiene el check-in, ejecutar `supabase/medios_pago.sql` en el SQL Editor (solo agrega, no borra nada y se puede repetir); una base nueva se arma con `schema.sql` + `checkin.sql`, que ya lo incluye.
+
 ### Reglas importantes
 - **Nada se borra**: no hay botones ni funciones para borrar huéspedes ni fotos. Cuando Drive se llene, se pasa a mano a un disco.
 - La **habitación** la carga solo recepción (dentro de la ventana de edición) o el admin. Pasada la ventana, solo el admin corrige.
@@ -93,6 +102,7 @@ Pruebas automáticas (no usan la base real):
 - `node scripts/test-validar.mjs`: reglas de validación del formulario (teléfonos, documentos, etc.).
 - `node scripts/test-apps-script.mjs`: la lógica del script de Google con un Drive simulado.
 - `node scripts/test-frenos.mjs`: los frenos de intentos (claves y código de 6 números) cuentan por la IP real y no se esquivan escribiendo un `X-Forwarded-For` falso.
+- `node scripts/test-medios-pago.mjs`: arma una base como la de producción con huéspedes ya cargados, le aplica `supabase/medios_pago.sql` y comprueba que no se pierde nada (quedan en «Otros»), que se puede repetir y que queda idéntica a una base nueva; además prueba elegir, agregar, renombrar, quitar y volver a poner medios de pago.
 - `node scripts/e2e-checkin.mjs`: punta a punta con navegador (huésped y recepción a la vez). Requiere Playwright (`npm i -D playwright`) y Chromium; `CAPTURAS=carpeta` guarda capturas de cada pantalla.
 
 ## Probarlo en tu laptop
@@ -141,7 +151,7 @@ Los links cargados en el panel solo se aceptan si empiezan con `http://` o `http
 - `apps-script/Codigo.gs`: script de Google que guarda las fotos en Drive (lo pega el asistente del panel).
 - `scripts/`: `local.mjs` y `backend-local.mjs` (base de prueba en memoria), `test-*.mjs` y `e2e-checkin.mjs` (pruebas).
 - `src/data/api.js`: conexión con Supabase. `src/data/hotel.js`: contenido de ejemplo.
-- `supabase/schema.sql`: la base de datos. `supabase/checkin.sql`: tablas y funciones del check-in. `scripts/seed.mjs`: carga inicial.
+- `supabase/schema.sql`: la base de datos. `supabase/checkin.sql`: tablas y funciones del check-in (todo, incluido el medio de pago). `supabase/medios_pago.sql`: solo lo nuevo del medio de pago, para una base que ya tenía el check-in. `scripts/seed.mjs`: carga inicial.
 - `src/styles.css`: paleta (salvia, hueso, terracota, mostaza, verde) y componentes.
 
 ## Detalles
