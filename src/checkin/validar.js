@@ -18,6 +18,7 @@ export const MENSAJES = {
   doc_numero_DNI: 'El DNI tiene 7 u 8 números, sin letras.',
   doc_numero_Pasaporte: 'El pasaporte tiene entre 6 y 12 letras o números.',
   habitacion: 'La habitación puede tener hasta 12 letras o números.',
+  medio_pago: 'Elegí un medio de pago de la lista.',
   datos: 'Revisá los datos.'
 };
 
@@ -78,11 +79,12 @@ export function validarHuesped(v, lib, { conHabitacion = false } = {}) {
 export const primerError = (errores) => ORDEN.find((c) => errores[c]) ?? Object.keys(errores)[0];
 
 // De lo que guarda la base a lo que muestra el formulario de edición.
-export function valoresDesdeDatos(d, habitacion = '') {
+export function valoresDesdeDatos(d, habitacion = '', medioPago = '') {
   return {
     nombre: d.nombre ?? '', apellido: d.apellido ?? '', email: d.email ?? '',
     telefonoPais: 'AR', telefonoNumero: d.telefono ?? '',
     nacionalidad: d.nacionalidad ?? '', localidad: d.localidad ?? '', domicilio: d.domicilio ?? '',
-    doc_tipo: d.doc_tipo ?? 'DNI', doc_numero: d.doc_numero ?? '', habitacion: habitacion ?? ''
+    doc_tipo: d.doc_tipo ?? 'DNI', doc_numero: d.doc_numero ?? '', habitacion: habitacion ?? '',
+    medio_pago: medioPago == null ? '' : String(medioPago)
   };
 }

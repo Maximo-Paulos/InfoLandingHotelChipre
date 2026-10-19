@@ -83,6 +83,13 @@ async function sinDesborde(page, donde) {
 }
 // ¿Está el cursor en el campo con ese nombre? (si se escapa, en el celular se baja el teclado)
 const enfocado = (page, nombre) => page.evaluate((n) => document.activeElement?.name === n, nombre);
+// Carga un huésped por la base, como si hubiera completado el formulario (para no repetir la pantalla en cada prueba).
+async function huespedPorApi(datos = {}) {
+  const est = await back.llamar('recepcion_estado', { p_clave: CLAVE_RECEPCION });
+  const ses = await back.llamar('checkin_canjear', { p_codigo: String(est.codigo.valor) }, '198.51.100.99');
+  const env = await back.llamar('checkin_enviar', { p_token: ses.token, p_idioma: 'es', p_acepta: true, p_datos: { nombre: 'Ana María', apellido: 'Pérez García', email: 'ana@correo.com', telefono: '+541155551234', nacionalidad: 'Argentina', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: '30123456', ...datos } }, '198.51.100.99');
+  if (!env.ok) throw new Error('no se pudo cargar el huésped: ' + JSON.stringify(env));
+}
 const menuVisible = (page) => page.getByRole('link', { name: 'Realizar check-in' }).isVisible().catch(() => false);
 async function entrarAdmin(page, destino = '#/admin') {
   await page.goto(BASE + destino);
@@ -629,7 +636,7 @@ await seccion('9. Seguridad de la base', async () => {
   ok(/permission denied/.test(await intento('select private.codigo_vigente()') ?? ''), 'ni llamar a las funciones internas');
   ok(/permission denied/.test(await intento(`update private.checkins set habitacion = 'x'`) ?? ''), 'ni modificar nada');
   const publicas = await back.sql(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and has_function_privilege('anon', p.oid, 'execute') order by 1`);
-  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_huesped_editar', 'admin_huespedes', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'verificar_clave'];
+  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'verificar_clave'];
   ok(JSON.stringify(publicas.map((p) => p.proname)) === JSON.stringify(esperadas), 'las únicas funciones que puede llamar un anónimo son las previstas (' + publicas.length + ')');
   // todas las funciones expuestas rechazan claves malas
   for (const [fn, args] of [['admin_huespedes', { p_clave: 'x' }], ['admin_checkin_config', { p_clave: 'x' }], ['recepcion_estado', { p_clave: 'x' }], ['admin_checkin_auditoria', { p_clave: 'x' }]]) {
@@ -682,6 +689,125 @@ await seccion('10. Modo desarrollo (React en modo estricto, como con npm run dev
   } finally {
     dev.kill();
   }
+});
+
+await seccion('11. Medio de pago: recepción lo elige y el dueño edita la lista', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20 });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await huespedPorApi({ nombre: 'Ana', apellido: 'Uno', doc_numero: '30000001' });
+  await huespedPorApi({ nombre: 'Beto', apellido: 'Dos', doc_numero: '30000002' });
+  await huespedPorApi({ nombre: 'Carla', apellido: 'Tres', doc_numero: '30000003' });
+  const medioDe = async (apellido) => (await sql1(`select m.nombre from private.checkins k join private.medios_pago m on m.id = k.medio_pago_id where k.datos ->> 'apellido' = $1`, [apellido])).nombre;
+
+  // ---- recepción, en un celular
+  const rec = await contexto({ hasTouch: true, isMobile: true });
+  await recepcionLogin(rec.page);
+  await rec.page.locator('.planilla tbody tr').nth(2).waitFor();
+  ok(await rec.page.locator('.planilla thead th', { hasText: 'Medio de pago' }).isVisible(), 'la planilla tiene la columna "Medio de pago"');
+  const pagos = await rec.page.locator('.planilla tbody tr .pago').allInnerTexts();
+  ok(pagos.length === 3 && pagos.every((t) => t === 'Otros'), 'los huéspedes sin medio elegido figuran como "Otros" (ninguno vacío)');
+  await sinDesborde(rec.page, 'recepción con la columna nueva (celular)');
+  await rec.page.locator('.planilla tbody tr').first().locator('.hab-boton').tap();
+  const dlg = rec.page.getByRole('dialog');
+  await dlg.waitFor();
+  const selector = dlg.getByLabel('Medio de pago');
+  ok(await selector.isVisible(), 'la ventana de edición tiene el selector "Medio de pago"');
+  ok((await selector.locator('option').allInnerTexts()).join('|') === 'Efectivo|Transferencia|USD efectivo|PayPal|Link de pago|Otros', 'con las opciones Efectivo, Transferencia, USD efectivo, PayPal, Link de pago y Otros');
+  ok((await selector.inputValue()) === '6', 'arranca en "Otros"');
+  ok(await enfocado(rec.page, 'habitacion'), 'el cursor sigue abriendo en Habitación (lo primero que se carga)');
+  await rec.page.keyboard.type('204', { delay: 700 });
+  await selector.selectOption({ label: 'Efectivo' });
+  ok((await selector.inputValue()) === '1' && (await dlg.getByLabel('Habitación').inputValue()) === '204', 'se escribe la habitación y se elige "Efectivo" en el selector');
+  await captura(rec.page, '40-recepcion-medio-de-pago');
+  await sinDesborde(rec.page, 'ventana de edición con el selector (celular)');
+  await rec.page.getByRole('button', { name: 'Guardar cambios' }).tap();
+  await dlg.waitFor({ state: 'hidden' });
+  await hasta(async () => /Efectivo/.test(await rec.page.locator('.planilla tbody tr').first().innerText()), 8000);
+  const fila1 = (await rec.page.locator('.planilla tbody tr').first().innerText()).replace(/\s+/g, ' ');
+  ok(/204/.test(fila1) && /Efectivo/.test(fila1), 'al guardar, la planilla muestra enseguida la habitación y el medio de pago: ' + fila1.slice(0, 40));
+  ok(await medioDe('Tres') === 'Efectivo', 'y quedó guardado en la base');
+  await captura(rec.page, '41-recepcion-planilla-medio-de-pago');
+
+  // ---- el dueño, en un celular
+  const adm = await contexto({ hasTouch: true, isMobile: true });
+  await entrarAdmin(adm.page, '#/admin/huespedes');
+  await adm.page.getByText('Medios de pago', { exact: false }).first().click();
+  await adm.page.locator('.medios .entrada').first().waitFor();
+  const nombres = () => adm.page.locator('.medios .entrada').evaluateAll((els) => els.map((e) => e.value));
+  ok((await nombres()).join('|') === 'Efectivo|Transferencia|USD efectivo|PayPal|Link de pago|Otros', 'el dueño ve la lista de medios de pago para editar');
+  ok(!(await adm.page.getByRole('button', { name: /Quitar Otros/ }).count()), '"Otros" no tiene botón para quitar');
+  ok(await adm.page.getByRole('button', { name: 'Guardar medios de pago' }).isDisabled(), 'sin cambios, el botón de guardar está apagado');
+  await sinDesborde(adm.page, 'panel de medios de pago (celular)');
+  await captura(adm.page, '42-admin-medios-de-pago', { fullPage: true });
+  // agregar escribiendo despacio
+  const nuevoCampo = adm.page.getByLabel('Agregar un medio de pago');
+  await nuevoCampo.tap();
+  await adm.page.keyboard.type('Tarjeta de crédito', { delay: 250 });
+  ok((await nuevoCampo.inputValue()) === 'Tarjeta de crédito', 'escribir despacio el nombre nuevo no pierde letras');
+  await adm.page.getByRole('button', { name: 'Agregar', exact: true }).tap();
+  ok((await nombres()).join('|') === 'Efectivo|Transferencia|USD efectivo|PayPal|Link de pago|Tarjeta de crédito|Otros', 'el nuevo aparece antes de "Otros", que sigue último');
+  // un nombre repetido se avisa
+  await nuevoCampo.fill('efectivo');
+  await adm.page.getByRole('button', { name: 'Agregar', exact: true }).tap();
+  ok(await adm.page.getByText('Ya hay un medio de pago con ese nombre').isVisible(), 'un nombre repetido se avisa (sin importar mayúsculas)');
+  await nuevoCampo.fill('');
+  // cambiar un nombre y quitar otro
+  const paypal = adm.page.locator('.medios .entrada').nth(3);
+  await paypal.fill('PayPal / MercadoPago');
+  await adm.page.getByRole('button', { name: 'Quitar Link de pago' }).tap();
+  ok((await nombres()).join('|') === 'Efectivo|Transferencia|USD efectivo|PayPal / MercadoPago|Tarjeta de crédito|Otros', 'cambiar un nombre y quitar "Link de pago" se ve al instante en la lista');
+  ok(await adm.page.locator('.medios-quitados li', { hasText: 'Link de pago' }).isVisible(), 'lo quitado queda en "Quitados" (con "Volver a poner")');
+  await paypal.fill('Efectivo');
+  ok(await adm.page.getByText('Ya hay otro medio de pago con ese nombre').isVisible() && await adm.page.getByRole('button', { name: 'Guardar medios de pago' }).isDisabled(), 'un nombre repetido en la lista apaga el guardado y lo explica');
+  await paypal.fill('PayPal / MercadoPago');
+  await captura(adm.page, '43-admin-medios-cambios', { fullPage: true });
+  if (CAPTURAS) await adm.page.locator('details.panel', { hasText: 'Agregar un medio de pago' }).screenshot({ path: path.join(CAPTURAS, '44-panel-medios-de-pago.png') });
+  await adm.page.getByRole('button', { name: 'Guardar medios de pago' }).tap();
+  await adm.page.getByText('Medios de pago guardados').waitFor();
+  const guardados = (await back.sql('select nombre, activo from private.medios_pago order by id')).map((m) => `${m.nombre}${m.activo ? '' : ' (quitado)'}`).join('|');
+  ok(guardados === 'Efectivo|Transferencia|USD efectivo|PayPal / MercadoPago|Link de pago (quitado)|Otros|Tarjeta de crédito', 'la base guarda los cambios: el quitado sigue existiendo, solo oculto: ' + guardados);
+  await sinDesborde(adm.page, 'panel de medios de pago con cambios (celular)');
+  ok(/Lo tiene 1 huésped\./.test(await adm.page.locator('.medios').innerText()), 'el panel informa cuántos huéspedes tiene cada medio ("Lo tiene 1 huésped.")');
+
+  // ---- recepción ve los cambios y los huéspedes no pierden nada
+  await rec.page.locator('.planilla tbody tr').nth(1).locator('.hab-boton').tap();
+  await dlg.waitFor();
+  await hasta(async () => (await dlg.getByLabel('Medio de pago').locator('option').allInnerTexts()).includes('Tarjeta de crédito'), 8000);
+  ok((await dlg.getByLabel('Medio de pago').locator('option').allInnerTexts()).join('|') === 'Efectivo|Transferencia|USD efectivo|PayPal / MercadoPago|Tarjeta de crédito|Otros', 'recepción ve la lista nueva (sin "Link de pago", con "Tarjeta de crédito") sin recargar');
+  await dlg.getByLabel('Medio de pago').selectOption({ label: 'Tarjeta de crédito' });
+  await rec.page.getByRole('button', { name: 'Guardar cambios' }).tap();
+  await dlg.waitFor({ state: 'hidden' });
+  await hasta(async () => (await medioDe('Dos')) === 'Tarjeta de crédito', 6000);
+  ok(await medioDe('Dos') === 'Tarjeta de crédito', 'recepción puede elegir el medio nuevo');
+
+  // un huésped con un medio que después se quitó lo sigue mostrando
+  await adm.page.goto(BASE + '#/admin/huespedes');
+  await adm.page.reload();
+  await adm.page.locator('.planilla tbody tr').first().waitFor();
+  await adm.page.getByText('Medios de pago', { exact: false }).first().click();
+  await back.sql(`update private.checkins set medio_pago_id = 5 where datos ->> 'apellido' = 'Uno'`);
+  await adm.page.getByRole('button', { name: 'Actualizar' }).tap();
+  await hasta(async () => /Link de pago/.test(await adm.page.locator('.planilla tbody').innerText()), 6000);
+  ok(/Link de pago/.test(await adm.page.locator('.planilla tbody').innerText()), 'un huésped que tenía un medio ya quitado lo sigue mostrando en la planilla');
+  await adm.page.locator('.planilla tbody tr', { hasText: 'Uno' }).locator('.hab-boton').tap();
+  const dlgA = adm.page.getByRole('dialog');
+  await dlgA.waitFor();
+  ok((await dlgA.getByLabel('Medio de pago').locator('option:checked').innerText()) === 'Link de pago (ya no se ofrece)', 'y al editarlo, el selector lo conserva marcado como "ya no se ofrece"');
+  await dlgA.getByLabel('Nombre', { exact: true }).fill('Anita');
+  await adm.page.getByRole('button', { name: 'Guardar cambios' }).tap();
+  await dlgA.waitFor({ state: 'hidden' });
+  ok(await medioDe('Uno') === 'Link de pago', 'guardar otro dato no le cambia el medio de pago');
+
+  // volver a poner
+  await adm.page.getByRole('button', { name: 'Volver a poner' }).first().tap();
+  await adm.page.getByRole('button', { name: 'Guardar medios de pago' }).tap();
+  await adm.page.getByText('Medios de pago guardados').waitFor();
+  ok((await sql1(`select activo from private.medios_pago where nombre = 'Link de pago'`)).activo === true, 'el dueño puede volver a poner un medio quitado');
+  ok((await sql1('select count(*)::int as n from private.checkins')).n === 3 && (await sql1('select count(*)::int as n from private.medios_pago')).n === 7, 'ningún huésped ni medio de pago se borró en todo el recorrido');
+  ok(rec.errores.length === 0 && adm.errores.length === 0, 'sin errores en la consola ' + [...rec.errores, ...adm.errores].join('|'));
+  await rec.ctx.close();
+  await adm.ctx.close();
 });
 
 await navegador.close();

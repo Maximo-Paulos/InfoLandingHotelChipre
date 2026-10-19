@@ -27,6 +27,7 @@ export default function Planilla({ filas, onEditar, restante, vacio = 'Todavía 
         <thead>
           <tr>
             <th className="fija" scope="col">Habitación</th>
+            <th scope="col">Medio de pago</th>
             <th scope="col">Cargado</th>
             <th scope="col">Apellido</th>
             <th scope="col">Nombre</th>
@@ -56,13 +57,14 @@ export default function Planilla({ filas, onEditar, restante, vacio = 'Todavía 
                     </button>
                   ) : (f.habitacion ? <b>{f.habitacion}</b> : <span className="pendiente">Sin asignar</span>)}
                 </th>
+                <td>{f.medio_pago ? <span className="pago">{f.medio_pago}</span> : <span className="muted">—</span>}</td>
                 <td>{fechaHora(f.creado)}</td>
                 <td>{d.apellido}</td>
                 <td>{d.nombre}</td>
                 <td><span className="doc-tipo">{d.doc_tipo}</span> {d.doc_numero}</td>
                 <td>{d.nacionalidad}</td>
                 <td>{d.localidad}</td>
-                <td>{d.domicilio}</td>
+                <td className="dom">{d.domicilio}</td>
                 <td>{d.email}</td>
                 <td className="nowrap">{tel(d.telefono)}</td>
                 <td>

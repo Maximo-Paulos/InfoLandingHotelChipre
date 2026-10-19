@@ -20,9 +20,14 @@ function NotaTiempo({ venceEn }) {
 
 // Edición de un huésped (recepción: dentro de la ventana de tiempo; admin: siempre).
 //   venceEn: hora (ms) hasta la que se puede editar, o null si no hay límite
-//   onGuardar(datos, habitacion) -> { ok, mensaje?, campos? }
-export default function EditarHuesped({ fila, venceEn = null, onGuardar, onCerrar }) {
-  const [valores, setValores] = useState(() => valoresDesdeDatos(fila.datos, fila.habitacion));
+//   medios: los medios de pago que se ofrecen hoy [{ id, nombre }] (null = todavía no se cargaron: no se pide)
+//   onGuardar(datos, habitacion, medioPago) -> { ok, mensaje?, campos? }
+export default function EditarHuesped({ fila, venceEn = null, medios = null, onGuardar, onCerrar }) {
+  const [valores, setValores] = useState(() => valoresDesdeDatos(fila.datos, fila.habitacion, fila.medio_pago_id));
+  // Opciones del selector: lo que se ofrece hoy + el medio que el huésped ya tiene, si después lo quitaron de la lista.
+  const opciones = medios && fila.medio_pago_id != null && !medios.some((m) => m.id === fila.medio_pago_id)
+    ? [...medios, { id: fila.medio_pago_id, nombre: `${fila.medio_pago ?? 'Otro'} (ya no se ofrece)` }]
+    : medios;
   const [errores, setErrores] = useState({});
   const [aviso, setAviso] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -70,6 +75,7 @@ export default function EditarHuesped({ fila, venceEn = null, onGuardar, onCerra
     let lib = null;
     try { lib = await cargarTelefono(); } catch { /* sin librería: no se puede validar el teléfono */ }
     const r = validarHuesped(valores, lib, { conHabitacion: true });
+    if (opciones && !opciones.some((m) => String(m.id) === String(valores.medio_pago))) r.errores.medio_pago = mensajeDe('medio_pago');
     if (Object.keys(r.errores).length) {
       setErrores(r.errores);
       setAviso('Revisá los campos marcados en rojo.');
@@ -78,7 +84,7 @@ export default function EditarHuesped({ fila, venceEn = null, onGuardar, onCerra
     }
     setGuardando(true);
     try {
-      const res = await onGuardar(r.datos, r.habitacion);
+      const res = await onGuardar(r.datos, r.habitacion, opciones ? Number(valores.medio_pago) : null);
       if (cerrado.current) return;
       if (res.ok) { onCerrar(true); return; }
       if (res.campos?.length) {
@@ -99,7 +105,7 @@ export default function EditarHuesped({ fila, venceEn = null, onGuardar, onCerra
     <Modal titulo={`Editar a ${nombre}`} onCerrar={() => onCerrar(false)}>
       {venceEn != null && <NotaTiempo venceEn={venceEn} />}
       <form onSubmit={guardar} noValidate ref={formulario}>
-        <FormHuesped valores={valores} errores={errores} onCambio={cambia} conHabitacion sugerencias={false} deshabilitado={guardando || vencido} />
+        <FormHuesped valores={valores} errores={errores} onCambio={cambia} conHabitacion sugerencias={false} medios={opciones} deshabilitado={guardando || vencido} />
         {aviso && <p className="ed-error" role="alert">{aviso}</p>}
         <div className="btns modal-pie">
           <button type="submit" className="btn" disabled={guardando || vencido}>{guardando ? 'Guardando…' : 'Guardar cambios'}</button>

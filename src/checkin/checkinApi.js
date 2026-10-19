@@ -14,8 +14,10 @@ export const enviarCheckin = (token, datos, idioma, acepta) =>
 export const recepcionEntrar = (clave) => rpc('recepcion_entrar', { p_clave: clave });
 export const recepcionEstado = (clave) => rpc('recepcion_estado', { p_clave: clave });
 export const recepcionCodigoNuevo = (clave) => rpc('recepcion_codigo_nuevo', { p_clave: clave });
-export const recepcionEditar = (clave, id, datos, habitacion) =>
-  rpc('recepcion_editar', { p_clave: clave, p_id: id, p_datos: datos, p_habitacion: habitacion || null });
+// El medio de pago (el id) viaja dentro de los datos; si no se manda, la base deja el que ya tenía.
+const conMedio = (datos, medioPago) => (medioPago ? { ...datos, medio_pago: medioPago } : datos);
+export const recepcionEditar = (clave, id, datos, habitacion, medioPago) =>
+  rpc('recepcion_editar', { p_clave: clave, p_id: id, p_datos: conMedio(datos, medioPago), p_habitacion: habitacion || null });
 
 // Admin general
 export const adminConfig = (clave) => rpc('admin_checkin_config', { p_clave: clave });
@@ -23,8 +25,11 @@ export const adminConfigGuardar = (clave, config) => rpc('admin_checkin_config_g
 export const adminClaveRecepcion = (clave, nueva) => rpc('admin_checkin_clave_recepcion', { p_clave: clave, p_nueva: nueva });
 export const adminHuespedes = (clave, buscar, limite = 50, antes = null) =>
   rpc('admin_huespedes', { p_clave: clave, p_buscar: buscar || null, p_limite: limite, p_antes: antes });
-export const adminHuespedEditar = (clave, id, datos, habitacion) =>
-  rpc('admin_huesped_editar', { p_clave: clave, p_id: id, p_datos: datos, p_habitacion: habitacion || null });
+export const adminHuespedEditar = (clave, id, datos, habitacion, medioPago) =>
+  rpc('admin_huesped_editar', { p_clave: clave, p_id: id, p_datos: conMedio(datos, medioPago), p_habitacion: habitacion || null });
+// Medios de pago que elige recepción: el dueño los ve todos (también los quitados) y guarda la lista completa.
+export const adminMediosPago = (clave) => rpc('admin_medios_pago', { p_clave: clave });
+export const adminMediosPagoGuardar = (clave, lista) => rpc('admin_medios_pago_guardar', { p_clave: clave, p_lista: lista });
 export const adminAuditoria = (clave, limite = 40) => rpc('admin_checkin_auditoria', { p_clave: clave, p_limite: limite });
 
 export const MENSAJES = {

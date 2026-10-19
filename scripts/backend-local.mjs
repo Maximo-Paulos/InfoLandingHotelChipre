@@ -27,7 +27,8 @@ async function crearBase() {
     grant usage on schema extensions to anon, authenticated;
   `);
   await db.exec(fs.readFileSync(raiz('supabase/schema.sql'), 'utf8'));
-  await db.exec(fs.readFileSync(raiz('supabase/checkin.sql'), 'utf8'));
+  // CHECKIN_SQL=archivo.sql prueba la guía contra otra versión del check-in (por ejemplo, la de antes del medio de pago).
+  await db.exec(fs.readFileSync(process.env.CHECKIN_SQL ? fileURLToPath(new URL(process.env.CHECKIN_SQL, `file://${process.cwd()}/`)) : raiz('supabase/checkin.sql'), 'utf8'));
   await db.query(`insert into private.admin (id, hash) values (1, extensions.crypt($1, extensions.gen_salt('bf')))`, [CLAVE_ADMIN]);
   // CONTENIDO_JSON=archivo.json arranca con el contenido de la guía real (sin los bloques nuevos), para probar con datos de verdad.
   const contenido = process.env.CONTENIDO_JSON ? JSON.parse(fs.readFileSync(process.env.CONTENIDO_JSON, 'utf8')) : hotel;
