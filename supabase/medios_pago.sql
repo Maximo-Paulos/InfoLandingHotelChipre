@@ -8,7 +8,7 @@
 --   * Ajusta 4 funciones (recepcion_estado, recepcion_editar, admin_huespedes, admin_huesped_editar) para mostrar y
 --     guardar el medio de pago. Siguen andando igual con la guía actual: si no mandan medio de pago, queda el que tiene.
 --   * Suma 2 funciones para que el dueño edite la lista (admin_medios_pago, admin_medios_pago_guardar).
---   * No borra nada: no hay ningún DELETE/DROP y los medios "quitados" solo se ocultan.
+--   * No borra nada: ningún dato se elimina y los medios "quitados" solo se ocultan.
 -- Se puede ejecutar más de una vez sin problema.
 
 -- ---------------------------------------------------------------- medios de pago
