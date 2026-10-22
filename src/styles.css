@@ -364,6 +364,22 @@ dd{margin:3px 0 0;font-size:15px;line-height:1.45}
 .medios-quitados li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--linea);font-size:15px}
 .medios-quitados li:last-child{border-bottom:0}
 .medios-quitados .btn.mini{flex:none;margin-top:0}
+/* fotos del documento que carga el dueño */
+.planilla .fotos-celda .ver-foto+.ver-foto{margin-left:10px}
+.planilla .foto-gestion{margin-left:8px}
+.fotos-sub{display:flex;align-items:center;gap:8px;margin:18px 0 0;font-size:16px}
+.foto-lista{margin:6px 0 0;padding:0;list-style:none}
+.foto-item{padding:10px 0;border-bottom:1px solid var(--linea)}
+.foto-item:last-child{border-bottom:0}
+.foto-fila{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px}
+.foto-datos{display:flex;flex-direction:column;gap:2px;min-width:0}
+.foto-acciones{display:flex;flex-wrap:wrap;gap:8px}
+.foto-fila .btn.mini,.foto-acciones .btn.mini{margin-top:0}
+.foto-confirma{margin-top:10px;padding:12px;border-radius:12px;background:var(--mostaza-claro)}
+.foto-confirma p{margin:0;font-size:14px;line-height:1.45}
+.foto-agregar{margin-top:18px;padding-top:14px;border-top:1px solid var(--linea)}
+.foto-agregar .fotos-sub{margin:0 0 10px}
+.foto-quitadas li{flex-wrap:wrap}
 .pasos-drive{margin:12px 0 0;padding-left:20px}
 .pasos-drive li{margin-bottom:18px;font-size:15px;line-height:1.5}
 .entrada{display:block;width:100%;max-width:560px;min-height:48px;margin-top:8px;padding:0 12px;border:1.5px solid rgba(34,51,42,.28);border-radius:10px;background:#fff;color:var(--texto);font:400 15px var(--sans)}

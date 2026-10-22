@@ -31,6 +31,9 @@ export function fechaHora(iso, zona = ZONA) {
 
 export const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Link para abrir un archivo de Drive (lo ve quien tenga acceso a la carpeta).
+export const urlDrive = (id) => `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`;
+
 // Lleva el foco al primer campo con error (después de que React dibuje los mensajes).
 export const enfocarPrimerError = (formulario) => {
   setTimeout(() => formulario?.querySelector?.('[aria-invalid="true"]')?.focus?.(), 0);

@@ -84,9 +84,14 @@ async function sinDesborde(page, donde) {
 // ¿Está el cursor en el campo con ese nombre? (si se escapa, en el celular se baja el teclado)
 const enfocado = (page, nombre) => page.evaluate((n) => document.activeElement?.name === n, nombre);
 // Carga un huésped por la base, como si hubiera completado el formulario (para no repetir la pantalla en cada prueba).
-async function huespedPorApi(datos = {}) {
+async function huespedPorApi(datos = {}, { conFoto = false } = {}) {
   const est = await back.llamar('recepcion_estado', { p_clave: CLAVE_RECEPCION });
   const ses = await back.llamar('checkin_canjear', { p_codigo: String(est.codigo.valor) }, '198.51.100.99');
+  if (conFoto) {
+    const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 7)]).toString('base64'); // lo que revisa el script es la firma del archivo
+    const r = await fetch(`${back.url}/apps-script/exec`, { method: 'POST', body: JSON.stringify({ ticket: ses.foto.ticket, nombre: datos.nombre ?? 'Ana María', apellido: datos.apellido ?? 'Pérez García', imagen: jpg }) }).then((x) => x.json());
+    if (!r.ok) throw new Error('no se pudo subir la foto del huésped: ' + JSON.stringify(r));
+  }
   const env = await back.llamar('checkin_enviar', { p_token: ses.token, p_idioma: 'es', p_acepta: true, p_datos: { nombre: 'Ana María', apellido: 'Pérez García', email: 'ana@correo.com', telefono: '+541155551234', nacionalidad: 'Argentina', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: '30123456', ...datos } }, '198.51.100.99');
   if (!env.ok) throw new Error('no se pudo cargar el huésped: ' + JSON.stringify(env));
 }
@@ -636,7 +641,7 @@ await seccion('9. Seguridad de la base', async () => {
   ok(/permission denied/.test(await intento('select private.codigo_vigente()') ?? ''), 'ni llamar a las funciones internas');
   ok(/permission denied/.test(await intento(`update private.checkins set habitacion = 'x'`) ?? ''), 'ni modificar nada');
   const publicas = await back.sql(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and has_function_privilege('anon', p.oid, 'execute') order by 1`);
-  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'verificar_clave'];
+  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_foto_permiso', 'admin_foto_quitar', 'admin_fotos', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'verificar_clave'];
   ok(JSON.stringify(publicas.map((p) => p.proname)) === JSON.stringify(esperadas), 'las únicas funciones que puede llamar un anónimo son las previstas (' + publicas.length + ')');
   // todas las funciones expuestas rechazan claves malas
   for (const [fn, args] of [['admin_huespedes', { p_clave: 'x' }], ['admin_checkin_config', { p_clave: 'x' }], ['recepcion_estado', { p_clave: 'x' }], ['admin_checkin_auditoria', { p_clave: 'x' }]]) {
@@ -884,6 +889,137 @@ await seccion('12. Planilla del admin: «Cargar más» muestra a todos los hués
   a = await apellidos();
   ok(a.length === 120 && new Set(a).size === 120, 'y después se puede seguir cargando hasta el final');
   ok((await sql1('select count(*)::int as n from private.checkins')).n === 120, 'no se borró ni se duplicó ningún huésped');
+  ok(adm.errores.length === 0, 'sin errores en la consola ' + adm.errores.join('|'));
+  await adm.ctx.close();
+});
+
+await seccion('13. Fotos del documento: el dueño las carga a mano, agrega otra y quita la que no se ve', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  // Ana mandó su foto al hacer el check-in; Beto no (la foto era opcional y se la salteó)
+  await huespedPorApi({ nombre: 'Ana', apellido: 'Uno', doc_numero: '30000001' }, { conFoto: true });
+  await huespedPorApi({ nombre: 'Beto', apellido: 'Dos', doc_numero: '30000002' });
+  const drive = async () => (await fetch(`${back.url}/__test/drive`).then((x) => x.json())).filter((a) => a.mime === 'image/jpeg');
+  const fotosDeBeto = () => back.sql(`select f.id, f.foto_id, f.nombre, f.origen, f.activa from private.checkin_fotos f join private.checkins k on k.id = f.checkin_id where k.datos ->> 'nombre' = 'Beto' order by f.id`);
+  ok((await drive()).length === 1, 'arranca con una sola foto en Drive: la que mandó Ana');
+
+  const adm = await contexto({ hasTouch: true, isMobile: true });
+  await entrarAdmin(adm.page, '#/admin/huespedes');
+  await adm.page.locator('.planilla tbody tr').nth(1).waitFor();
+  const filaDe = (nombre) => adm.page.locator('.planilla tbody tr', { hasText: nombre });
+  ok((await filaDe('Ana').locator('.ver-foto').count()) === 1 && (await filaDe('Ana').locator('.ver-foto').innerText()).trim() === 'Ver', 'en la planilla, Ana tiene su foto ("Ver")');
+  ok(await filaDe('Ana').getByRole('button', { name: 'Fotos de Uno Ana' }).isVisible(), 'y un botón "Fotos" para verlas o agregar otra');
+  ok((await filaDe('Beto').locator('.ver-foto').count()) === 0 && await filaDe('Beto').getByRole('button', { name: 'Agregar foto de Dos Beto' }).isVisible(), 'Beto no tiene foto: figura sin foto y con el botón "Agregar foto"');
+  await sinDesborde(adm.page, 'admin: planilla con el botón de fotos (celular)');
+
+  // ---- agregar la foto que Beto no mandó
+  await filaDe('Beto').getByRole('button', { name: 'Agregar foto de Dos Beto' }).tap();
+  const dlg = adm.page.getByRole('dialog', { name: 'Fotos de Beto Dos' });
+  await dlg.waitFor();
+  await dlg.getByText('Este huésped no tiene ninguna foto cargada.').waitFor();
+  ok(await dlg.getByRole('button', { name: /Sacar foto/ }).isEnabled() && await dlg.getByRole('button', { name: /Elegir de la galería/ }).isEnabled(), 'el dueño ve "Sacar foto" y "Elegir de la galería"');
+  ok(!(await dlg.getByRole('button', { name: 'Subir esta foto' }).count()), 'y todavía no hay nada para subir');
+  ok((await dlg.locator('input[type=file]:visible').count()) === 0, 'los selectores de archivo del navegador quedan ocultos');
+  await captura(adm.page, '45-admin-fotos-sin-foto');
+  await dlg.locator('input[type=file]').nth(1).setInputFiles({ name: 'cosa.txt', mimeType: 'text/plain', buffer: Buffer.from('hola') });
+  await dlg.getByText(/No pudimos usar ese archivo/).waitFor();
+  ok(true, 'un archivo que no es una imagen se rechaza');
+  const b64 = await jpegBase64(adm.page);
+  await dlg.locator('input[type=file]').nth(1).setInputFiles({ name: 'dni-que-saco-recepcion.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(b64, 'base64') });
+  await dlg.locator('.foto-prev').waitFor();
+  ok(await dlg.getByRole('button', { name: 'Subir esta foto' }).isVisible() && await dlg.getByRole('button', { name: 'Descartar' }).isVisible(), 'la foto elegida se ve en una vista previa, con "Subir esta foto" y "Descartar"');
+  await captura(adm.page, '46-admin-fotos-elegida');
+  await dlg.getByRole('button', { name: 'Descartar' }).tap();
+  ok(!(await dlg.locator('.foto-prev').count()), '"Descartar" la saca sin subir nada');
+  ok((await drive()).length === 1 && (await fotosDeBeto()).length === 0, 'y no se guardó nada');
+  await dlg.locator('input[type=file]').nth(1).setInputFiles({ name: 'dni.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(b64, 'base64') });
+  await dlg.locator('.foto-prev').waitFor();
+  await dlg.getByRole('button', { name: 'Subir esta foto' }).tap();
+  await dlg.getByText('Foto agregada.').waitFor({ timeout: 15000 });
+  ok(true, 'el dueño sube la foto y la ventana avisa "Foto agregada."');
+  ok(await dlg.getByText('Foto 1', { exact: true }).isVisible() && await dlg.getByText(/La cargó el dueño/).isVisible(), 'queda en la lista como "Foto 1", cargada por el dueño');
+  const d1 = await drive();
+  let fb = await fotosDeBeto();
+  ok(d1.length === 2 && /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}_Dos_Beto\.jpg$/.test(d1[1].nombre) && d1[1].bytes < 900 * 1024, 'el archivo quedó en la carpeta de Drive con el nombre de siempre (' + d1[1]?.nombre + ', ' + Math.round(d1[1].bytes / 1024) + ' KB)');
+  ok(fb.length === 1 && fb[0].origen === 'admin' && fb[0].activa === true && fb[0].foto_id === d1[1].id, 'y en la base solo quedan el id y el nombre del archivo, marcada como cargada por el dueño');
+  await dlg.locator('.modal-pie').getByRole('button', { name: 'Cerrar' }).tap();
+  await dlg.waitFor({ state: 'hidden' });
+  await hasta(async () => (await filaDe('Beto').locator('.ver-foto').count()) === 1, 8000);
+  ok((await filaDe('Beto').locator('.ver-foto').getAttribute('href')) === `https://drive.google.com/file/d/${d1[1].id}/view` && await filaDe('Beto').getByRole('button', { name: 'Fotos de Dos Beto' }).isVisible(), 'al cerrar, la planilla ya muestra el link "Ver" que abre esa foto en Drive');
+
+  // ---- otra foto al mismo huésped (por si la primera no se ve)
+  await filaDe('Beto').getByRole('button', { name: 'Fotos de Dos Beto' }).tap();
+  await dlg.waitFor();
+  await dlg.getByText('Foto 1', { exact: true }).waitFor();
+  await dlg.getByRole('heading', { name: 'Agregar otra foto' }).waitFor();
+  await dlg.locator('input[type=file]').nth(0).setInputFiles({ name: 'camara.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(b64, 'base64') });
+  await dlg.locator('.foto-prev').waitFor();
+  await dlg.getByRole('button', { name: 'Subir esta foto' }).tap();
+  await dlg.getByText('Foto 2', { exact: true }).waitFor({ timeout: 15000 });
+  fb = await fotosDeBeto();
+  ok(fb.length === 2 && fb.every((f) => f.activa) && (await drive()).length === 3, 'el dueño agrega otra foto al mismo huésped: ahora tiene dos (y hay 3 archivos en Drive)');
+  await sinDesborde(adm.page, 'admin: ventana de fotos (celular)');
+
+  // ---- quitar la que no se ve: se oculta, no se borra
+  const archivosAntes = (await drive()).length;
+  const filasAntes = (await sql1('select count(*)::int as n from private.checkin_fotos')).n;
+  await dlg.getByRole('button', { name: 'Quitar la foto 1' }).tap();
+  await dlg.getByText(/¿Quitar esta foto de la lista\?/).waitFor();
+  ok(true, 'al tocar "Quitar" pregunta antes: no se borra de tu Drive y se puede volver a poner');
+  await dlg.getByRole('button', { name: 'No', exact: true }).tap();
+  ok(!(await dlg.getByText(/¿Quitar esta foto de la lista\?/).count()) && (await fotosDeBeto()).every((f) => f.activa), 'si toca "No", no pasa nada');
+  await dlg.getByRole('button', { name: 'Quitar la foto 1' }).tap();
+  await dlg.getByRole('button', { name: 'Sí, quitar' }).tap();
+  await dlg.getByText('Foto quitada de la lista. Sigue en tu Drive.').waitFor();
+  await dlg.getByRole('heading', { name: 'Quitadas' }).waitFor();
+  fb = await fotosDeBeto();
+  ok(fb.length === 2 && fb[0].activa === false && fb[1].activa === true, 'la foto 1 pasa a "Quitadas" y la otra sigue activa');
+  ok((await drive()).length === archivosAntes && (await sql1('select count(*)::int as n from private.checkin_fotos')).n === filasAntes, 'NO se borró nada: el archivo sigue en Drive y la fila sigue en la base');
+  await captura(adm.page, '47-admin-fotos-quitada');
+  await dlg.locator('.modal-pie').getByRole('button', { name: 'Cerrar' }).tap();
+  await dlg.waitFor({ state: 'hidden' });
+  await hasta(async () => (await filaDe('Beto').locator('.ver-foto').count()) === 1, 8000);
+  ok((await filaDe('Beto').locator('.ver-foto').innerText()).trim() === 'Ver' && (await filaDe('Beto').locator('.ver-foto').getAttribute('href')).endsWith(`${fb[1].foto_id}/view`), 'la planilla muestra solo la que quedó activa');
+
+  // ---- volver a poner
+  await filaDe('Beto').getByRole('button', { name: 'Fotos de Dos Beto' }).tap();
+  await dlg.waitFor();
+  await dlg.getByRole('button', { name: 'Volver a poner' }).tap();
+  await dlg.getByText('Foto puesta de nuevo.').waitFor();
+  ok(!(await dlg.getByRole('heading', { name: 'Quitadas' }).count()) && (await fotosDeBeto()).every((f) => f.activa), 'el dueño puede volver a poner la foto quitada');
+  await dlg.locator('.modal-pie').getByRole('button', { name: 'Cerrar' }).tap();
+  await dlg.waitFor({ state: 'hidden' });
+  await hasta(async () => (await filaDe('Beto').locator('.ver-foto').count()) === 2, 8000);
+  ok((await filaDe('Beto').locator('.ver-foto').allInnerTexts()).map((t) => t.trim()).join('|') === 'Ver 1|Ver 2', 'con dos fotos, la planilla muestra "Ver 1" y "Ver 2"');
+  await captura(adm.page, '49-admin-planilla-dos-fotos');
+
+  // ---- recepción solo las ve
+  const rec = await contexto({ hasTouch: true, isMobile: true });
+  await recepcionLogin(rec.page);
+  await rec.page.locator('.planilla tbody tr').nth(1).waitFor();
+  const recBeto = rec.page.locator('.planilla tbody tr', { hasText: 'Beto' });
+  ok((await recBeto.locator('.ver-foto').allInnerTexts()).map((t) => t.trim()).join('|') === 'Ver 1|Ver 2', 'recepción ve las dos fotos de Beto (para consultarlas)');
+  ok((await rec.page.getByRole('button', { name: /Agregar foto|Fotos de/ }).count()) === 0, 'pero no tiene botones para agregar ni quitar fotos');
+  await rec.ctx.close();
+
+  // ---- el historial de cambios
+  await adm.page.getByText('Historial de cambios').tap();
+  await adm.page.locator('.historial li').first().waitFor();
+  const historial = await adm.page.locator('.historial').innerText();
+  ok(/agregó una foto/.test(historial) && /quitó una foto/.test(historial) && /volvió a poner una foto/.test(historial), 'queda en el historial de cambios: agregó, quitó y volvió a poner una foto');
+  ok(!/Dos_Beto/.test(historial), 'sin el nombre del archivo (lleva el nombre del huésped)');
+
+  // ---- sin Drive conectado
+  await configurar({ foto_url: null });
+  await filaDe('Ana').getByRole('button', { name: 'Fotos de Uno Ana' }).tap();
+  const dlgAna = adm.page.getByRole('dialog', { name: 'Fotos de Ana Uno' });
+  await dlgAna.waitFor();
+  await dlgAna.getByText(/primero hay que conectar Drive/).waitFor();
+  ok(await dlgAna.getByText('Foto 1', { exact: true }).isVisible() && await dlgAna.getByRole('button', { name: /Sacar foto/ }).isDisabled() && await dlgAna.getByRole('button', { name: /Elegir de la galería/ }).isDisabled(), 'sin Drive conectado se siguen viendo las fotos, pero no se puede subir (y avisa por qué)');
+  await dlgAna.locator('.modal-pie').getByRole('button', { name: 'Cerrar' }).tap();
+
+  ok((await sql1('select count(*)::int as n from private.checkins')).n === 2 && (await sql1('select count(*)::int as n from private.checkin_fotos')).n === 3, 'no se borró ningún huésped ni ninguna foto en todo el recorrido');
   ok(adm.errores.length === 0, 'sin errores en la consola ' + adm.errores.join('|'));
   await adm.ctx.close();
 });

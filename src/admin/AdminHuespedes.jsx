@@ -4,6 +4,7 @@ import { adminAuditoria, adminHuespedEditar, adminHuespedes, adminMediosPago, te
 import EditarHuesped from '../checkin/EditarHuesped.jsx';
 import Planilla from '../checkin/Planilla.jsx';
 import { fechaHora } from '../checkin/util.js';
+import FotosHuesped from './FotosHuesped.jsx';
 import { ConectarDrive, ConfigCheckin, useConfigCheckin } from './PanelCheckin.jsx';
 import PanelMediosPago from './PanelMediosPago.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
@@ -27,6 +28,7 @@ function Contenido({ clave, salir }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [editando, setEditando] = useState(null);
+  const [fotosDe, setFotosDe] = useState(null); // el huésped cuyas fotos se están viendo
   const [aviso, setAviso] = useState('');
   const [medios, setMedios] = useState(null); // todos los medios de pago (también los quitados); null = todavía no cargaron
   const pedido = useRef(0);
@@ -79,6 +81,9 @@ function Contenido({ clave, salir }) {
     return () => clearTimeout(t);
   }, [escrito]);
 
+  // Si la base todavía no tiene la lista de fotos de cada huésped, la planilla sigue andando sin el botón de fotos.
+  const fotosListas = filas.some((f) => Array.isArray(f.fotos));
+
   const guardar = async (datos, habitacion, medioPago) => {
     const r = await adminHuespedEditar(clave, editando.id, datos, habitacion, medioPago);
     if (r.ok) return { ok: true };
@@ -115,7 +120,7 @@ function Contenido({ clave, salir }) {
         {aviso && <p className="ed-ok" role="status">{aviso}</p>}
         {error && <p className="ed-error" role="alert">{error}</p>}
         {cargando && !filas.length ? <p className="intro" role="status">Cargando…</p> : (
-          <Planilla filas={filas} onEditar={(f) => { setAviso(''); setEditando(f); }} vacio={busqueda ? 'No hay huéspedes que coincidan con la búsqueda.' : 'Todavía no hay huéspedes cargados.'} />
+          <Planilla filas={filas} onEditar={(f) => { setAviso(''); setEditando(f); }} onFotos={fotosListas ? (f) => { setAviso(''); setFotosDe(f); } : undefined} vacio={busqueda ? 'No hay huéspedes que coincidan con la búsqueda.' : 'Todavía no hay huéspedes cargados.'} />
         )}
         {filas.length > 0 && <p className="ayuda" role="status">Mostrando {filas.length} {filas.length === 1 ? 'huésped' : 'huéspedes'}{hayMas ? '. Tocá «Cargar más» para ver a los anteriores.' : '.'}</p>}
         {hayMas && <div className="btns"><button type="button" className="btn claro" onClick={() => cargar('mas')} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar más'}</button></div>}
@@ -131,11 +136,12 @@ function Contenido({ clave, salir }) {
           onCerrar={(guardado) => { setEditando(null); if (guardado) { setAviso('Cambios guardados.'); cargar('refrescar'); } }}
         />
       )}
+      {fotosDe && <FotosHuesped clave={clave} fila={fotosDe} onCerrar={() => setFotosDe(null)} alCambiar={() => cargar('refrescar')} />}
     </div>
   );
 }
 
-const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', medios_pago: 'cambió los medios de pago' };
+const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
 const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación', medio_pago: 'medio de pago' };
 
 // Quién cambió qué y cuándo (no guarda los valores, solo los nombres de los campos).
