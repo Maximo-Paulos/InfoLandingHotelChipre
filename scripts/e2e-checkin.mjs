@@ -810,6 +810,84 @@ await seccion('11. Medio de pago: recepción lo elige y el dueño edita la lista
   await adm.ctx.close();
 });
 
+await seccion('12. Planilla del admin: «Cargar más» muestra a todos los huéspedes, del más nuevo al más viejo', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20 });
+  // 120 huéspedes ya cargados (la planilla muestra de a 50)
+  await back.sql(`insert into private.checkins (grupo, idioma, datos, consentimiento)
+    select 1, 'es', jsonb_build_object('nombre', 'Nombre' || g, 'apellido', 'Apellido' || lpad(g::text, 3, '0'), 'email', 'h' || g || '@correo.com', 'telefono', '+541155551234', 'nacionalidad', 'Argentina', 'localidad', 'Capital Federal', 'domicilio', 'Calle ' || g, 'doc_tipo', 'DNI', 'doc_numero', (30000000 + g)::text), '{"aceptado":true}'::jsonb
+      from generate_series(1, 120) g`);
+  const adm = await contexto({ hasTouch: true, isMobile: true });
+  await entrarAdmin(adm.page, '#/admin/huespedes');
+  const filas = () => adm.page.locator('.planilla tbody tr');
+  const apellidos = () => adm.page.evaluate(() => [...document.querySelectorAll('.planilla tbody tr')].map((tr) => tr.querySelectorAll('td')[2]?.innerText.trim()));
+  const botonMas = adm.page.getByRole('button', { name: 'Cargar más' });
+  const todos = async () => adm.page.locator('main').innerText();
+  await filas().nth(49).waitFor();
+  ok((await filas().count()) === 50 && await botonMas.isVisible(), 'la planilla arranca con los 50 más nuevos y el botón "Cargar más"');
+  let a = await apellidos();
+  ok(a[0] === 'Apellido120' && a[49] === 'Apellido071', 'del más nuevo (120) al 71');
+
+  await botonMas.tap();
+  await hasta(async () => (await filas().count()) >= 100, 8000);
+  a = await apellidos();
+  ok(a.length === 100 && new Set(a).size === 100, `"Cargar más" suma los 50 siguientes sin repetir a nadie (${a.length} filas, ${new Set(a).size} distintos)`);
+  ok(a[50] === 'Apellido070' && a[99] === 'Apellido021', 'y sigue justo donde terminaba la lista (del 70 al 21)');
+  await botonMas.scrollIntoViewIfNeeded();
+  await captura(adm.page, '48-admin-cargar-mas');
+  await botonMas.tap();
+  await hasta(async () => (await filas().count()) >= 120, 8000);
+  a = await apellidos();
+  ok(a.length === 120 && new Set(a).size === 120 && a[119] === 'Apellido001', `otra vez trae los 20 que faltan: se ven los 120 y el último es el más viejo (${a.length} filas, ${new Set(a).size} distintos)`);
+  ok(!(await botonMas.isVisible().catch(() => false)), 'y el botón desaparece cuando ya se ve a todos');
+  ok(/Mostrando 120 huéspedes/.test(await todos()), 'la pantalla dice cuántos se ven ("Mostrando 120 huéspedes")');
+  await sinDesborde(adm.page, 'admin: planilla con todos los huéspedes (celular)');
+
+  // con una búsqueda también: filtra y "Cargar más" sigue desde donde corresponde
+  await adm.page.locator('#buscar').fill('Capital');
+  await hasta(async () => (await filas().count()) === 50 && await botonMas.isVisible().catch(() => false), 8000);
+  ok((await filas().count()) === 50 && await botonMas.isVisible(), 'al buscar, la lista vuelve a los primeros 50 de la búsqueda');
+  await botonMas.tap();
+  await hasta(async () => (await filas().count()) >= 100, 8000);
+  await botonMas.tap();
+  await hasta(async () => (await filas().count()) >= 120, 8000);
+  a = await apellidos();
+  ok(a.length === 120 && new Set(a).size === 120 && a[0] === 'Apellido120' && a[119] === 'Apellido001', 'con la búsqueda, "Cargar más" también llega a los 120 sin repetir');
+  await adm.page.locator('#buscar').fill('Apellido05');
+  await hasta(async () => (await filas().count()) === 10, 8000);
+  a = await apellidos();
+  ok(a.length === 10 && a[0] === 'Apellido059' && a[9] === 'Apellido050' && !(await botonMas.isVisible().catch(() => false)), 'una búsqueda con pocos resultados no muestra "Cargar más"');
+  await adm.page.locator('#buscar').fill('');
+  await hasta(async () => (await filas().count()) === 50, 8000);
+
+  // "Actualizar" y guardar un cambio no mandan al principio a quien ya cargó más
+  await botonMas.tap();
+  await hasta(async () => (await filas().count()) >= 100, 8000);
+  // (el formulario de edición no acepta números en el nombre: se le pone uno válido a este huésped, que está en la segunda tanda)
+  await back.sql(`update private.checkins set habitacion = '999', datos = datos || '{"nombre":"Beto","apellido":"Segunda Tanda"}'::jsonb where datos ->> 'apellido' = 'Apellido070'`);
+  await adm.page.getByRole('button', { name: 'Actualizar' }).tap();
+  const fila70 = adm.page.locator('.planilla tbody tr', { hasText: 'Segunda Tanda' });
+  await hasta(async () => /999/.test(await fila70.innerText().catch(() => '')), 8000);
+  a = await apellidos();
+  ok(/999/.test(await fila70.innerText()) && a.length === 100 && new Set(a).size === 100, `"Actualizar" refresca lo que ya se ve y no vuelve a los primeros 50 (${a.length} filas)`);
+  await fila70.locator('.hab-boton').tap();
+  const dlg = adm.page.getByRole('dialog');
+  await dlg.waitFor();
+  await dlg.getByLabel('Habitación').fill('777');
+  await adm.page.getByRole('button', { name: 'Guardar cambios' }).tap();
+  await dlg.waitFor({ state: 'hidden' });
+  await hasta(async () => /777/.test(await fila70.innerText().catch(() => '')), 8000);
+  a = await apellidos();
+  ok(/777/.test(await fila70.innerText()) && a.length === 100, `al guardar un cambio de alguien de la segunda tanda, la lista no vuelve al principio (${a.length} filas)`);
+  await botonMas.tap();
+  await hasta(async () => (await filas().count()) >= 120, 8000);
+  a = await apellidos();
+  ok(a.length === 120 && new Set(a).size === 120, 'y después se puede seguir cargando hasta el final');
+  ok((await sql1('select count(*)::int as n from private.checkins')).n === 120, 'no se borró ni se duplicó ningún huésped');
+  ok(adm.errores.length === 0, 'sin errores en la consola ' + adm.errores.join('|'));
+  await adm.ctx.close();
+});
+
 await navegador.close();
 web.close();
 await back.cerrar();

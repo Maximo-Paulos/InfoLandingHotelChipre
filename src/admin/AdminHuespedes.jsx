@@ -9,6 +9,7 @@ import PanelMediosPago from './PanelMediosPago.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
 
 const POR_PAGINA = 50;
+const MAX_PEDIDO = 200; // lo máximo que la base entrega de una vez
 
 // Huéspedes (todos), configuración del check-in y conexión con Drive.
 export default function AdminHuespedes() {
@@ -29,6 +30,7 @@ function Contenido({ clave, salir }) {
   const [aviso, setAviso] = useState('');
   const [medios, setMedios] = useState(null); // todos los medios de pago (también los quitados); null = todavía no cargaron
   const pedido = useRef(0);
+  const filasRef = useRef([]); // lo que se ve ahora: de acá sale desde qué huésped seguir al tocar "Cargar más"
 
   // Si la base todavía no tiene los medios de pago, la pantalla sigue andando sin ellos.
   useEffect(() => {
@@ -37,32 +39,41 @@ function Contenido({ clave, salir }) {
     return () => { vivo = false; };
   }, [clave]);
 
-  const cargar = useCallback(async (mas = false) => {
+  // modo: 'inicio' = los primeros 50 (al entrar o al cambiar la búsqueda) · 'mas' = los 50 que siguen a los que ya se ven
+  //       · 'refrescar' = vuelve a pedir lo que ya se ve (después de guardar un cambio), sin mandar al principio.
+  // Lo que se ve se lee de filasRef y no de `filas`: esta función se guarda entre dibujos y `filas` quedaría con el valor del
+  // primer dibujo (vacío), y "Cargar más" volvería a pedir siempre los primeros 50.
+  const cargar = useCallback(async (modo = 'inicio') => {
     const n = ++pedido.current;
     setCargando(true);
     setError('');
     try {
-      const antes = mas && filas.length ? filas[filas.length - 1].id : null;
-      const r = await adminHuespedes(clave, busqueda, POR_PAGINA, antes);
+      const vistas = filasRef.current;
+      const antes = modo === 'mas' && vistas.length ? vistas[vistas.length - 1].id : null;
+      const limite = modo === 'refrescar' ? Math.min(MAX_PEDIDO, Math.max(POR_PAGINA, vistas.length)) : POR_PAGINA;
+      const r = await adminHuespedes(clave, busqueda, limite, antes);
       if (n !== pedido.current) return;
       if (!r.ok) {
         if (r.error === 'clave_incorrecta') { salir(); return; }
         setError(textoCodigo(r.error));
         return;
       }
-      setFilas((actual) => (mas ? [...actual, ...r.huespedes] : r.huespedes));
+      // Cada tanda sigue donde terminó la anterior; si alguien ya está en la lista no se repite.
+      const base = modo === 'mas' ? vistas : [];
+      const ya = new Set(base.map((h) => h.id));
+      const lista = [...base, ...r.huespedes.filter((h) => !ya.has(h.id))];
+      filasRef.current = lista;
+      setFilas(lista);
       setHayMas(!!r.hay_mas);
     } catch {
       if (n === pedido.current) setError('No se pudo conectar. Revisá tu conexión.');
     } finally {
       if (n === pedido.current) setCargando(false);
     }
-    // `filas` solo se usa para saber desde dónde seguir.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clave, busqueda, salir]);
 
   // Carga al entrar y cada vez que cambia la búsqueda.
-  useEffect(() => { cargar(false); }, [busqueda]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { cargar('inicio'); }, [busqueda]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const t = setTimeout(() => setBusqueda(escrito.trim()), 350);
     return () => clearTimeout(t);
@@ -90,12 +101,12 @@ function Contenido({ clave, salir }) {
 
         {errorConfig && <p className="ed-error" role="alert">{errorConfig}</p>}
         <ConfigCheckin clave={clave} config={config} recargar={recargar} />
-        <PanelMediosPago clave={clave} medios={medios} alGuardar={(lista) => { setMedios(lista); cargar(false); }} />
+        <PanelMediosPago clave={clave} medios={medios} alGuardar={(lista) => { setMedios(lista); cargar('refrescar'); }} />
         <ConectarDrive clave={clave} config={config} recargar={recargar} />
 
         <div className="head-row">
           <h2>Todos los huéspedes</h2>
-          <button type="button" className="btn mini claro" onClick={() => cargar(false)} disabled={cargando}><Icon name="refrescar" size={16} sw={1.8} /> Actualizar</button>
+          <button type="button" className="btn mini claro" onClick={() => cargar('refrescar')} disabled={cargando}><Icon name="refrescar" size={16} sw={1.8} /> Actualizar</button>
         </div>
         <div className="campo buscador">
           <label htmlFor="buscar">Buscar por nombre, documento, email, teléfono, localidad o habitación</label>
@@ -106,7 +117,8 @@ function Contenido({ clave, salir }) {
         {cargando && !filas.length ? <p className="intro" role="status">Cargando…</p> : (
           <Planilla filas={filas} onEditar={(f) => { setAviso(''); setEditando(f); }} vacio={busqueda ? 'No hay huéspedes que coincidan con la búsqueda.' : 'Todavía no hay huéspedes cargados.'} />
         )}
-        {hayMas && <div className="btns"><button type="button" className="btn claro" onClick={() => cargar(true)} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar más'}</button></div>}
+        {filas.length > 0 && <p className="ayuda" role="status">Mostrando {filas.length} {filas.length === 1 ? 'huésped' : 'huéspedes'}{hayMas ? '. Tocá «Cargar más» para ver a los anteriores.' : '.'}</p>}
+        {hayMas && <div className="btns"><button type="button" className="btn claro" onClick={() => cargar('mas')} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar más'}</button></div>}
 
         <Historial clave={clave} />
       </main>
@@ -116,7 +128,7 @@ function Contenido({ clave, salir }) {
           fila={editando}
           medios={medios ? medios.filter((m) => m.activo).map(({ id, nombre }) => ({ id, nombre })) : null}
           onGuardar={guardar}
-          onCerrar={(guardado) => { setEditando(null); if (guardado) { setAviso('Cambios guardados.'); cargar(false); } }}
+          onCerrar={(guardado) => { setEditando(null); if (guardado) { setAviso('Cambios guardados.'); cargar('refrescar'); } }}
         />
       )}
     </div>

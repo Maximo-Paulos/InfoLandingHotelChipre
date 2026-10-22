@@ -103,6 +103,7 @@ Pruebas automáticas (no usan la base real):
 - `node scripts/test-apps-script.mjs`: la lógica del script de Google con un Drive simulado.
 - `node scripts/test-frenos.mjs`: los frenos de intentos (claves y código de 6 números) cuentan por la IP real y no se esquivan escribiendo un `X-Forwarded-For` falso.
 - `node scripts/test-medios-pago.mjs`: arma una base como la de producción con huéspedes ya cargados, le aplica `supabase/medios_pago.sql` y comprueba que no se pierde nada (quedan en «Otros»), que se puede repetir y que queda idéntica a una base nueva; además prueba elegir, agregar, renombrar, quitar y volver a poner medios de pago.
+- `node scripts/test-paginacion.mjs`: la lista de huéspedes del admin se pide de a 50 («Cargar más»): con 120 huéspedes comprueba que cada tanda sigue justo donde terminó la anterior, sin repetir ni saltear a nadie, también con búsqueda. La pantalla se prueba en la sección 12 del punta a punta.
 - `node scripts/e2e-checkin.mjs`: punta a punta con navegador (huésped y recepción a la vez). Requiere Playwright (`npm i -D playwright`) y Chromium; `CAPTURAS=carpeta` guarda capturas de cada pantalla.
 
 ## Probarlo en tu laptop
