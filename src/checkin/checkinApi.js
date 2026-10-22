@@ -31,6 +31,11 @@ export const adminHuespedEditar = (clave, id, datos, habitacion, medioPago) =>
 export const adminMediosPago = (clave) => rpc('admin_medios_pago', { p_clave: clave });
 export const adminMediosPagoGuardar = (clave, lista) => rpc('admin_medios_pago_guardar', { p_clave: clave, p_lista: lista });
 export const adminAuditoria = (clave, limite = 40) => rpc('admin_checkin_auditoria', { p_clave: clave, p_limite: limite });
+// Fotos del documento: el dueño ve todas las de un huésped (también las quitadas), pide permiso para subir una y quita o vuelve a poner.
+// Quitar nunca borra: la foto sigue en Drive y en la base.
+export const adminFotos = (clave, id) => rpc('admin_fotos', { p_clave: clave, p_id: id });
+export const adminFotoPermiso = (clave, id) => rpc('admin_foto_permiso', { p_clave: clave, p_id: id });
+export const adminFotoQuitar = (clave, fotoId, quitar = true) => rpc('admin_foto_quitar', { p_clave: clave, p_foto: fotoId, p_quitar: quitar });
 
 export const MENSAJES = {
   clave_incorrecta: 'Clave incorrecta.',
@@ -44,7 +49,9 @@ export const MENSAJES = {
   clave_corta: 'La clave nueva debe tener al menos 8 caracteres.',
   config_invalida: 'Algún valor de la configuración no es válido.',
   consentimiento: 'Tenés que aceptar para poder enviar.',
-  foto_requerida: 'Falta la foto del documento.'
+  foto_requerida: 'Falta la foto del documento.',
+  sin_drive: 'Para subir fotos primero hay que conectar Drive (más arriba, en «Conectar Drive para las fotos»).',
+  limite_fotos: 'Este huésped ya tiene 10 fotos. Quitá alguna para poder agregar otra.'
 };
 
 export const textoError = (e) => (e?.codigo ? MENSAJES[e.codigo] ?? e.codigo : 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.');

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { cargarTelefono } from './telefono.js';
-import { fechaHora, minSeg } from './util.js';
+import { fechaHora, minSeg, urlDrive } from './util.js';
 
-const urlDrive = (id) => `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`;
+// Las fotos de una fila: la lista nueva, o la única foto de antes si la base todavía no tiene la lista.
+const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_id: f.foto_id, nombre: f.foto_nombre }] : []);
 
 // La planilla de huéspedes: una fila por persona, con la habitación fija a la izquierda y scroll hacia los costados.
-//   filas: [{ id, creado, habitacion, datos, foto_id, foto_nombre, editable_seg? }]
+//   filas: [{ id, creado, habitacion, datos, foto_id, foto_nombre, fotos?, editable_seg? }]
 //   puedeEditar(fila) -> segundos que quedan para editar (null = sin límite, 0 = no se puede)
-export default function Planilla({ filas, onEditar, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
+//   onFotos(fila): si viene, cada fila tiene un botón para ver, agregar y quitar sus fotos (solo el dueño)
+export default function Planilla({ filas, onEditar, onFotos, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
   const [lib, setLib] = useState(null);
   useEffect(() => {
     let vivo = true;
@@ -44,6 +46,7 @@ export default function Planilla({ filas, onEditar, restante, vacio = 'Todavía 
         <tbody>
           {filas.map((f) => {
             const d = f.datos ?? {};
+            const fotos = fotosDe(f);
             const seg = restante ? restante(f) : null;
             const puede = seg === null || seg > 0;
             return (
@@ -67,10 +70,18 @@ export default function Planilla({ filas, onEditar, restante, vacio = 'Todavía 
                 <td className="dom">{d.domicilio}</td>
                 <td>{d.email}</td>
                 <td className="nowrap">{tel(d.telefono)}</td>
-                <td>
-                  {f.foto_id
-                    ? <a className="ver-foto" href={urlDrive(f.foto_id)} target="_blank" rel="noopener noreferrer" title={f.foto_nombre ?? ''}><Icon name="imagen" size={16} sw={1.8} /> Ver</a>
-                    : <span className="muted">—</span>}
+                <td className="fotos-celda">
+                  {fotos.length === 0 && <span className="muted">—</span>}
+                  {fotos.map((p, i) => (
+                    <a key={p.foto_id} className="ver-foto" href={urlDrive(p.foto_id)} target="_blank" rel="noopener noreferrer" title={p.nombre ?? ''}>
+                      <Icon name="imagen" size={16} sw={1.8} /> {fotos.length > 1 ? `Ver ${i + 1}` : 'Ver'}
+                    </a>
+                  ))}
+                  {onFotos && (
+                    <button type="button" className="btn mini claro foto-gestion" onClick={() => onFotos(f)} aria-label={`${fotos.length ? 'Fotos' : 'Agregar foto'} de ${d.apellido ?? ''} ${d.nombre ?? ''}`.trim()}>
+                      {fotos.length ? 'Fotos' : 'Agregar foto'}
+                    </button>
+                  )}
                 </td>
                 <td className="acciones">
                   {onEditar && (
