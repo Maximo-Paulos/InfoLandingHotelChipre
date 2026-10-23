@@ -10,6 +10,12 @@
 // (progresivo, CMYK, PNG, fotos chicas que no hace falta achicar...) devuelve null y la app usa el camino de siempre del navegador.
 // Nunca devuelve una imagen a medias: ante cualquier cosa rara (archivo cortado, tablas inválidas) devuelve null.
 
+// Devuelve ya mismo la memoria de un arreglo grande que no se va a usar más (sin esperar a que el navegador limpie solo). Si el navegador
+// no sabe hacerlo, no pasa nada: la limpia más tarde. Después de llamarla el arreglo no se puede volver a usar.
+export function liberar(arreglo) {
+  try { arreglo?.buffer?.transfer?.(0); } catch { /* el navegador no puede: se limpia solo más tarde */ }
+}
+
 const ZZ = new Uint8Array([
   0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28,
   35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63
@@ -111,7 +117,9 @@ const cederPaso = () => new Promise((resolver) => {
   canal.port2.postMessage(null);
 });
 
-async function decodificar(b, ladoMin, kForzado) {
+// final: lado más largo (en píxeles) de la foto que se quiere recibir YA TERMINADA (derecha y con colores); sin eso se devuelve la foto achicada
+// a k/8 tal como sale del JPEG (solo para pruebas). onProgreso(0 a 1) se avisa cada vez que se le devuelve el control a la pantalla.
+async function decodificar(b, { ladoMin, k: kForzado, final, onProgreso } = {}) {
   const info = infoJpeg(b);
   const k = kForzado ?? kParaAchicar(info, ladoMin);
   // (con k forzado, solo para pruebas, se salta la regla de tamaño pero no la de formato)
@@ -143,6 +151,7 @@ async function decodificar(b, ladoMin, kForzado) {
   let mcusX = 0;
   let mcusY = 0;
   let escaneos = 0;
+  let esperados = 1; // cuántos recorridos tiene la foto (1, o uno por color si vienen separados): sirve para el avance
 
   // ---- lector de bits (con el relleno 0xFF00 de JPEG y los marcadores que cortan los datos)
   let pos = 0;
@@ -260,6 +269,7 @@ async function decodificar(b, ladoMin, kForzado) {
     marcador = false;
     faltante = 0;
     for (const c of sc) c.pred = 0;
+    if (!escaneos) esperados = ns === 1 && comps.length > 1 ? comps.length : 1;
     let mcusAncho = mcusX;
     let mcusAlto = mcusY;
     if (ns === 1) {
@@ -298,11 +308,117 @@ async function decodificar(b, ladoMin, kForzado) {
       }
       if (faltante > 16) throw new Error('cortado');
       // cada tanto se le devuelve el control a la pantalla para que no se trabe
-      if (performance.now() - t0 > 30) { await cederPaso(); t0 = performance.now(); }
+      if (performance.now() - t0 > 30) {
+        onProgreso?.(Math.min(0.9, ((escaneos + (my + 1) / mcusAlto) / esperados) * 0.9));
+        await cederPaso();
+        t0 = performance.now();
+      }
     }
     for (const c of sc) c.cubierto = true;
     escaneos += 1;
     siguienteMarcador();
+  };
+
+  // ---- foto terminada: cada componente se lleva directo al tamaño de salida (interpolación bilineal: los de color suelen tener menos
+  // resolución y la foto achicada a k/8 casi nunca coincide con lo que se pide), se pasa a RGB y se acomoda según la orientación del celular.
+  // Así NO hace falta armar la foto achicada entera en colores (4 bytes por píxel) ni copiarla después a otro lienzo: es lo que más memoria ocupaba.
+  const aFinal = async (ladoMax) => {
+    const esc = Math.min(1, ladoMax / Math.max(W, H));
+    const Ws = Math.max(1, Math.round(W * esc)); // tamaño de salida tal como está guardada la foto (sin girar)
+    const Hs = Math.max(1, Math.round(H * esc));
+    const o = info.orientacion;
+    const Wf = o >= 5 ? Hs : Ws; // tamaño de salida ya girada
+    const Hf = o >= 5 ? Ws : Hs;
+    if (Wf * Hf > MAX_PIXELES_SALIDA) return null;
+    const Wr = (W * k) / 8; // tamaño real de la foto achicada (puede no ser un número entero de píxeles)
+    const Hr = (H * k) / 8;
+
+    // Para cada columna (y fila) de salida: de qué dos píxeles del componente sale y con qué peso (0 a 256).
+    const tabla = (n, real, factor, validos) => {
+      const i0 = new Int32Array(n);
+      const i1 = new Int32Array(n);
+      const w = new Uint16Array(n);
+      for (let i = 0; i < n; i += 1) {
+        let u = (i + 0.5) * (real / n) * factor - 0.5;
+        if (u < 0) u = 0;
+        if (u > validos - 1) u = validos - 1;
+        const a = Math.floor(u);
+        i0[i] = a;
+        i1[i] = Math.min(a + 1, validos - 1);
+        w[i] = Math.round((u - a) * 256);
+      }
+      return { i0, i1, w };
+    };
+    const ejes = comps.map((c) => {
+      const fh = c.h / hmax;
+      const fv = c.v / vmax;
+      return { x: tabla(Ws, Wr, fh, Math.ceil(Wr * fh)), y: tabla(Hs, Hr, fv, Math.ceil(Hr * fv)), stride: c.stride, plano: c.plano };
+    });
+
+    // De dónde sale cada píxel de la foto terminada: xs = ax + bx*X + cx*Y, ys = ay + by*X + cy*Y (X, Y: columna y fila de salida).
+    const [ax, bx, cx, ay, by, cy] = {
+      1: [0, 1, 0, 0, 0, 1],
+      2: [Ws - 1, -1, 0, 0, 0, 1],
+      3: [Ws - 1, -1, 0, Hs - 1, 0, -1],
+      4: [0, 1, 0, Hs - 1, 0, -1],
+      5: [0, 0, 1, 0, 1, 0],
+      6: [0, 0, 1, Hs - 1, -1, 0],
+      7: [Ws - 1, 0, -1, Hs - 1, -1, 0],
+      8: [Ws - 1, 0, -1, 0, 1, 0]
+    }[o];
+
+    const rgba = new Uint8ClampedArray(Wf * Hf * 4);
+    const gris = ejes.length === 1;
+    const rgbDirecto = !gris && (adobe === 0 || (comps[0].id === 0x52 && comps[1].id === 0x47 && comps[2].id === 0x42));
+    const [e0, e1, e2] = ejes;
+    const P0 = e0.plano;
+    const P1 = e1?.plano;
+    const P2 = e2?.plano;
+    let ysPrev = -1;
+    let a0 = 0; let b0 = 0; let fy0 = 0; let a1 = 0; let b1 = 0; let fy1 = 0; let a2 = 0; let b2 = 0; let fy2 = 0; // filas de cada componente para la fila de origen ys
+    let t0 = performance.now();
+    for (let Y = 0; Y < Hf; Y += 1) {
+      let po = Y * Wf * 4;
+      for (let X = 0; X < Wf; X += 1) {
+        const xs = ax + bx * X + cx * Y;
+        const ys = ay + by * X + cy * Y;
+        if (ys !== ysPrev) {
+          ysPrev = ys;
+          a0 = e0.y.i0[ys] * e0.stride; b0 = e0.y.i1[ys] * e0.stride; fy0 = e0.y.w[ys];
+          if (!gris) {
+            a1 = e1.y.i0[ys] * e1.stride; b1 = e1.y.i1[ys] * e1.stride; fy1 = e1.y.w[ys];
+            a2 = e2.y.i0[ys] * e2.stride; b2 = e2.y.i1[ys] * e2.stride; fy2 = e2.y.w[ys];
+          }
+        }
+        let tx = e0.x.i0[xs]; let ux = e0.x.i1[xs]; let fx = e0.x.w[xs];
+        const Yv = ((P0[a0 + tx] * (256 - fx) + P0[a0 + ux] * fx) * (256 - fy0) + (P0[b0 + tx] * (256 - fx) + P0[b0 + ux] * fx) * fy0 + 32768) >> 16;
+        if (gris) {
+          rgba[po] = Yv; rgba[po + 1] = Yv; rgba[po + 2] = Yv;
+        } else {
+          tx = e1.x.i0[xs]; ux = e1.x.i1[xs]; fx = e1.x.w[xs];
+          const Cb = ((P1[a1 + tx] * (256 - fx) + P1[a1 + ux] * fx) * (256 - fy1) + (P1[b1 + tx] * (256 - fx) + P1[b1 + ux] * fx) * fy1 + 32768) >> 16;
+          tx = e2.x.i0[xs]; ux = e2.x.i1[xs]; fx = e2.x.w[xs];
+          const Cr = ((P2[a2 + tx] * (256 - fx) + P2[a2 + ux] * fx) * (256 - fy2) + (P2[b2 + tx] * (256 - fx) + P2[b2 + ux] * fx) * fy2 + 32768) >> 16;
+          if (rgbDirecto) {
+            rgba[po] = Yv; rgba[po + 1] = Cb; rgba[po + 2] = Cr;
+          } else {
+            rgba[po] = Yv + 1.402 * (Cr - 128);
+            rgba[po + 1] = Yv - 0.344136 * (Cb - 128) - 0.714136 * (Cr - 128);
+            rgba[po + 2] = Yv + 1.772 * (Cb - 128);
+          }
+        }
+        rgba[po + 3] = 255;
+        po += 4;
+      }
+      if (performance.now() - t0 > 30) {
+        onProgreso?.(0.9 + (0.1 * (Y + 1)) / Hf);
+        await cederPaso();
+        t0 = performance.now();
+      }
+    }
+    for (const c of comps) liberar(c.plano); // los componentes ya no hacen falta: se devuelve esa memoria enseguida
+    onProgreso?.(1);
+    return { ancho: Wf, alto: Hf, rgba, orientacion: o, k };
   };
 
   // ---- recorrido de los segmentos
@@ -377,6 +493,8 @@ async function decodificar(b, ladoMin, kForzado) {
   }
   if (!comps || !escaneos || comps.some((c) => !c.cubierto)) throw new Error('incompleto');
 
+  if (final) return aFinal(final);
+
   // ---- a colores: se estira cada componente al tamaño de la imagen chica (los de color suelen tener menos resolución) y se pasa de YCbCr a RGB
   const rgba = new Uint8ClampedArray(outW * outH * 4);
   const cols = comps.map((c) => { const m = new Uint32Array(outW); for (let x = 0; x < outW; x += 1) m[x] = Math.floor((x * c.h) / hmax); return m; });
@@ -425,7 +543,20 @@ async function decodificar(b, ladoMin, kForzado) {
 //   k: (solo para pruebas) fuerza la escala k/8
 export async function decodificarReducido(b, { ladoMin = 1600, k } = {}) {
   try {
-    return await decodificar(b, ladoMin, k);
+    return await decodificar(b, { ladoMin, k });
+  } catch {
+    return null;
+  }
+}
+
+// b: los bytes del archivo (Uint8Array). Devuelve { ancho, alto, rgba, orientacion } con la foto YA TERMINADA: con el lado más largo en
+// `ladoMax` como máximo (nunca se agranda), derecha según la orientación del celular y en colores (4 bytes por píxel). O null si no se puede
+// (el que llama usa entonces el camino normal del navegador).
+//   onProgreso(0 a 1): se avisa cada tanto mientras trabaja
+//   k: (solo para pruebas) fuerza la escala k/8 del JPEG
+export async function decodificarFinal(b, { ladoMax = 1600, onProgreso, k } = {}) {
+  try {
+    return await decodificar(b, { ladoMin: ladoMax, final: ladoMax, onProgreso, k });
   } catch {
     return null;
   }

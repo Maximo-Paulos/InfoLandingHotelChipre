@@ -14,7 +14,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { decodificarReducido, infoJpeg, kParaAchicar } from '../src/checkin/jpegReducido.js';
+import { decodificarFinal, decodificarReducido, infoJpeg, kParaAchicar, liberar } from '../src/checkin/jpegReducido.js';
 import { ESQUINAS_EXIF, conOrientacion, esquinasDe, jpegGrande } from './fotos-ayuda.mjs';
 
 const require = createRequire(import.meta.url);
@@ -155,6 +155,63 @@ for (const nombre of variantes) {
   ok(infoJpeg(bytes).orientacion === 6 && infoJpeg(leer('420')).orientacion === 1, 'lee la orientación EXIF de la foto (6 = celular acostado) y vale 1 si no tiene');
 }
 
+// ================================================================== 1b. La foto TERMINADA (tamaño final, derecha, en colores)
+console.log('\n== 1b. La foto terminada (tamaño final, derecha y en colores) se parece a la que arma Chrome');
+// Chrome abre la foto (con su orientación), y la dibuja en el tamaño final: es la referencia.
+async function referenciaFinal(bytes, w, h) {
+  const r = await page.evaluate(async ({ datos, w, h }) => {
+    const bin = Uint8Array.from(atob(datos), (c) => c.charCodeAt(0));
+    const bmp = await createImageBitmap(new Blob([bin], { type: 'image/jpeg' }));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(bmp, 0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h).data;
+    let s = ''; for (let i = 0; i < d.length; i += 0x8000) s += String.fromCharCode.apply(null, d.subarray(i, i + 0x8000));
+    return btoa(s);
+  }, { datos: b64(bytes), w, h });
+  return Buffer.from(r, 'base64');
+}
+async function compararFinal(nombre, bytes, ladoMax, k) {
+  const r = await decodificarFinal(bytes, { ladoMax, k });
+  if (!r) return { ok: false, texto: `${nombre}: null` };
+  const ref = await referenciaFinal(bytes, r.ancho, r.alto);
+  const m = comparar(r.rgba, ref, r.ancho, r.ancho, r.alto);
+  const bien = m.mae <= 5 && m.psnr >= 25; // al achicar a la mitad (DCT) y después un poco más, no es igual a achicar de una vez como hace Chrome: ~4 es lo normal en esta foto con texto fino
+  return { ok: bien, texto: `${nombre} ${r.ancho}x${r.alto} (k=${r.k}): ${m.mae.toFixed(1)}` };
+}
+{
+  const malos = [];
+  const resumen = [];
+  for (const nombre of variantes) {
+    for (const [lado, k] of [[200, undefined], [200, 8], [300, 8]]) {
+      const c = await compararFinal(nombre, leer(nombre), lado, k);
+      if (!c.ok) malos.push(c.texto);
+      resumen.push(c.texto);
+    }
+  }
+  ok(malos.length === 0, `en las ${variantes.length} variantes de la foto, a 200 y 300 px de lado (con las escalas que usa y con la completa), el error medio contra Chrome es chico (de 0 a 255)${malos.length ? ' · MAL: ' + malos.join(' | ') : ` (el peor: ${resumen.map((t) => ({ t, n: Number(t.split(': ').pop()) })).sort((a, b) => b.n - a.n)[0].t})`}`);
+}
+{
+  // las 8 orientaciones del celular: la foto terminada sale girada igual que en Chrome
+  const malos = [];
+  for (const o of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const c = await compararFinal(`orientación ${o}`, conOrientacion(leer('420'), o), 200);
+    if (!c.ok) malos.push(c.texto);
+  }
+  ok(malos.length === 0, 'con cada una de las 8 orientaciones de EXIF sale girada igual que como la gira Chrome' + (malos.length ? ' · MAL: ' + malos.join(' | ') : ''));
+}
+{
+  // el avance sube de a poco hasta el final (foto grande: tarda lo bastante como para avisar varias veces)
+  const foto = await jpegGrande(page, 4000, 3000);
+  const avances = [];
+  const t0 = Date.now();
+  const r = await decodificarFinal(new Uint8Array(foto), { ladoMax: 1600, onProgreso: (p) => avances.push(p) });
+  const sube = avances.every((p, i) => i === 0 || p >= avances[i - 1]) && avances.every((p) => p >= 0 && p <= 1);
+  ok(r && r.ancho === 1600 && r.alto === 1200 && sube && avances.length >= 3 && avances.at(-1) === 1, `una foto de 12 MP sale de ${r?.ancho}x${r?.alto} y avisa el avance ${avances.length} veces, siempre hacia adelante, hasta 1 (${Date.now() - t0} ms)`);
+  const gris = new Uint8Array(40);
+  liberar(gris);
+  ok(gris.length === 0 || typeof ArrayBuffer.prototype.transfer !== 'function', '"liberar" devuelve la memoria de un arreglo grande enseguida (si el navegador sabe hacerlo)');
+}
+
 // ================================================================== 2. Lo que no entiende y los archivos rotos
 console.log('\n== 2. Con lo que no entiende o está roto devuelve null (y se usa el camino normal del navegador)');
 ok(infoJpeg(leer('progresivo')).sof === 0xc2 && await decodificarReducido(leer('progresivo'), { k: 4 }) === null, 'un JPEG progresivo no lo toma');
@@ -216,9 +273,10 @@ const correr = async (bytes, tipo = 'image/jpeg') => {
     window.__cib = 0;
     const bin = Uint8Array.from(atob(datos), (c) => c.charCodeAt(0));
     const t0 = performance.now();
+    const avances = [];
     try {
-      const r = await comprimirImagen(new File([bin], 'foto', { type: tipo }));
-      return { ok: true, ms: Math.round(performance.now() - t0), bytes: r.bytes, vista: r.vista, cib: window.__cib };
+      const r = await comprimirImagen(new File([bin], 'foto', { type: tipo }), { onProgreso: (p) => avances.push(p) });
+      return { ok: true, ms: Math.round(performance.now() - t0), bytes: r.bytes, vista: r.vista, cib: window.__cib, avances };
     } catch (e) {
       return { ok: false, codigo: e.codigo ?? String(e.message), ms: Math.round(performance.now() - t0), cib: window.__cib };
     }
@@ -292,6 +350,35 @@ ok(JSON.stringify(esquinas(r)) === JSON.stringify(ESQUINAS_EXIF[1]), `sin orient
   const t0 = Date.now();
   const mentira = await correr(conMedidas(leer('420'), 60000, 60000));
   ok(!mentira.ok && mentira.codigo === 'pesada' && Date.now() - t0 < 2000 && mentira.cib === 0, 'una cabecera que dice ser de 60000x60000 se rechaza como "pesada" sin intentar abrirla');
+}
+
+{
+  // la foto de la cámara de la página llega como un lienzo
+  const r1 = await page.evaluate(async () => {
+    const { comprimirCanvas } = await import('/m/comprimir.js');
+    const mk = (w, h) => {
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const x = c.getContext('2d'); x.fillStyle = '#ff0000'; x.fillRect(0, 0, w, h); x.fillStyle = '#0000ff'; x.fillRect(w / 2, 0, w / 2, h);
+      return c;
+    };
+    const salida = [];
+    for (const [w, h] of [[1280, 720], [1920, 1080], [1600, 900]]) {
+      const lienzo = mk(w, h);
+      const r = await comprimirCanvas(lienzo);
+      const img = new Image(); await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = r.vista; });
+      salida.push({ entrada: `${w}x${h}`, salida: `${img.naturalWidth}x${img.naturalHeight}`, kb: Math.round(r.bytes / 1024), liberado: lienzo.width === 0 });
+    }
+    let error = '';
+    try { const vacio = document.createElement('canvas'); vacio.width = 0; vacio.height = 0; await comprimirCanvas(vacio); } catch (e) { error = e.codigo; }
+    return { salida, error };
+  });
+  ok(r1.salida[0].salida === '1280x720' && r1.salida[1].salida === '1600x900' && r1.salida[2].salida === '1600x900' && r1.salida.every((x) => x.kb < 900 && x.liberado), `un cuadro de la cámara de la página (${r1.salida.map((x) => `${x.entrada} → ${x.salida}`).join(' · ')}) sale en JPEG liviano, sin agrandarse, y el lienzo se libera`);
+  ok(r1.error === 'imagen', 'un lienzo vacío da el error claro ("imagen")');
+}
+{
+  const a = await correr(grande);
+  const av = a.avances ?? [];
+  ok(a.ok && av.length >= 1 && av.every((p, i) => i === 0 || p >= av[i - 1]) && av.at(-1) <= 1, `comprimirImagen avisa el avance mientras prepara una foto grande (${av.length} avisos)`);
 }
 
 console.log(`\n${total} comprobaciones, ${fallas} falla(s)`);

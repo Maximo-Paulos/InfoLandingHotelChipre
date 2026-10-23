@@ -65,7 +65,11 @@ await new Promise((r) => web.listen(PUERTO_WEB, r));
 
 const back = await iniciarBackend({ puerto: PUERTO_BACK });
 const reiniciar = () => fetch(`${back.url}/__test/reiniciar`, { method: 'POST' });
-const navegador = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium', args: ['--no-sandbox'] });
+// La cámara es simulada: en vez de la real, el navegador "ve" un documento sobre una mesa (scripts/fixtures/camara/documento.mjpeg).
+const navegador = await chromium.launch({
+  executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium',
+  args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-video-capture=${path.join(raiz, 'scripts/fixtures/camara/documento.mjpeg')}`]
+});
 
 async function contexto(opciones = {}) {
   const ctx = await navegador.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale: 'es-AR', ...opciones });
@@ -138,6 +142,12 @@ const jpegBase64 = (page) => page.evaluate(async () => {
   const x = c.getContext('2d'); x.fillStyle = '#d68b61'; x.fillRect(0, 0, 900, 600); x.fillStyle = '#fff'; x.font = '60px sans-serif'; x.fillText('DNI de prueba', 80, 300);
   return c.toDataURL('image/jpeg', 0.9).split(',')[1];
 });
+
+// Anotación que deja el formulario mientras se saca o se prepara la foto (para avisar si el sistema cerró la página) y el aviso.
+const MARCA = 'chipre-registro-foto';
+const marca = (page) => page.evaluate((k) => { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } }, MARCA);
+const AVISO = 'La página se cerró mientras elegías la foto';
+const aviso = (page) => page.getByText(AVISO);
 
 // =====================================================================
 await seccion('1. Con el check-in apagado la guía queda como estaba', async () => {
@@ -1035,10 +1045,6 @@ await seccion('14. Foto grande del celular y página cerrada por falta de memori
   const cod = await codigoDeRecepcion(rec.page);
   const drive = async () => (await fetch(`${back.url}/__test/drive`).then((x) => x.json())).filter((a) => a.mime === 'image/jpeg');
   const usos = async () => (await sql1('select usos from private.checkin_codigo where id = 1')).usos;
-  const MARCA = 'chipre-registro-foto';
-  const marca = (page) => page.evaluate((k) => { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } }, MARCA);
-  const AVISO = 'La página se cerró mientras elegías la foto';
-  const aviso = (page) => page.getByText(AVISO);
 
   // Un celular de verdad (toca con el dedo). Además se cuenta cuántas veces la página le pide al navegador abrir una foto entera
   // (una foto grande no debería: se achica mientras se decodifica) y, para poder ver el aviso "Preparando…", se puede demorar el armado de
@@ -1091,9 +1097,9 @@ await seccion('14. Foto grande del celular y página cerrada por falta de memori
   await g2.page.getByLabel('Apellido', { exact: true }).fill('Fernández');
   await g2.page.getByLabel(/Acepto que el hotel/).check();
   const u0 = await usos();
-  await g2.page.getByRole('button', { name: /Sacar foto/ }).scrollIntoViewIfNeeded();
-  const [selector] = await Promise.all([g2.page.waitForEvent('filechooser'), g2.page.getByRole('button', { name: /Sacar foto/ }).tap()]);
-  ok(selector.isMultiple() === false && (await marca(g2.page))?.estado === 'eligiendo', 'al tocar "Sacar foto" se abre la cámara y queda anotado que se está eligiendo la foto');
+  await g2.page.getByRole('button', { name: /Elegir de la galería/ }).scrollIntoViewIfNeeded();
+  const [selector] = await Promise.all([g2.page.waitForEvent('filechooser'), g2.page.getByRole('button', { name: /Elegir de la galería/ }).tap()]);
+  ok(selector.isMultiple() === false && (await marca(g2.page))?.estado === 'eligiendo', 'al tocar "Elegir de la galería" se abre el selector de fotos y queda anotado que se está eligiendo la foto');
   // el sistema cierra la página en segundo plano y la vuelve a abrir cuando el huésped regresa de la cámara
   await g2.page.reload();
   await g2.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
@@ -1158,6 +1164,135 @@ await seccion('14. Foto grande del celular y página cerrada por falta de memori
   await g3.ctx.close();
   await rec.ctx.close();
   ok((await sql1('select count(*)::int as n from private.checkins')).n === 1, 'ninguna de estas pruebas dejó huéspedes de más ni borró nada');
+});
+
+await seccion('15. Cámara dentro de la página: se saca la foto sin abrir la aplicación de cámara del celular', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  const rec = await contexto();
+  await recepcionLogin(rec.page);
+  const cod = await codigoDeRecepcion(rec.page);
+  const drive = async () => (await fetch(`${back.url}/__test/drive`).then((x) => x.json())).filter((a) => a.mime === 'image/jpeg');
+
+  // Un huésped con el formulario abierto. `modo` dice cómo responde el navegador a la cámara:
+  //   real (la cámara simulada) · permiso (el huésped no dio permiso) · sin-api (el navegador no tiene cámara web) · colgada (no responde)
+  // Además se anotan los flujos de cámara que se abren, para comprobar que se cierran (que la cámara se apague).
+  const abrir = async (modo = 'real') => {
+    const g = await contexto({ hasTouch: true, isMobile: true });
+    await g.page.addInitScript((m) => {
+      window.__flujos = [];
+      if (m === 'sin-api') { Object.defineProperty(navigator, 'mediaDevices', { value: undefined, configurable: true }); return; }
+      const md = navigator.mediaDevices;
+      const real = md.getUserMedia.bind(md);
+      md.getUserMedia = (c) => {
+        if (m === 'permiso') return Promise.reject(Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }));
+        if (m === 'colgada') return new Promise(() => {});
+        return real(c).then((s) => { window.__flujos.push(s); return s; });
+      };
+    }, modo);
+    await g.page.goto(BASE + '#/registro');
+    await ingresarCodigo(g.page, cod);
+    await g.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+    await completarFormulario(g.page);
+    await g.page.getByLabel(/Acepto que el hotel/).check();
+    await g.page.getByRole('button', { name: /Sacar foto/ }).scrollIntoViewIfNeeded();
+    return g;
+  };
+  const sacarFoto = (g) => g.page.getByRole('button', { name: /Sacar foto/ });
+  const camaraDe = (g) => g.page.getByRole('dialog', { name: /Cámara/ });
+  const flujosAbiertos = (g) => g.page.evaluate(() => window.__flujos.filter((f) => f.getTracks().some((t) => t.readyState === 'live')).length);
+
+  // ---- 1. Se saca la foto con la cámara de la página
+  const g = await abrir();
+  await sacarFoto(g).tap();
+  const cam = camaraDe(g);
+  await cam.waitFor();
+  ok(true, 'al tocar "Sacar foto" se abre la cámara DENTRO de la página (no la aplicación de cámara del celular)');
+  await cam.locator('.camara-disparo:not([disabled])').waitFor();
+  const v = await cam.locator('video').evaluate((el) => ({ w: el.videoWidth, h: el.videoHeight, andando: !el.paused && !el.ended }));
+  ok(v.w === 1280 && v.h === 720 && v.andando, `se ve la imagen de la cámara andando (${v.w}x${v.h})`);
+  ok(await g.page.evaluate(() => document.body.style.overflow === 'hidden') && await g.page.evaluate(() => document.querySelector('.camara')?.contains(document.activeElement)), 'el fondo no se desplaza y el foco queda adentro de la cámara');
+  ok((await marca(g.page))?.estado === 'eligiendo', 'queda anotado que se está sacando la foto (por si el sistema cierra la página)');
+  ok(!(await cam.getByRole('button', { name: /luz/i }).count()), 'sin linterna en este dispositivo, no se ofrece el botón de luz');
+  await espera(1300);
+  await cam.locator('video').tap();
+  ok((await marca(g.page))?.estado === 'eligiendo', 'tocar la pantalla de la cámara (para enfocar, por ejemplo) no borra la anotación: la cámara sigue abierta');
+  await sinDesborde(g.page, 'cámara dentro de la página');
+  await captura(g.page, '18-camara-en-la-pagina');
+  await cam.locator('.camara-disparo').tap();
+  await cam.waitFor({ state: 'hidden' });
+  await g.page.locator('.foto-prev').waitFor();
+  ok(await flujosAbiertos(g) === 0, 'al sacar la foto la cámara se apaga');
+  const prev = await esquinasDe(g.page, await g.page.locator('.foto-prev').getAttribute('src'));
+  ok(prev.w === 1280 && prev.h === 720 && JSON.stringify(prev.esq) === JSON.stringify(ESQUINAS_EXIF[1]), `la foto sale derecha y sin espejo, con las esquinas en su lugar (${prev.w}x${prev.h})`);
+  ok((await marca(g.page)) === null, 'y se borra la anotación');
+  await captura(g.page, '19-camara-foto-sacada');
+  await g.page.getByRole('button', { name: 'Enviar formulario' }).click();
+  await g.page.getByRole('heading', { name: '¡Check-in realizado!' }).waitFor({ timeout: 15000 });
+  const subidas = await drive();
+  ok(subidas.length === 1 && subidas[0].bytes < 900 * 1024, `la foto llegó a Drive (${Math.round((subidas[0]?.bytes ?? 0) / 1024)} KB)`);
+  ok(g.errores.length === 0, 'sin errores en la consola ' + g.errores.join('|'));
+  await g.ctx.close();
+
+  // ---- 2. Cancelar (con el botón o con Esc) no deja nada
+  const g2 = await abrir();
+  await sacarFoto(g2).tap();
+  await camaraDe(g2).locator('.camara-disparo:not([disabled])').waitFor();
+  await camaraDe(g2).getByRole('button', { name: 'Cancelar' }).tap();
+  await camaraDe(g2).waitFor({ state: 'hidden' });
+  ok(!(await g2.page.locator('.foto-prev').count()) && await flujosAbiertos(g2) === 0 && (await marca(g2.page)) === null, 'cancelar cierra la cámara, la apaga, no deja foto y borra la anotación');
+  await hasta(() => g2.page.evaluate(() => document.activeElement?.textContent?.includes('Sacar foto')), 3000);
+  ok(await g2.page.evaluate(() => document.activeElement?.textContent?.includes('Sacar foto')), 'y el foco vuelve al botón "Sacar foto"');
+  await sacarFoto(g2).tap();
+  await camaraDe(g2).locator('.camara-disparo:not([disabled])').waitFor();
+  await g2.page.keyboard.press('Escape');
+  await camaraDe(g2).waitFor({ state: 'hidden' });
+  ok(await flujosAbiertos(g2) === 0, 'con Esc también se cierra y se apaga');
+
+  // ---- 3. Si la página se cierra mientras la cámara está abierta (la cerró el sistema), al volver se explica
+  await sacarFoto(g2).tap();
+  await camaraDe(g2).locator('.camara-disparo:not([disabled])').waitFor();
+  await g2.page.reload();
+  await g2.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  await aviso(g2.page).waitFor();
+  ok(true, 'si la página se cierra con la cámara abierta, al volver el formulario sigue y explica qué pasó');
+  ok(g2.errores.length === 0, 'sin errores en la consola ' + g2.errores.join('|'));
+  await g2.ctx.close();
+
+  // ---- 4. Sin permiso: se explica y se ofrece la cámara del celular; después no se insiste
+  const g3 = await abrir('permiso');
+  await sacarFoto(g3).tap();
+  await camaraDe(g3).getByRole('alert').waitFor();
+  ok(/No tenemos permiso para usar la cámara/.test(await camaraDe(g3).getByRole('alert').innerText()) && await camaraDe(g3).locator('.camara-disparo').isDisabled(), 'sin permiso para la cámara: lo explica y el botón de sacar queda apagado');
+  await captura(g3.page, '20-camara-sin-permiso');
+  const [selector] = await Promise.all([g3.page.waitForEvent('filechooser'), camaraDe(g3).getByRole('button', { name: 'Usar la cámara del celular' }).tap()]);
+  ok(selector && !(await camaraDe(g3).count()), '"Usar la cámara del celular" cierra esa cámara y abre la del celular (fuera de la página)');
+  const [selector2] = await Promise.all([g3.page.waitForEvent('filechooser'), sacarFoto(g3).tap()]);
+  ok(selector2 && !(await camaraDe(g3).count()), 'y la próxima vez que toca "Sacar foto" va directo a la cámara del celular (no se insiste con la que falló)');
+  await g3.ctx.close();
+
+  // ---- 5. Un navegador sin cámara web va directo a la cámara del celular
+  const g4 = await abrir('sin-api');
+  const [selector3] = await Promise.all([g4.page.waitForEvent('filechooser'), sacarFoto(g4).tap()]);
+  ok(selector3 && !(await camaraDe(g4).count()), 'si el navegador no tiene cámara web, "Sacar foto" abre directo la cámara del celular');
+  await g4.ctx.close();
+
+  // ---- 6. Una cámara que no responde no deja al huésped esperando para siempre
+  const g5 = await abrir('colgada');
+  await g5.page.clock.install(); // reloj simulado: así no hace falta esperar de verdad los 25 segundos
+  await sacarFoto(g5).tap();
+  await camaraDe(g5).getByText(/Abriendo la cámara/).waitFor();
+  ok(true, 'mientras abre dice "Abriendo la cámara…" y avisa del permiso');
+  await g5.page.clock.fastForward(20000);
+  ok(!(await camaraDe(g5).getByRole('alert').count()), 'a los 20 segundos todavía espera (el huésped puede estar leyendo el pedido de permiso del navegador)');
+  await g5.page.clock.fastForward(6000);
+  await camaraDe(g5).getByRole('alert').waitFor();
+  ok(/La cámara no responde/.test(await camaraDe(g5).getByRole('alert').innerText()) && await camaraDe(g5).getByRole('button', { name: 'Usar la cámara del celular' }).isVisible(), 'si en 25 segundos no hay respuesta, avisa y ofrece la cámara del celular');
+  await g5.ctx.close();
+
+  ok((await sql1('select count(*)::int as n from private.checkins')).n === 1, 'ninguna de estas pruebas dejó huéspedes de más ni borró nada');
+  await rec.ctx.close();
 });
 
 await navegador.close();
