@@ -79,8 +79,10 @@ console.log('\n== 1. La migración (base de hoy + supabase/medios_pago.sql)');
   await nueva.exec(fs.readFileSync(ruta('supabase/schema.sql'), 'utf8'));
   await nueva.exec(fs.readFileSync(ruta('supabase/checkin.sql'), 'utf8'));
   const huella = async (d) => Object.fromEntries((await d.query(`select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as fn, md5(regexp_replace(regexp_replace(p.prosrc, '--[^\n]*', '', 'g'), '\\s+', ' ', 'g')) as h from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('public','private')`)).rows.map((x) => [x.fn, x.h]));
-  // checkin.sql es el estado final: también incluye las fotos que carga el dueño, que en producción se aplican después de esta migración.
+  // checkin.sql es el estado final: también incluye las fotos que carga el dueño y el tipo de documento «Identificación»,
+  // que en producción se aplican después de esta migración (en este orden).
   await db.exec(fs.readFileSync(ruta('supabase/fotos_admin.sql'), 'utf8'));
+  await db.exec(fs.readFileSync(ruta('supabase/documentos.sql'), 'utf8'));
   const hv = await huella(db); const hn = await huella(nueva);
   const distintas = [...new Set([...Object.keys(hv), ...Object.keys(hn)])].filter((f) => hv[f] !== hn[f]);
   ok(distintas.length === 0, `la base migrada y una base nueva tienen las mismas ${Object.keys(hn).length} funciones` + (distintas.length ? ' · distintas: ' + distintas.join(', ') : ''));

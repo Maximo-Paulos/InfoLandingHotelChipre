@@ -308,7 +308,7 @@ export default {
       docNumero: "Número de documento",
       foto: "Foto del documento"
     },
-    fotoAyuda: "Sacale una foto al frente de tu DNI o pasaporte, o elegí una de tu galería. Tiene que leerse bien.",
+    fotoAyuda: "Sacale una foto a tu DNI, pasaporte o identificación, o elegí una de tu galería. Tiene que leerse bien.",
     btnSacarFoto: "Sacar foto",
     btnGaleria: "Elegir de la galería",
     btnCambiarFoto: "Cambiar foto",

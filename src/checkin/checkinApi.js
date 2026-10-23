@@ -1,10 +1,30 @@
 import { rpc } from '../data/api.js';
+import { TIPOS_BASE, TIPOS_DOC } from './campos.js';
 
 // Todo pasa por funciones de la base que revisan quién llama (ver supabase/checkin.sql).
 // Cada una devuelve { ok, error?, ... }.
 
+// Los tipos de documento que acepta la base. Una base sin migrar (sin supabase/documentos.sql) no lo informa: se ofrecen DNI y pasaporte.
+// Se recuerdan unos minutos para no consultar en cada formulario; si no se pudo consultar, no se recuerda nada y se prueba de nuevo después.
+const VIGENCIA_TIPOS_MS = 5 * 60 * 1000;
+let tiposRecordados = null; // { lista, en }
+const tiposDeEstado = (e) => {
+  const lista = Array.isArray(e?.tipos_doc) ? TIPOS_DOC.filter((t) => e.tipos_doc.includes(t)) : [];
+  return lista.length ? lista : TIPOS_BASE;
+};
+export const tiposConocidos = () => tiposRecordados?.lista ?? TIPOS_BASE;
+
 // Huésped
-export const estadoCheckin = () => rpc('checkin_estado', {});
+export const estadoCheckin = async () => {
+  const e = await rpc('checkin_estado', {});
+  tiposRecordados = { lista: tiposDeEstado(e), en: Date.now() };
+  return e;
+};
+export const tiposDocumento = async () => {
+  if (tiposRecordados && Date.now() - tiposRecordados.en < VIGENCIA_TIPOS_MS) return tiposRecordados.lista;
+  try { await estadoCheckin(); } catch { /* sin conexión: se sigue con lo último que se supo, o con DNI y pasaporte */ }
+  return tiposConocidos();
+};
 export const canjearCodigo = (codigo) => rpc('checkin_canjear', { p_codigo: codigo });
 export const sesionCheckin = (token) => rpc('checkin_sesion', { p_token: token });
 export const enviarCheckin = (token, datos, idioma, acepta) =>
