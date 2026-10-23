@@ -102,7 +102,14 @@ function construirHuffman(cuentas, valores) {
   return { rapida, maxcode, mincode, valptr, valores };
 }
 
-const cederPaso = () => new Promise((r) => setTimeout(r, 0));
+// Le devuelve el control a la pantalla para que no se trabe. Se usa un mensaje y no setTimeout: si el huésped cambia de aplicación
+// mientras se prepara la foto, el navegador hace esperar 1 segundo a cada setTimeout de una pestaña en segundo plano.
+const cederPaso = () => new Promise((resolver) => {
+  if (typeof MessageChannel !== 'function') { setTimeout(resolver, 0); return; }
+  const canal = new MessageChannel();
+  canal.port1.onmessage = () => { canal.port1.close(); resolver(); };
+  canal.port2.postMessage(null);
+});
 
 async function decodificar(b, ladoMin, kForzado) {
   const info = infoJpeg(b);
