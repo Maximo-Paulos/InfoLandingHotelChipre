@@ -11,6 +11,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { CLAVE_ADMIN, CLAVE_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { infoJpeg } from '../src/checkin/jpegReducido.js';
+import { ESQUINAS_EXIF, conOrientacion, esquinasDe, jpegGrande } from './fotos-ayuda.mjs';
 
 const require = createRequire(import.meta.url);
 const raiz = fileURLToPath(new URL('..', import.meta.url));
@@ -1022,6 +1024,140 @@ await seccion('13. Fotos del documento: el dueño las carga a mano, agrega otra 
   ok((await sql1('select count(*)::int as n from private.checkins')).n === 2 && (await sql1('select count(*)::int as n from private.checkin_fotos')).n === 3, 'no se borró ningún huésped ni ninguna foto en todo el recorrido');
   ok(adm.errores.length === 0, 'sin errores en la consola ' + adm.errores.join('|'));
   await adm.ctx.close();
+});
+
+await seccion('14. Foto grande del celular y página cerrada por falta de memoria', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  const rec = await contexto();
+  await recepcionLogin(rec.page);
+  const cod = await codigoDeRecepcion(rec.page);
+  const drive = async () => (await fetch(`${back.url}/__test/drive`).then((x) => x.json())).filter((a) => a.mime === 'image/jpeg');
+  const usos = async () => (await sql1('select usos from private.checkin_codigo where id = 1')).usos;
+  const MARCA = 'chipre-registro-foto';
+  const marca = (page) => page.evaluate((k) => { try { return JSON.parse(sessionStorage.getItem(k)); } catch { return null; } }, MARCA);
+  const AVISO = 'La página se cerró mientras elegías la foto';
+  const aviso = (page) => page.getByText(AVISO);
+
+  // Un celular de verdad (toca con el dedo). Además se cuenta cuántas veces la página le pide al navegador abrir una foto entera
+  // (una foto grande no debería: se achica mientras se decodifica) y, para poder ver el aviso "Preparando…", se puede demorar el armado de
+  // la foto (esta computadora es mucho más rápida que un celular).
+  const abrirFormulario = async (tag) => {
+    const g = await contexto({ hasTouch: true, isMobile: true });
+    await g.page.addInitScript(() => {
+      window.__enteras = 0;
+      const abrir = window.createImageBitmap?.bind(window);
+      if (abrir) window.createImageBitmap = (...a) => { window.__enteras += 1; return abrir(...a); };
+      const aBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function (cb, ...r) { if (window.__retraso) setTimeout(() => aBlob.call(this, cb, ...r), window.__retraso); else aBlob.call(this, cb, ...r); };
+    });
+    await g.page.goto(BASE + '#/registro');
+    await ingresarCodigo(g.page, cod);
+    await g.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+    return g;
+  };
+
+  // ---- 1. Una foto de 12 MP de un celular acostado: se achica, se endereza y llega a Drive
+  const g = await abrirFormulario();
+  await completarFormulario(g.page);
+  await g.page.getByLabel(/Acepto que el hotel/).check();
+  const grande = conOrientacion(await jpegGrande(g.page, 4000, 3000), 6);
+  const cab = infoJpeg(new Uint8Array(grande));
+  ok(cab.ancho === 4000 && cab.alto === 3000 && cab.orientacion === 6, `se arma una foto de 12 MP (${cab.ancho}x${cab.alto}) con la orientación de un celular acostado (${Math.round(grande.length / 1024)} KB)`);
+  await g.page.evaluate(() => { window.__retraso = 900; });
+  await g.page.locator('input[type=file]').nth(1).setInputFiles({ name: 'IMG_20260101_120000.jpg', mimeType: 'image/jpeg', buffer: grande });
+  await g.page.getByText('Preparando la foto…').waitFor({ timeout: 4000 });
+  ok(true, 'mientras se prepara la foto, avisa "Preparando la foto…"');
+  ok(await g.page.getByRole('button', { name: /Sacar foto/ }).isDisabled() && await g.page.getByRole('button', { name: /Elegir de la galería/ }).isDisabled(), 'y los dos botones de la foto quedan apagados (así no se pisan dos fotos a la vez)');
+  ok((await marca(g.page))?.estado === 'procesando', 'y queda anotado que se está procesando (para saber si la página se cierra justo ahí)');
+  await captura(g.page, '16-formulario-preparando-foto');
+  await g.page.locator('.foto-prev').waitFor();
+  ok(!(await g.page.getByText('Preparando la foto…').count()) && (await marca(g.page)) === null, 'al terminar se saca el aviso y se borra la anotación');
+  ok((await g.page.evaluate(() => window.__enteras)) === 0, 'el navegador NO decodificó la foto grande entera (esto es lo que evita quedarse sin memoria)');
+  const prev = await esquinasDe(g.page, await g.page.locator('.foto-prev').getAttribute('src'));
+  ok(prev.w === 1200 && prev.h === 1600, `la vista previa quedó derecha (vertical) y achicada: ${prev.w}x${prev.h}`);
+  ok(JSON.stringify(prev.esq) === JSON.stringify(ESQUINAS_EXIF[6]), 'y con las esquinas donde corresponden: la foto se ve como la sacó el huésped');
+  await g.page.getByRole('button', { name: 'Enviar formulario' }).click();
+  await g.page.getByRole('heading', { name: '¡Check-in realizado!' }).waitFor({ timeout: 15000 });
+  const subidas = await drive();
+  ok(subidas.length === 1 && subidas[0].bytes < 900 * 1024, `la foto llegó a Drive y pesa poco (${Math.round((subidas[0]?.bytes ?? 0) / 1024)} KB, la original pesaba ${Math.round(grande.length / 1024)} KB)`);
+  ok(g.errores.length === 0, 'sin errores en la consola ' + g.errores.join('|'));
+  await g.ctx.close();
+
+  // ---- 2. Se cierra la página mientras se saca la foto (le falta memoria al celular): vuelve al formulario y se le explica
+  const g2 = await abrirFormulario();
+  await g2.page.getByLabel('Nombre', { exact: true }).fill('Lucía');
+  await g2.page.getByLabel('Apellido', { exact: true }).fill('Fernández');
+  await g2.page.getByLabel(/Acepto que el hotel/).check();
+  const u0 = await usos();
+  await g2.page.getByRole('button', { name: /Sacar foto/ }).scrollIntoViewIfNeeded();
+  const [selector] = await Promise.all([g2.page.waitForEvent('filechooser'), g2.page.getByRole('button', { name: /Sacar foto/ }).tap()]);
+  ok(selector.isMultiple() === false && (await marca(g2.page))?.estado === 'eligiendo', 'al tocar "Sacar foto" se abre la cámara y queda anotado que se está eligiendo la foto');
+  // el sistema cierra la página en segundo plano y la vuelve a abrir cuando el huésped regresa de la cámara
+  await g2.page.reload();
+  await g2.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  await aviso(g2.page).waitFor();
+  ok(true, 'al volver, el formulario sigue abierto y explica que la página se cerró mientras elegía la foto');
+  ok((await g2.page.getByLabel('Nombre', { exact: true }).inputValue()) === 'Lucía' && (await g2.page.getByLabel('Apellido', { exact: true }).inputValue()) === 'Fernández' && await g2.page.getByLabel(/Acepto que el hotel/).isChecked(), 'no perdió lo que había escrito ni la casilla de aceptación');
+  ok((await usos()) === u0, 'y no gastó otro uso del código (no tuvo que pedirlo de nuevo)');
+  const alto = g2.page.viewportSize().height;
+  const aLaVista = async () => { const c = await g2.page.locator('#campo-foto').boundingBox(); return !!c && c.y >= 0 && c.y + c.height <= alto + 1; };
+  const llego = await hasta(aLaVista, 4000, 100); // la pantalla se desliza suave hasta la foto
+  const caja = await g2.page.locator('#campo-foto').boundingBox();
+  ok(llego, `la pantalla se desliza sola hasta la foto (no hay que buscarla): el área de la foto queda a la vista (${Math.round(caja?.y ?? -1)} a ${Math.round((caja?.y ?? 0) + (caja?.height ?? 0))} px de ${alto})`);
+  ok(/sacale la foto al documento con la cámara del celular, afuera de esta página, y elegila de la galería/.test(await aviso(g2.page).innerText()) && /También podés enviar el formulario sin foto/.test(await aviso(g2.page).innerText()), 'el aviso dice qué hacer si vuelve a pasar (sacarla afuera y elegirla de la galería) y que puede enviar sin foto');
+  await sinDesborde(g2.page, 'formulario con el aviso de página cerrada');
+  await captura(g2.page, '17-formulario-pagina-cerrada');
+  // vuelve a elegir la foto y todo sigue normal
+  await g2.page.locator('input[type=file]').nth(1).setInputFiles({ name: 'dni.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(await jpegBase64(g2.page), 'base64') });
+  await g2.page.locator('.foto-prev').waitFor();
+  ok(!(await aviso(g2.page).count()), 'al elegir la foto de nuevo, el aviso desaparece');
+  await g2.page.reload();
+  await g2.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  await espera(300);
+  ok(!(await aviso(g2.page).count()), 'y si recarga después de que la foto se eligió bien, no vuelve a aparecer');
+  ok(g2.errores.length === 0, 'sin errores en la consola ' + g2.errores.join('|'));
+  await g2.ctx.close();
+
+  // ---- 3. Cuándo NO hay que avisar
+  const g3 = await abrirFormulario();
+  await g3.page.getByLabel('Nombre', { exact: true }).fill('Beto');
+  // 3a. Eligió "Elegir de la galería" pero canceló: la página sigue viva, así que tocar la pantalla borra la anotación y recargar no avisa nada
+  const [selector2] = await Promise.all([g3.page.waitForEvent('filechooser'), g3.page.getByRole('button', { name: /Elegir de la galería/ }).tap()]);
+  ok((await marca(g3.page))?.estado === 'eligiendo', 'al tocar "Elegir de la galería" también queda anotado');
+  await espera(1300);
+  await g3.page.getByRole('heading', { name: 'Tus datos' }).tap();
+  ok((await marca(g3.page)) === null, 'si canceló y la página sigue viva, tocar la pantalla borra la anotación');
+  await g3.page.reload();
+  await g3.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  await espera(300);
+  ok(!(await aviso(g3.page).count()) && (await g3.page.getByLabel('Nombre', { exact: true }).inputValue()) === 'Beto', 'recargar después de cancelar no muestra el aviso (y conserva lo escrito)');
+  // 3b. Se cerró mientras se preparaba la foto: avisa
+  await g3.page.evaluate((k) => sessionStorage.setItem(k, JSON.stringify({ estado: 'procesando', en: Date.now() })), MARCA);
+  await g3.page.reload();
+  await aviso(g3.page).waitFor();
+  ok((await marca(g3.page)) === null, 'se cerró mientras se preparaba la foto: avisa, y la anotación se borra para que no avise dos veces');
+  // 3c. Una anotación vieja (más de 30 minutos) ya no sirve
+  await g3.page.evaluate((k) => sessionStorage.setItem(k, JSON.stringify({ estado: 'procesando', en: Date.now() - 31 * 60 * 1000 })), MARCA);
+  await g3.page.reload();
+  await g3.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  await espera(300);
+  ok(!(await aviso(g3.page).count()), 'una anotación de hace más de 30 minutos no genera el aviso');
+  // 3d. La sesión venció mientras tanto: vuelve a pedir el código, sin aviso de foto (ni cuando entre con un código nuevo)
+  await g3.page.evaluate((k) => sessionStorage.setItem(k, JSON.stringify({ estado: 'eligiendo', en: Date.now() })), MARCA);
+  await back.sql(`update private.checkin_sesiones set vence = now() - interval '1 minute'`);
+  await g3.page.reload();
+  await g3.page.getByLabel(/Código de 6 números/).waitFor();
+  ok(!(await aviso(g3.page).count()), 'con la sesión vencida vuelve a pedir el código, sin hablar de la foto');
+  await ingresarCodigo(g3.page, cod);
+  await g3.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  await espera(300);
+  ok(!(await aviso(g3.page).count()), 'y con el código nuevo el formulario abre limpio, sin el aviso');
+  ok(g3.errores.length === 0, 'sin errores en la consola ' + g3.errores.join('|'));
+  await g3.ctx.close();
+  await rec.ctx.close();
+  ok((await sql1('select count(*)::int as n from private.checkins')).n === 1, 'ninguna de estas pruebas dejó huéspedes de más ni borró nada');
 });
 
 await navegador.close();
