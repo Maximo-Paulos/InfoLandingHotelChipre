@@ -19,6 +19,13 @@ const MARCA_FOTO = 'chipre-registro-foto';
 const REGRESO_MS = 6000;
 const MARCA_VIGENTE_MS = 30 * 60 * 1000;
 
+// Qué parte del documento hay que fotografiar. Se suma a la ayuda de arriba (que es un texto editable, igual para los tres tipos).
+const FOTO_DE = {
+  DNI: 'Del DNI, el frente: donde están tu foto y tus datos.',
+  Pasaporte: 'Del pasaporte, la página con tu foto y tus datos.',
+  'Identificación': 'De la identificación, el lado donde se ven tu foto y tus datos.'
+};
+
 const leerBorrador = () => {
   try { return JSON.parse(sessionStorage.getItem(BORRADOR) ?? 'null'); } catch { return null; }
 };
@@ -397,7 +404,11 @@ function RegistroHuesped() {
             {foto ? (
               <img className="foto-prev" src={foto.vista} alt="Vista previa de la foto del documento" />
             ) : (
-              <div className="foto-vacia"><Icon name="camara" size={30} sw={1.5} /><p><V p="registro.fotoAyuda" /></p></div>
+              <div className="foto-vacia">
+                <Icon name="camara" size={30} sw={1.5} />
+                <p><V p="registro.fotoAyuda" /></p>
+                {FOTO_DE[valores.doc_tipo] && <p className="foto-tipo">{FOTO_DE[valores.doc_tipo]}</p>}
+              </div>
             )}
             <div className="foto-botones">
               <button type="button" className="btn claro mini" onClick={sacarFoto} disabled={enviando || estadoFoto === 'preparando'}>

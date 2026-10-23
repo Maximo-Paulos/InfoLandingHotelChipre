@@ -14,9 +14,10 @@ export const MENSAJES = {
   nacionalidad: 'Elegí tu nacionalidad.',
   localidad: 'Escribí tu localidad (entre 2 y 80 caracteres).',
   domicilio: 'Escribí tu domicilio: calle y número (entre 5 y 120 caracteres).',
-  doc_tipo: 'Elegí si es DNI o pasaporte.',
+  doc_tipo: 'Elegí el tipo de documento.',
   doc_numero_DNI: 'El DNI tiene 7 u 8 números, sin letras.',
   doc_numero_Pasaporte: 'El pasaporte tiene entre 6 y 12 letras o números.',
+  'doc_numero_Identificación': 'El número de la identificación tiene entre 4 y 20 letras o números.',
   habitacion: 'La habitación puede tener hasta 12 letras o números.',
   medio_pago: 'Elegí un medio de pago de la lista.',
   datos: 'Revisá los datos.'
@@ -53,9 +54,13 @@ export function validarHuesped(v, lib, { conHabitacion = false } = {}) {
   } else if (tipo === 'DNI') {
     num = num.replace(/[\s.-]/g, '');
     if (!/^[0-9]{7,8}$/.test(num)) errores.doc_numero = MENSAJES.doc_numero_DNI;
-  } else {
+  } else if (tipo === 'Pasaporte') {
     num = num.replace(/[\s-]/g, '').toUpperCase();
     if (!/^[A-Z0-9]{6,12}$/.test(num)) errores.doc_numero = MENSAJES.doc_numero_Pasaporte;
+  } else {
+    // cédula, RG, carnet de conducir...: cada país los escribe distinto, con puntos, guiones o barras
+    num = num.replace(/[\s./-]/g, '').toUpperCase();
+    if (!/^[A-Z0-9]{4,20}$/.test(num)) errores.doc_numero = MENSAJES['doc_numero_Identificación'];
   }
 
   let habitacion = null;

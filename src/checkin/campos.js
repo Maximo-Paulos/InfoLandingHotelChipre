@@ -1,5 +1,9 @@
 // Campos del formulario de check-in. Las claves son las mismas que guarda la base (datos.<clave>).
-export const TIPOS_DOC = ['DNI', 'Pasaporte'];
+// Tipos de documento. «Identificación» es la cédula, el RG, el carnet de conducir u otro documento de identidad con foto.
+export const TIPOS_DOC = ['DNI', 'Pasaporte', 'Identificación'];
+// Los que la base acepta desde siempre. Lo demás se ofrece solo cuando la base avisa que lo acepta (checkin_estado → tipos_doc, ver
+// supabase/documentos.sql), así la guía anda igual antes y después de correr ese SQL.
+export const TIPOS_BASE = ['DNI', 'Pasaporte'];
 
 // Estos países van primero en las listas.
 export const PRIMEROS = ['AR', 'BR', 'UY', 'CL', 'PY', 'BO'];

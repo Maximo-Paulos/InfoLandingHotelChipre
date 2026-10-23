@@ -1,10 +1,18 @@
 import { useEffect, useId, useState } from 'react';
 import { TIPOS_DOC, listaPaises } from './campos.js';
+import { tiposConocidos, tiposDocumento } from './checkinApi.js';
 import { cargarTelefono, codigoDe } from './telefono.js';
 
 export const ETIQUETAS = {
   nombre: 'Nombre', apellido: 'Apellido', email: 'Email', telefono: 'Teléfono', nacionalidad: 'Nacionalidad',
   localidad: 'Localidad', domicilio: 'Domicilio', docTipo: 'Tipo de documento', docNumero: 'Número de documento', habitacion: 'Habitación', medioPago: 'Medio de pago'
+};
+
+// Cómo se escribe el número según el tipo de documento (la base vuelve a revisarlo: ver validar_huesped en supabase/checkin.sql).
+const NUMERO = {
+  DNI: { ejemplo: 'Ej. 30123456', ayuda: 'Solo los números, sin puntos.' },
+  Pasaporte: { ejemplo: 'Ej. AA123456', ayuda: 'Letras y números, tal como figura en el pasaporte.' },
+  'Identificación': { ejemplo: 'Ej. 12.345.678-9', ayuda: 'Letras y números, tal como figuran en el documento.' }
 };
 
 // Los campos del huésped. Lo usan el formulario del huésped, la edición de recepción y la del admin.
@@ -17,6 +25,13 @@ export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas
   useEffect(() => {
     let vivo = true;
     cargarTelefono().then((l) => { if (vivo) setLib(l); }).catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+  // Los tipos de documento que acepta la base (si todavía no tiene supabase/documentos.sql, solo DNI y pasaporte).
+  const [tipos, setTipos] = useState(tiposConocidos);
+  useEffect(() => {
+    let vivo = true;
+    tiposDocumento().then((l) => { if (vivo) setTipos(l); });
     return () => { vivo = false; };
   }, []);
   const paises = listaPaises();
@@ -34,7 +49,11 @@ export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas
     'aria-invalid': errores[clave] ? 'true' : undefined, 'aria-describedby': errores[clave] ? `${id}-${clave}-msg` : undefined, ...extra,
     ...(sugerencias ? {} : { autoComplete: 'off' })
   });
-  const esDNI = valores.doc_tipo === 'DNI';
+  const tipo = valores.doc_tipo;
+  const esDNI = tipo === 'DNI';
+  const numero = NUMERO[tipo] ?? NUMERO.DNI;
+  // el tipo que ya tiene cargado el huésped que se edita siempre figura, aunque la lista no lo traiga
+  const opciones = TIPOS_DOC.includes(tipo) && !tipos.includes(tipo) ? [...tipos, tipo] : tipos;
 
   return (
     <>
@@ -69,15 +88,15 @@ export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas
       {campo('domicilio', etiquetas.domicilio, <input {...props('domicilio', { maxLength: 120, autoComplete: 'street-address' })} />, 'Calle y número; si es departamento, piso y letra.')}
       {campo('doc_tipo', etiquetas.docTipo, (
         <select {...props('doc_tipo', { autoComplete: 'off' })}>
-          {TIPOS_DOC.map((t) => <option key={t} value={t}>{t}</option>)}
+          {opciones.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
-      ))}
+      ), opciones.includes('Identificación') ? 'Identificación: cédula, RG, carnet de conducir u otro documento con foto.' : undefined)}
       {campo('doc_numero', etiquetas.docNumero, (
         <input {...props('doc_numero', {
-          maxLength: 20, autoComplete: 'off', inputMode: esDNI ? 'numeric' : 'text', autoCapitalize: esDNI ? 'none' : 'characters',
-          placeholder: esDNI ? 'Ej. 30123456' : 'Ej. AA123456'
+          maxLength: tipo === 'Identificación' ? 30 : 20, autoComplete: 'off', inputMode: esDNI ? 'numeric' : 'text', autoCapitalize: esDNI ? 'none' : 'characters',
+          placeholder: numero.ejemplo
         })} />
-      ), esDNI ? 'Solo los números, sin puntos.' : 'Letras y números, tal como figura en el pasaporte.')}
+      ), numero.ayuda)}
     </>
   );
 }

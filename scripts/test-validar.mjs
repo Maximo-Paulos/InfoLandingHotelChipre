@@ -1,7 +1,7 @@
 // Prueba las reglas del formulario de check-in (sin navegador). Uso: node scripts/test-validar.mjs
 import * as lib from 'libphonenumber-js/max';
-import { validarHuesped } from '../src/checkin/validar.js';
-import { listaPaises, isoDeNombre } from '../src/checkin/campos.js';
+import { mensajeDe, validarHuesped, valoresDesdeDatos } from '../src/checkin/validar.js';
+import { listaPaises, isoDeNombre, TIPOS_BASE, TIPOS_DOC } from '../src/checkin/campos.js';
 import { revisarTelefono } from '../src/checkin/telefono.js';
 
 let fallas = 0;
@@ -40,6 +40,21 @@ r = con({ doc_tipo: 'Pasaporte', doc_numero: 'aa 123456' });
 ok(!r.errores.doc_numero && r.datos.doc_numero === 'AA123456', 'pasaporte en mayúsculas y sin espacios');
 ok(con({ doc_tipo: 'Pasaporte', doc_numero: 'A1' }).errores.doc_numero, 'pasaporte muy corto');
 ok(con({ doc_tipo: 'Cédula' }).errores.doc_tipo, 'tipo de documento inválido');
+ok(con({ doc_tipo: 'Cédula' }).errores.doc_tipo === 'Elegí el tipo de documento.', 'y el mensaje no habla solo de DNI y pasaporte');
+// «Identificación»: cédula, RG, carnet de conducir u otro documento (cada país lo escribe distinto)
+r = con({ doc_tipo: 'Identificación', doc_numero: '12.345.678-9' });
+ok(!r.errores.doc_numero && r.datos.doc_tipo === 'Identificación' && r.datos.doc_numero === '123456789', 'identificación: se sacan los puntos y el guion');
+r = con({ doc_tipo: 'Identificación', doc_numero: ' mg-12.345/678 ' });
+ok(!r.errores.doc_numero && r.datos.doc_numero === 'MG12345678', 'identificación: letras en mayúsculas, sin espacios, guiones ni barras');
+ok(!con({ doc_tipo: 'Identificación', doc_numero: '1234' }).errores.doc_numero, 'identificación: 4 caracteres alcanzan');
+ok(!con({ doc_tipo: 'Identificación', doc_numero: '1'.repeat(20) }).errores.doc_numero, 'identificación: hasta 20');
+ok(con({ doc_tipo: 'Identificación', doc_numero: '12-3' }).errores.doc_numero === 'El número de la identificación tiene entre 4 y 20 letras o números.', 'identificación: muy corta (con su propio mensaje)');
+ok(con({ doc_tipo: 'Identificación', doc_numero: '1'.repeat(21) }).errores.doc_numero, 'identificación: muy larga');
+ok(con({ doc_tipo: 'Identificación', doc_numero: '12345$' }).errores.doc_numero, 'identificación: con símbolos');
+ok(con({ doc_tipo: 'Identificación', doc_numero: '' }).errores.doc_numero, 'identificación: vacía');
+ok(mensajeDe('doc_numero', 'Identificación') !== mensajeDe('doc_numero', 'DNI') && mensajeDe('doc_numero', 'Pasaporte') !== mensajeDe('doc_numero', 'DNI'), 'cada tipo tiene su mensaje de número');
+ok(TIPOS_DOC.join() === 'DNI,Pasaporte,Identificación' && TIPOS_BASE.join() === 'DNI,Pasaporte', 'los tipos: tres en total, y DNI y pasaporte son los de siempre');
+ok(valoresDesdeDatos({ doc_tipo: 'Identificación', doc_numero: 'X1234' }).doc_tipo === 'Identificación', 'al editar a alguien con identificación, el formulario la trae');
 ok(con({ habitacion: '<b>' }, { conHabitacion: true }).errores.habitacion, 'habitación inválida');
 r = con({ habitacion: ' 101 ' }, { conHabitacion: true });
 ok(!r.errores.habitacion && r.habitacion === '101', 'habitación válida y limpia');

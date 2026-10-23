@@ -227,6 +227,10 @@ begin
   elsif v_tipo = 'Pasaporte' then
     v_num := upper(regexp_replace(v_num, '[\s-]', '', 'g'));
     if v_num !~ '^[A-Z0-9]{6,12}$' then v_err := array_append(v_err, 'doc_numero'); end if;
+  elsif v_tipo = 'Identificación' then
+    -- cédula, RG, carnet de conducir u otro documento de identidad: letras y números, con o sin puntos, guiones, barras o espacios
+    v_num := upper(regexp_replace(v_num, '[\s./-]', '', 'g'));
+    if v_num !~ '^[A-Z0-9]{4,20}$' then v_err := array_append(v_err, 'doc_numero'); end if;
   else
     v_err := array_append(v_err, 'doc_tipo');
   end if;
@@ -382,7 +386,9 @@ begin
   return json_build_object(
     'activo', cfg.activo,
     'foto', case when cfg.activo and cfg.foto_modo <> 'no' and cfg.foto_url is not null
-                 then json_build_object('modo', cfg.foto_modo, 'url', cfg.foto_url) else null end);
+                 then json_build_object('modo', cfg.foto_modo, 'url', cfg.foto_url) else null end,
+    -- los tipos de documento que acepta la base: la guía solo ofrece los que figuran acá (así la guía nueva anda también con una base sin migrar)
+    'tipos_doc', json_build_array('DNI', 'Pasaporte', 'Identificación'));
 end;
 $$;
 

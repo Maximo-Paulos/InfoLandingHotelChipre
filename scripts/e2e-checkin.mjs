@@ -1295,6 +1295,137 @@ await seccion('15. Cámara dentro de la página: se saca la foto sin abrir la ap
   await rec.ctx.close();
 });
 
+await seccion('16. Documento «Identificación» (cédula, RG, otro): se elige, se valida y su foto se sube igual que la del DNI', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  const rec = await contexto();
+  await recepcionLogin(rec.page);
+  const cod = await codigoDeRecepcion(rec.page);
+  const drive = async () => (await fetch(`${back.url}/__test/drive`).then((x) => x.json())).filter((a) => a.mime === 'image/jpeg');
+  const tipoDe = (donde) => donde.getByLabel('Tipo de documento', { exact: true });
+  const numeroDe = (donde) => donde.getByLabel('Número de documento', { exact: true });
+  const opcionesDe = (donde) => tipoDe(donde).locator('option').allInnerTexts();
+  const AYUDA_TIPO = 'Identificación: cédula, RG, carnet de conducir u otro documento con foto.';
+
+  // ---- 1. El huésped elige «Identificación», se equivoca con el número, lo corrige y saca la foto con la cámara de la página
+  const g = await contexto({ hasTouch: true, isMobile: true });
+  await g.page.goto(BASE + '#/registro');
+  await ingresarCodigo(g.page, cod);
+  await g.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  ok(JSON.stringify(await opcionesDe(g.page)) === JSON.stringify(['DNI', 'Pasaporte', 'Identificación']), 'el tipo de documento ofrece DNI, Pasaporte e Identificación');
+  ok(await g.page.getByText(AYUDA_TIPO).isVisible(), 'y explica qué es una identificación (cédula, RG, carnet de conducir...)');
+  await completarFormulario(g.page, { ...DATOS, doc_numero: '12' }, { tipo: 'Identificación' });
+  ok((await numeroDe(g.page).getAttribute('placeholder')) === 'Ej. 12.345.678-9' && (await numeroDe(g.page).getAttribute('inputmode')) === 'text', 'con «Identificación» el número admite letras: ejemplo propio y teclado de texto');
+  ok(await g.page.getByText('Letras y números, tal como figuran en el documento.').isVisible(), 'y la ayuda del campo lo explica');
+  await g.page.getByLabel(/Acepto que el hotel/).check();
+
+  const indicacion = g.page.locator('.foto-tipo');
+  ok(/De la identificación, el lado donde se ven tu foto y tus datos/.test(await indicacion.innerText()), 'el área de la foto dice qué parte de la identificación fotografiar');
+  await tipoDe(g.page).selectOption('Pasaporte');
+  ok(/Del pasaporte, la página con tu foto y tus datos/.test(await indicacion.innerText()), 'si cambia a pasaporte, la indicación cambia con el tipo');
+  await tipoDe(g.page).selectOption('DNI');
+  ok(/Del DNI, el frente/.test(await indicacion.innerText()), 'y con DNI también');
+  await tipoDe(g.page).selectOption('Identificación');
+  ok((await numeroDe(g.page).inputValue()) === '12', 'cambiar de tipo no borra lo que ya escribió');
+
+  await g.page.getByRole('button', { name: 'Enviar formulario' }).click();
+  await g.page.getByText('El número de la identificación tiene entre 4 y 20 letras o números.').waitFor();
+  ok(await enfocado(g.page, 'doc_numero'), 'un número demasiado corto se rechaza con el mensaje de la identificación, y el cursor va a ese campo');
+  await captura(g.page, '22-identificacion-error');
+  await numeroDe(g.page).fill('mg-12.345.678');
+  await g.page.getByRole('button', { name: /Sacar foto/ }).scrollIntoViewIfNeeded();
+  await g.page.getByRole('button', { name: /Sacar foto/ }).tap();
+  const cam = g.page.getByRole('dialog', { name: /Cámara/ });
+  await cam.waitFor();
+  await cam.locator('.camara-disparo:not([disabled])').waitFor();
+  await cam.locator('.camara-disparo').tap();
+  await cam.waitFor({ state: 'hidden' });
+  await g.page.locator('.foto-prev').waitFor();
+  ok(true, 'la foto de la identificación se saca con la cámara de la página, igual que la del DNI');
+  await captura(g.page, '23-identificacion-con-foto');
+  await sinDesborde(g.page, 'formulario con «Identificación»');
+  await g.page.getByRole('button', { name: 'Enviar formulario' }).click();
+  await g.page.getByRole('heading', { name: '¡Check-in realizado!' }).waitFor({ timeout: 15000 });
+  ok(true, 'se envía el formulario con una identificación');
+  const fila = await sql1(`select id::int as id, datos from private.checkins order by id desc limit 1`);
+  ok(fila.datos.doc_tipo === 'Identificación' && fila.datos.doc_numero === 'MG12345678', 'en la base queda «Identificación» y el número sin guion ni puntos, en mayúsculas (MG12345678)');
+  const subidas = await drive();
+  ok(subidas.length === 1 && subidas[0].bytes > 0 && subidas[0].bytes < 900 * 1024, `la foto llegó a Drive (${Math.round((subidas[0]?.bytes ?? 0) / 1024)} KB)`);
+  const fotos = await back.sql('select origen, activa from private.checkin_fotos where checkin_id = $1', [fila.id]);
+  ok(fotos.length === 1 && fotos[0].origen === 'huesped' && fotos[0].activa === true, 'y quedó asociada al huésped');
+  ok(g.errores.length === 0, 'sin errores en la consola ' + g.errores.join('|'));
+  await g.ctx.close();
+
+  // ---- 2. Recepción lo ve en la planilla, con su foto, y puede corregir el tipo
+  const filaRec = rec.page.locator('.planilla tbody tr').first();
+  await filaRec.waitFor({ timeout: 8000 });
+  await hasta(async () => /MG12345678/.test(await filaRec.innerText()), 8000);
+  const textoFila = await filaRec.innerText();
+  ok(/Identificación/.test(textoFila) && /MG12345678/.test(textoFila), 'recepción ve «Identificación» y el número en la planilla');
+  ok((await filaRec.locator('.ver-foto').count()) === 1, 'y el link a la foto');
+  await sinDesborde(rec.page, 'recepción con una identificación');
+  await captura(rec.page, '33-recepcion-identificacion', { fullPage: true });
+  await rec.page.getByRole('button', { name: /Editar/ }).first().click();
+  const dlg = rec.page.getByRole('dialog');
+  await dlg.waitFor();
+  ok((await tipoDe(dlg).inputValue()) === 'Identificación' && (await numeroDe(dlg).inputValue()) === 'MG12345678', 'la ventana de edición trae el tipo y el número');
+  ok(JSON.stringify(await opcionesDe(dlg)) === JSON.stringify(['DNI', 'Pasaporte', 'Identificación']), 'con los tres tipos para elegir');
+  await numeroDe(dlg).fill('1');
+  await rec.page.getByRole('button', { name: 'Guardar cambios' }).click();
+  await dlg.getByText('El número de la identificación tiene entre 4 y 20 letras o números.').waitFor();
+  ok((await sql1('select datos ->> \'doc_numero\' as n from private.checkins where id = $1', [fila.id])).n === 'MG12345678', 'un número que no sirve no se guarda: lo marca en la ventana');
+  await tipoDe(dlg).selectOption('DNI');
+  await numeroDe(dlg).fill('30.123.456');
+  await rec.page.getByRole('button', { name: 'Guardar cambios' }).click();
+  await dlg.waitFor({ state: 'hidden' });
+  const trasRec = await sql1('select datos, editado_por from private.checkins where id = $1', [fila.id]);
+  ok(trasRec.datos.doc_tipo === 'DNI' && trasRec.datos.doc_numero === '30123456' && trasRec.editado_por === 'recepcion', 'recepción cambió la identificación por un DNI y quedó guardado');
+  ok((await back.sql('select count(*)::int as n from private.checkin_fotos where checkin_id = $1 and activa', [fila.id]))[0].n === 1, 'y la foto sigue ahí');
+
+  // ---- 3. El dueño lo cambia a «Identificación» desde su panel
+  const adm = await contexto({ viewport: { width: 1280, height: 900 } });
+  await entrarAdmin(adm.page, '#/admin/huespedes');
+  await adm.page.locator('.planilla tbody tr').first().waitFor();
+  await adm.page.getByRole('button', { name: /Editar/ }).first().click();
+  const dlgAdm = adm.page.getByRole('dialog');
+  await dlgAdm.waitFor();
+  ok((await tipoDe(dlgAdm).inputValue()) === 'DNI' && JSON.stringify(await opcionesDe(dlgAdm)) === JSON.stringify(['DNI', 'Pasaporte', 'Identificación']), 'el dueño ve los tres tipos en su ventana de edición');
+  await tipoDe(dlgAdm).selectOption('Identificación');
+  await numeroDe(dlgAdm).fill('cd 99.88/77');
+  await adm.page.getByRole('button', { name: 'Guardar cambios' }).click();
+  await adm.page.getByText('Cambios guardados.').waitFor();
+  const trasAdm = await sql1('select datos, editado_por from private.checkins where id = $1', [fila.id]);
+  ok(trasAdm.datos.doc_tipo === 'Identificación' && trasAdm.datos.doc_numero === 'CD998877' && trasAdm.editado_por === 'admin', 'el dueño lo cambió a identificación (CD998877)');
+  await adm.page.keyboard.press('Escape');
+  await dlgAdm.waitFor({ state: 'hidden' });
+  const filaAdm = adm.page.locator('.planilla tbody tr').first();
+  await hasta(async () => /CD998877/.test(await filaAdm.innerText()), 8000);
+  ok(/Identificación/.test(await filaAdm.innerText()) && (await filaAdm.locator('.ver-foto').count()) === 1, 'su planilla muestra «Identificación», el número y la foto');
+  await captura(adm.page, '34-admin-identificacion', { fullPage: true });
+  ok(rec.errores.length === 0 && adm.errores.length === 0, 'sin errores en la consola ' + [...rec.errores, ...adm.errores].join('|'));
+  await adm.ctx.close();
+
+  // ---- 4. Una base que todavía no tiene el SQL nuevo: la guía solo ofrece DNI y pasaporte (no ofrece lo que la base rechazaría)
+  const v = await contexto({ hasTouch: true, isMobile: true });
+  await v.ctx.route('**/rest/v1/rpc/checkin_estado', async (route) => {
+    const r = await route.fetch();
+    const j = await r.json();
+    delete j.tipos_doc; // así contesta una base sin supabase/documentos.sql
+    await route.fulfill({ response: r, json: j });
+  });
+  await v.page.goto(BASE + '#/registro');
+  await ingresarCodigo(v.page, cod);
+  await v.page.getByRole('heading', { name: 'Tus datos' }).waitFor();
+  await espera(500);
+  ok(JSON.stringify(await opcionesDe(v.page)) === JSON.stringify(['DNI', 'Pasaporte']), 'con una base sin migrar, el tipo de documento ofrece solo DNI y Pasaporte');
+  ok(!(await v.page.getByText(AYUDA_TIPO).count()), 'y no habla de identificaciones');
+  await v.ctx.close();
+
+  ok((await sql1('select count(*)::int as n from private.checkins')).n === 1, 'ninguna de estas pruebas dejó huéspedes de más ni borró nada');
+  await rec.ctx.close();
+});
+
 await navegador.close();
 web.close();
 await back.cerrar();
