@@ -3,8 +3,9 @@
 //   - al volver a dibujarla se pierden los datos ocultos (ubicación, modelo del celular)
 //   - con POCA MEMORIA: una foto de cámara reconstruida entera ocupa 4 bytes por píxel (12 MP ~50 MB, 50 MP ~200 MB, 108 MP ~430 MB)
 //     y en un celular con poca memoria el sistema cierra la página ("memoria insuficiente") y el huésped vuelve a empezar. Por eso los
-//     JPEG grandes se decodifican directamente ya achicados (jpegReducido.js) y solo lo que no es un JPEG común pasa por el navegador.
-import { decodificarReducido, infoJpeg, kParaAchicar } from './jpegReducido.js';
+//     JPEG grandes se decodifican directamente ya achicados, derechos y en su tamaño final (jpegReducido.js), sin armar nunca la foto entera,
+//     y la memoria se devuelve apenas deja de hacer falta. Solo lo que no es un JPEG común pasa por el navegador.
+import { decodificarFinal, infoJpeg, kParaAchicar, liberar } from './jpegReducido.js';
 
 export const MAX_BYTES = 900 * 1024;
 const NIVELES = [[1600, 0.78], [1400, 0.68], [1200, 0.6], [1000, 0.55]]; // [lado máximo, calidad]: se baja de a poco hasta que entre en MAX_BYTES
@@ -31,19 +32,23 @@ async function cabeceraDe(archivo) {
   return infoJpeg(new Uint8Array(await leerBytes(archivo.slice(0, 8 * CABECERA))));
 }
 
-// Un JPEG grande: se decodifica ya achicado. Devuelve null si no corresponde (no es JPEG, es chico, es progresivo...).
-async function abrirLiviano(archivo) {
+// Un JPEG grande: se decodifica ya terminado (achicado, derecho y en colores). Devuelve null si no corresponde (no es JPEG, es chico, es progresivo...).
+async function abrirLiviano(archivo, onProgreso) {
   const info = await cabeceraDe(archivo);
   if (!info) return null;
   if (info.ancho * info.alto > MAX_PIXELES) throw falla('pesada');
-  if (!kParaAchicar(info)) return null;
-  const red = await decodificarReducido(new Uint8Array(await leerBytes(archivo)));
-  if (!red) return null;
+  const ladoMax = NIVELES[0][0];
+  if (!kParaAchicar(info, ladoMax)) return null;
+  const bytes = new Uint8Array(await leerBytes(archivo));
+  const fin = await decodificarFinal(bytes, { ladoMax, onProgreso });
+  liberar(bytes);
+  if (!fin) return null;
   const lienzo = document.createElement('canvas');
-  lienzo.width = red.ancho;
-  lienzo.height = red.alto;
-  lienzo.getContext('2d').putImageData(new ImageData(red.rgba, red.ancho, red.alto), 0, 0);
-  return { fuente: lienzo, ancho: red.ancho, alto: red.alto, orientacion: red.orientacion, liberar: () => { lienzo.width = 0; lienzo.height = 0; } };
+  lienzo.width = fin.ancho;
+  lienzo.height = fin.alto;
+  lienzo.getContext('2d').putImageData(new ImageData(fin.rgba, fin.ancho, fin.alto), 0, 0);
+  liberar(fin.rgba);
+  return { fuente: lienzo, ancho: fin.ancho, alto: fin.alto, orientacion: 1, esLienzo: true, liberar: () => { lienzo.width = 0; lienzo.height = 0; } };
 }
 
 // Lo demás (PNG, JPEG progresivos o chicos...): lo abre el navegador, que ya aplica la orientación de la foto.
@@ -102,27 +107,22 @@ const aBase64 = (blob) => new Promise((res, rej) => {
   r.readAsDataURL(blob);
 });
 
-// Devuelve { base64, vista (URL para mostrar), bytes } o lanza un error con `codigo` ('tipo', 'imagen' o 'pesada').
-export async function comprimirImagen(archivo) {
-  if (!archivo || !String(archivo.type).startsWith('image/')) throw falla('tipo');
-  if (archivo.size > MAX_ARCHIVO) throw falla('pesada');
-  let origen = null;
-  try {
-    origen = await abrirLiviano(archivo);
-  } catch (e) {
-    if (e.codigo) throw e;
-  }
-  if (!origen) {
-    origen = await abrirNavegador(archivo).catch(() => { throw falla('imagen'); });
-    if (!origen.ancho || !origen.alto) { origen.liberar(); throw falla('imagen'); }
-    if (origen.ancho * origen.alto > MAX_PIXELES) { origen.liberar(); throw falla('pesada'); }
-  }
+// Codifica la foto en JPEG de a niveles hasta que entre en MAX_BYTES. Devuelve { base64, vista (URL para mostrar), bytes } o lanza 'pesada'.
+async function codificar(origen) {
   // un solo lienzo de salida que se reutiliza en cada intento, y se libera al terminar (en algunos celulares la memoria de los lienzos no se devuelve sola)
   const destino = document.createElement('canvas');
   try {
     for (const [lado, calidad] of NIVELES) {
-      pintar(destino, origen, lado);
-      const blob = await aBlob(destino, calidad);
+      const girado = origen.orientacion >= 5;
+      const vw = girado ? origen.alto : origen.ancho;
+      const vh = girado ? origen.ancho : origen.alto;
+      let salida = origen.fuente;
+      // si la foto ya está del tamaño que toca, se codifica el mismo lienzo: no se arma otra copia
+      if (!(origen.esLienzo && origen.orientacion === 1 && Math.min(1, lado / Math.max(vw, vh)) === 1)) {
+        pintar(destino, origen, lado);
+        salida = destino;
+      }
+      const blob = await aBlob(salida, calidad);
       if (blob && blob.size <= MAX_BYTES) {
         return { base64: await aBase64(blob), vista: URL.createObjectURL(blob), bytes: blob.size };
       }
@@ -133,4 +133,29 @@ export async function comprimirImagen(archivo) {
     destino.height = 0;
     origen.liberar();
   }
+}
+
+// Devuelve { base64, vista (URL para mostrar), bytes } o lanza un error con `codigo` ('tipo', 'imagen' o 'pesada').
+// onProgreso(0 a 1): se avisa cada tanto mientras se prepara una foto grande.
+export async function comprimirImagen(archivo, { onProgreso } = {}) {
+  if (!archivo || !String(archivo.type).startsWith('image/')) throw falla('tipo');
+  if (archivo.size > MAX_ARCHIVO) throw falla('pesada');
+  let origen = null;
+  try {
+    origen = await abrirLiviano(archivo, onProgreso);
+  } catch (e) {
+    if (e.codigo) throw e;
+  }
+  if (!origen) {
+    origen = await abrirNavegador(archivo).catch(() => { throw falla('imagen'); });
+    if (!origen.ancho || !origen.alto) { origen.liberar(); throw falla('imagen'); }
+    if (origen.ancho * origen.alto > MAX_PIXELES) { origen.liberar(); throw falla('pesada'); }
+  }
+  return codificar(origen);
+}
+
+// Lo mismo para una foto que ya está en un lienzo (la cámara de la página): el lienzo pasa a ser de esta función, que lo libera al terminar.
+export async function comprimirCanvas(lienzo) {
+  if (!lienzo?.width || !lienzo?.height) throw falla('imagen');
+  return codificar({ fuente: lienzo, ancho: lienzo.width, alto: lienzo.height, orientacion: 1, esLienzo: true, liberar: () => { lienzo.width = 0; lienzo.height = 0; } });
 }

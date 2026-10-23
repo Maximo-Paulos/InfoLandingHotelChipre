@@ -6,7 +6,8 @@ import { useDatos } from '../data/DataContext.jsx';
 import { idiomaActual } from '../idioma.js';
 import { VACIO } from './campos.js';
 import { canjearCodigo, enviarCheckin, estadoCheckin, sesionCheckin } from './checkinApi.js';
-import { comprimirImagen } from './comprimir.js';
+import CamaraFoto, { hayCamara } from './CamaraFoto.jsx';
+import { comprimirCanvas, comprimirImagen } from './comprimir.js';
 import FormHuesped from './FormHuesped.jsx';
 import { subirFoto } from './foto.js';
 import { cargarTelefono } from './telefono.js';
@@ -82,6 +83,9 @@ function RegistroHuesped() {
   const [fotoSubida, setFotoSubida] = useState(false);
   const [errFoto, setErrFoto] = useState('');
   const [estadoFoto, setEstadoFoto] = useState(''); // '' | preparando | subiendo | error
+  const [progresoFoto, setProgresoFoto] = useState(0); // 0 a 99, mientras se prepara una foto grande
+  const [camaraAbierta, setCamaraAbierta] = useState(false); // la cámara de la página (no la aplicación de cámara del celular)
+  const [camaraFalla, setCamaraFalla] = useState(false); // si no anduvo, no se insiste: "Sacar foto" abre la cámara del celular
   // ¿La página se cerró mientras se sacaba o se preparaba la foto? (se lee al abrir; no tiene efectos, así que sirve también en modo desarrollo)
   const [paginaCerrada, setPaginaCerrada] = useState(() => !!leerMarcaFoto() && !!leerBorrador()?.token);
   const [aviso, setAviso] = useState('');
@@ -128,7 +132,7 @@ function RegistroHuesped() {
   // (por ejemplo, canceló la cámara): no hay nada que avisar.
   useEffect(() => {
     borrarMarcaFoto();
-    const alTocar = () => { const m = leerMarcaFoto(); if (m?.estado === 'eligiendo' && Date.now() - m.en > 1000) borrarMarcaFoto(); };
+    const alTocar = (e) => { if (e.target?.closest?.('.camara')) return; const m = leerMarcaFoto(); if (m?.estado === 'eligiendo' && Date.now() - m.en > 1000) borrarMarcaFoto(); }; // tocar la cámara de la página no cuenta: sigue abierta
     document.addEventListener('pointerdown', alTocar, true);
     return () => document.removeEventListener('pointerdown', alTocar, true);
   }, []);
@@ -199,16 +203,17 @@ function RegistroHuesped() {
     if (errores[clave]) setErrores((e) => ({ ...e, [clave]: undefined }));
   };
 
-  const elegirFoto = async (e) => {
-    const archivo = e.target.files?.[0];
-    e.target.value = '';
-    if (!archivo) return;
+  // El avance se anota de a 5 puntos: no hace falta redibujar toda la pantalla cada 30 milisegundos.
+  const avance = (p) => { const n = Math.min(99, Math.floor((p * 100) / 5) * 5); setProgresoFoto((a) => (n > a ? n : a)); };
+
+  const prepararFoto = async (preparar) => {
     setErrFoto('');
     setPaginaCerrada(false);
+    setProgresoFoto(0);
     setEstadoFoto('preparando');
     ponerMarcaFoto('procesando');
     try {
-      const r = await comprimirImagen(archivo);
+      const r = await preparar();
       if (foto?.vista) URL.revokeObjectURL(foto.vista);
       setFoto(r);
       setFotoSubida(false);
@@ -221,7 +226,26 @@ function RegistroHuesped() {
     }
   };
 
+  const elegirFoto = async (e) => {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo) return;
+    await prepararFoto(() => comprimirImagen(archivo, { onProgreso: avance }));
+  };
+
   const abrirSelector = (ref) => { ponerMarcaFoto('eligiendo'); ref.current?.click(); };
+
+  // "Sacar foto": con la cámara de la página si se puede (no se sale de la página); si no, con la cámara del celular.
+  const sacarFoto = () => {
+    if (hayCamara() && !camaraFalla) { ponerMarcaFoto('eligiendo'); setCamaraAbierta(true); return; }
+    abrirSelector(camara);
+  };
+  const cerrarCamara = () => { setCamaraAbierta(false); borrarMarcaFoto(); };
+  const usarCuadro = async (lienzo) => {
+    setCamaraAbierta(false);
+    await prepararFoto(() => comprimirCanvas(lienzo));
+  };
+  const camaraDelCelular = () => { setCamaraAbierta(false); abrirSelector(camara); };
 
   const quitarFoto = () => {
     if (foto?.vista) URL.revokeObjectURL(foto.vista);
@@ -376,7 +400,7 @@ function RegistroHuesped() {
               <div className="foto-vacia"><Icon name="camara" size={30} sw={1.5} /><p><V p="registro.fotoAyuda" /></p></div>
             )}
             <div className="foto-botones">
-              <button type="button" className="btn claro mini" onClick={() => abrirSelector(camara)} disabled={enviando || estadoFoto === 'preparando'}>
+              <button type="button" className="btn claro mini" onClick={sacarFoto} disabled={enviando || estadoFoto === 'preparando'}>
                 <Icon name="camara" size={18} sw={1.7} /> {foto ? <V p="registro.btnCambiarFoto" /> : <V p="registro.btnSacarFoto" />}
               </button>
               <button type="button" className="btn claro mini" onClick={() => abrirSelector(galeria)} disabled={enviando || estadoFoto === 'preparando'}>
@@ -386,6 +410,7 @@ function RegistroHuesped() {
             </div>
             <input ref={camara} type="file" accept="image/*" capture="environment" hidden onChange={elegirFoto} />
             <input ref={galeria} type="file" accept="image/*" hidden onChange={elegirFoto} />
+            {camaraAbierta && <CamaraFoto onFoto={usarCuadro} onCerrar={cerrarCamara} onUsarCelular={camaraDelCelular} onFalla={() => setCamaraFalla(true)} />}
             {paginaCerrada && (
               <p className="note" role="status">
                 La página se cerró mientras elegías la foto (suele pasar cuando al celular le falta memoria). No perdiste nada: tus datos siguen acá. Probá de nuevo;
@@ -393,7 +418,12 @@ function RegistroHuesped() {
                 {fotoInfo.modo === 'obligatoria' ? ' Si no podés, pedile ayuda a recepción.' : ' También podés enviar el formulario sin foto y mostrar el documento en recepción.'}
               </p>
             )}
-            {estadoFoto === 'preparando' && <p className="ayuda" role="status">Preparando la foto…</p>}
+            {estadoFoto === 'preparando' && (
+              <div className="ayuda" role="status">
+                Preparando la foto…<span aria-hidden="true">{progresoFoto > 0 ? ` ${progresoFoto} %` : ''}</span>
+                <span className="avance" aria-hidden="true"><i style={{ width: `${progresoFoto}%` }} /></span>
+              </div>
+            )}
             {estadoFoto === 'subiendo' && <p className="ayuda" role="status">Subiendo la foto…</p>}
             {fotoSubida && foto && <p className="ayuda ok" role="status">Foto guardada.</p>}
             {errFoto && <p className="msg" role="alert">{errFoto}</p>}
