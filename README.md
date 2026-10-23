@@ -64,6 +64,14 @@ Otros valores quedan fijos en la base (`private.checkin_config`): el huésped ti
 - El script solo acepta fotos con un **permiso firmado y de pocos minutos** que la base le da al huésped que canjeó un código (hasta 3 fotos por huésped); solo escribe en esa carpeta y no comparte ni borra nada.
 - Conexión (una vez, unos 10 minutos): *Admin → Ver huéspedes → Conectar Drive para las fotos*: 1) crear la carpeta y pegar su link, 2) pegar en [script.google.com](https://script.google.com) el código que arma el asistente, 3) *Implementar → Aplicación web → ejecutar como yo → acceso: cualquier persona*, 4) pegar la URL que termina en `/exec` y tocar *Guardar y probar* (guarda un archivo de prueba en la carpeta).
 
+### Fotos grandes y celulares con poca memoria
+Un celular con poca memoria podía mostrar «memoria insuficiente» al elegir la foto y mandar al huésped de vuelta al principio del formulario. La causa: para achicarla, el navegador reconstruía la foto **entera** en memoria, a 4 bytes por píxel (una foto de 12 MP ocupa unos 50 MB, una de 50 MP unos 200 MB y una de 108 MP unos 430 MB), y cuando el sistema no tiene tanto libre cierra la página.
+
+- **Cómo se evita** (`src/checkin/jpegReducido.js` y `src/checkin/comprimir.js`): los JPEG grandes (3200 px o más de lado, que son los de cualquier cámara de hoy) se decodifican **ya achicados**: cada bloque de 8×8 se reconstruye directamente en 4×4, 2×2 o 1×1 píxeles, así que la memoria que se usa depende de la foto achicada y no de los megapíxeles. Se respeta la orientación del celular (EXIF) y el resultado es el de siempre (máx. 1600 px, menos de 900 KB). Si la foto no es un JPEG común (PNG, JPEG progresivo, CMYK) o es chica, la abre el navegador como antes; ante cualquier duda también vuelve al camino de antes.
+- **Si igual se cierra la página** (por ejemplo, el sistema cierra el navegador en segundo plano mientras el huésped está en la cámara): al volver, el formulario sigue ahí con lo que había escrito, la pantalla se desliza sola hasta la foto y explica qué pasó y cómo seguir (sacar la foto con la cámara del celular, fuera de la página, y elegirla de la galería; o enviar sin foto si no es obligatoria). No gasta otro uso del código. Se sabe porque, mientras se elige o se prepara la foto, queda una marca en la pestaña (`sessionStorage`, vale 30 minutos como máximo) que se borra sola si todo sale bien o si el huésped cancela.
+- También sirve para las fotos que sube el dueño desde el panel (usan la misma función).
+- **Medido** con Chromium y un tope de memoria: con el método anterior una foto de 108 MP hacía caer la página con un tope de 550 MB; con el nuevo se achica con topes de hasta 330 MB. Pruebas: `npm run test:fotos` (ver abajo).
+
 ### Medio de pago
 Cada huésped tiene un **medio de pago** que carga recepción (junto con la habitación, en la misma ventana y durante el mismo tiempo de edición) o el admin. Se elige de una lista desplegable y se ve como una columna más de la planilla.
 
@@ -116,7 +124,8 @@ Pruebas automáticas (no usan la base real):
 - `node scripts/test-medios-pago.mjs`: arma una base como la de producción con huéspedes ya cargados, le aplica `supabase/medios_pago.sql` y comprueba que no se pierde nada (quedan en «Otros»), que se puede repetir y que queda idéntica a una base nueva; además prueba elegir, agregar, renombrar, quitar y volver a poner medios de pago.
 - `node scripts/test-fotos-admin.mjs`: arma una base como la de producción con huéspedes con y sin foto, le aplica `supabase/fotos_admin.sql` y comprueba que no se pierde nada (las fotos que ya estaban pasan a la lista nueva), que se puede repetir sin resucitar una foto quitada y que queda idéntica a una base nueva; además prueba, con el script de Drive de siempre sin cambios, que el dueño suba, agregue otra, quite y vuelva a poner fotos, que nada se borre, los permisos (vencen y se gastan), el tope de 10 y que un anónimo no pueda tocar nada.
 - `node scripts/test-paginacion.mjs`: la lista de huéspedes del admin se pide de a 50 («Cargar más»): con 120 huéspedes comprueba que cada tanda sigue justo donde terminó la anterior, sin repetir ni saltear a nadie, también con búsqueda. La pantalla se prueba en la sección 12 del punta a punta.
-- `node scripts/e2e-checkin.mjs`: punta a punta con navegador (huésped y recepción a la vez). Requiere Playwright (`npm i -D playwright`) y Chromium; `CAPTURAS=carpeta` guarda capturas de cada pantalla.
+- `node scripts/test-jpeg-reducido.mjs` (o `npm run test:fotos`): el achicado de las fotos. Compara el decodificador liviano contra Chrome (escalas 8/8, 4/8, 2/8 y 1/8; formatos de color 4:4:4, 4:2:2, 4:2:0 y gris; tablas de Huffman estándar y propias; marcadores de reinicio; tamaños que no son múltiplos de 8; orientación EXIF), comprueba que con lo que no entiende (progresivo, CMYK, PNG, archivos cortados o rotos, cabeceras que mienten) devuelve «nada» y se usa el camino de antes, y prueba en el navegador una foto de 12 MP en las 8 orientaciones, una panorámica, una imagen imposible de comprimir, un PNG y los errores. Las fotos de prueba chicas están en `scripts/fixtures/jpeg/` (`generar.py` las rehace); las grandes se arman en la propia prueba. Requiere Playwright y Chromium, igual que el punta a punta.
+- `node scripts/e2e-checkin.mjs`: punta a punta con navegador (huésped y recepción a la vez). Requiere Playwright (`npm i -D playwright`) y Chromium; `CAPTURAS=carpeta` guarda capturas de cada pantalla. La sección 14 prueba una foto de 12 MP por el formulario real y el caso de la página que se cierra por falta de memoria.
 
 ## Probarlo en tu laptop
 Necesita [Node 20 o superior](https://nodejs.org) y Git.
@@ -160,9 +169,9 @@ Los links cargados en el panel solo se aceptan si empiezan con `http://` o `http
 - `src/sections/`, `src/Menu.jsx`: las 12 pantallas y el menú.
 - `src/components/Editable.jsx`: textos, botones y listas que se vuelven editables en el panel.
 - `src/admin/`: panel del dueño (inicio, editor de la guía, huéspedes y configuración del check-in).
-- `src/checkin/`: check-in digital (formulario del huésped, pantalla de recepción, planilla, validaciones).
+- `src/checkin/`: check-in digital (formulario del huésped, pantalla de recepción, planilla, validaciones; `comprimir.js` y `jpegReducido.js` achican las fotos sin llenar la memoria del celular).
 - `apps-script/Codigo.gs`: script de Google que guarda las fotos en Drive (lo pega el asistente del panel).
-- `scripts/`: `local.mjs` y `backend-local.mjs` (base de prueba en memoria), `test-*.mjs` y `e2e-checkin.mjs` (pruebas).
+- `scripts/`: `local.mjs` y `backend-local.mjs` (base de prueba en memoria), `test-*.mjs` y `e2e-checkin.mjs` (pruebas), `fotos-ayuda.mjs` (ayudas para armar fotos de prueba) y `fixtures/jpeg/` (fotos de prueba chicas).
 - `src/data/api.js`: conexión con Supabase. `src/data/hotel.js`: contenido de ejemplo.
 - `supabase/schema.sql`: la base de datos. `supabase/checkin.sql`: tablas y funciones del check-in (todo, incluidos el medio de pago y las fotos del dueño). `supabase/medios_pago.sql`: solo lo nuevo del medio de pago, para una base que ya tenía el check-in. `supabase/fotos_admin.sql`: solo lo nuevo de las fotos del dueño (va después de `medios_pago.sql`). `scripts/seed.mjs`: carga inicial.
 - `src/styles.css`: paleta (salvia, hueso, terracota, mostaza, verde) y componentes.

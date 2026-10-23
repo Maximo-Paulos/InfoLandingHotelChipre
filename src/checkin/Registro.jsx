@@ -14,13 +14,26 @@ import { enfocarPrimerError, esperar, minSeg, useAhora } from './util.js';
 import { mensajeDe, validarHuesped } from './validar.js';
 
 const BORRADOR = 'chipre-registro';
+const MARCA_FOTO = 'chipre-registro-foto';
 const REGRESO_MS = 6000;
+const MARCA_VIGENTE_MS = 30 * 60 * 1000;
 
 const leerBorrador = () => {
   try { return JSON.parse(sessionStorage.getItem(BORRADOR) ?? 'null'); } catch { return null; }
 };
 const guardarBorrador = (b) => { try { sessionStorage.setItem(BORRADOR, JSON.stringify(b)); } catch { /* sin almacenamiento */ } };
 const borrarBorrador = () => { try { sessionStorage.removeItem(BORRADOR); } catch { /* sin almacenamiento */ } };
+
+// Mientras se saca o se prepara la foto queda anotado: si el celular se queda sin memoria el sistema cierra la página y el formulario
+// arranca de nuevo; al ver la marca se sabe que pasó eso y se le explica al huésped en vez de dejarlo sin entender nada.
+const leerMarcaFoto = () => {
+  try {
+    const m = JSON.parse(sessionStorage.getItem(MARCA_FOTO) ?? 'null');
+    return m && Date.now() - m.en < MARCA_VIGENTE_MS ? m : null;
+  } catch { return null; }
+};
+const ponerMarcaFoto = (estado) => { try { sessionStorage.setItem(MARCA_FOTO, JSON.stringify({ estado, en: Date.now() })); } catch { /* sin almacenamiento */ } };
+const borrarMarcaFoto = () => { try { sessionStorage.removeItem(MARCA_FOTO); } catch { /* sin almacenamiento */ } };
 
 // Los textos del check-in se editan desde el panel; el huésped ve el recorrido real.
 export default function Registro() {
@@ -68,7 +81,9 @@ function RegistroHuesped() {
   const [foto, setFoto] = useState(null); // { base64, vista, bytes }
   const [fotoSubida, setFotoSubida] = useState(false);
   const [errFoto, setErrFoto] = useState('');
-  const [estadoFoto, setEstadoFoto] = useState(''); // '' | subiendo | error
+  const [estadoFoto, setEstadoFoto] = useState(''); // '' | preparando | subiendo | error
+  // ¿La página se cerró mientras se sacaba o se preparaba la foto? (se lee al abrir; no tiene efectos, así que sirve también en modo desarrollo)
+  const [paginaCerrada, setPaginaCerrada] = useState(() => !!leerMarcaFoto() && !!leerBorrador()?.token);
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [cargaFalla, setCargaFalla] = useState(false);
@@ -98,6 +113,7 @@ function RegistroHuesped() {
             return;
           }
           borrarBorrador();
+          setPaginaCerrada(false);
         }
         const e = await estadoCheckin();
         if (vivo) setPaso(e.activo ? 'codigo' : 'apagado');
@@ -107,6 +123,20 @@ function RegistroHuesped() {
     })();
     return () => { vivo = false; };
   }, [reintento]);
+
+  // La marca ya cumplió su función al abrir la página. Y si el huésped toca la pantalla después de elegir la foto, la página sigue viva
+  // (por ejemplo, canceló la cámara): no hay nada que avisar.
+  useEffect(() => {
+    borrarMarcaFoto();
+    const alTocar = () => { const m = leerMarcaFoto(); if (m?.estado === 'eligiendo' && Date.now() - m.en > 1000) borrarMarcaFoto(); };
+    document.addEventListener('pointerdown', alTocar, true);
+    return () => document.removeEventListener('pointerdown', alTocar, true);
+  }, []);
+
+  // Al volver después de que se cerró la página, se lleva al huésped justo a la foto (el formulario vuelve a abrir arriba de todo).
+  useEffect(() => {
+    if (paso === 'form' && paginaCerrada) document.getElementById('campo-foto')?.scrollIntoView({ block: 'center' });
+  }, [paso, paginaCerrada]);
 
   // El campo del código se deshabilita mientras se verifica y pierde el cursor: cuando vuelve a habilitarse (código mal), queda listo para escribir de nuevo.
   useEffect(() => {
@@ -140,6 +170,7 @@ function RegistroHuesped() {
     try {
       const r = await canjearCodigo(valor);
       if (r.ok) {
+        setPaginaCerrada(false);
         setSesion({ token: r.token, venceEn: Date.now() + r.vence_seg * 1000, foto: r.foto });
         setFotoSubida(false);
         setPaso('form');
@@ -173,6 +204,9 @@ function RegistroHuesped() {
     e.target.value = '';
     if (!archivo) return;
     setErrFoto('');
+    setPaginaCerrada(false);
+    setEstadoFoto('preparando');
+    ponerMarcaFoto('procesando');
     try {
       const r = await comprimirImagen(archivo);
       if (foto?.vista) URL.revokeObjectURL(foto.vista);
@@ -180,9 +214,14 @@ function RegistroHuesped() {
       setFotoSubida(false);
       setEstadoFoto('');
     } catch (err) {
+      setEstadoFoto('');
       setErrFoto(err.codigo === 'pesada' ? 'La foto es demasiado pesada. Probá con otra.' : 'No pudimos usar ese archivo. Elegí una foto (JPG o PNG).');
+    } finally {
+      borrarMarcaFoto();
     }
   };
+
+  const abrirSelector = (ref) => { ponerMarcaFoto('eligiendo'); ref.current?.click(); };
 
   const quitarFoto = () => {
     if (foto?.vista) URL.revokeObjectURL(foto.vista);
@@ -329,7 +368,7 @@ function RegistroHuesped() {
         <FormHuesped valores={valores} errores={errores} onCambio={cambia} etiquetas={{ ...R.campos, telefono: R.campos.telefono }} deshabilitado={enviando} />
 
         {fotoInfo && (
-          <div className={`campo foto-campo${errFoto ? ' error' : ''}`}>
+          <div id="campo-foto" className={`campo foto-campo${errFoto ? ' error' : ''}`}>
             <span className="etq">{R.campos.foto}{fotoInfo.modo === 'opcional' ? ' (opcional)' : ''}</span>
             {foto ? (
               <img className="foto-prev" src={foto.vista} alt="Vista previa de la foto del documento" />
@@ -337,16 +376,24 @@ function RegistroHuesped() {
               <div className="foto-vacia"><Icon name="camara" size={30} sw={1.5} /><p><V p="registro.fotoAyuda" /></p></div>
             )}
             <div className="foto-botones">
-              <button type="button" className="btn claro mini" onClick={() => camara.current?.click()} disabled={enviando}>
+              <button type="button" className="btn claro mini" onClick={() => abrirSelector(camara)} disabled={enviando || estadoFoto === 'preparando'}>
                 <Icon name="camara" size={18} sw={1.7} /> {foto ? <V p="registro.btnCambiarFoto" /> : <V p="registro.btnSacarFoto" />}
               </button>
-              <button type="button" className="btn claro mini" onClick={() => galeria.current?.click()} disabled={enviando}>
+              <button type="button" className="btn claro mini" onClick={() => abrirSelector(galeria)} disabled={enviando || estadoFoto === 'preparando'}>
                 <Icon name="imagen" size={18} sw={1.7} /> <V p="registro.btnGaleria" />
               </button>
               {foto && <button type="button" className="btn claro mini" onClick={quitarFoto} disabled={enviando}><V p="registro.btnQuitarFoto" /></button>}
             </div>
             <input ref={camara} type="file" accept="image/*" capture="environment" hidden onChange={elegirFoto} />
             <input ref={galeria} type="file" accept="image/*" hidden onChange={elegirFoto} />
+            {paginaCerrada && (
+              <p className="note" role="status">
+                La página se cerró mientras elegías la foto (suele pasar cuando al celular le falta memoria). No perdiste nada: tus datos siguen acá. Probá de nuevo;
+                si vuelve a pasar, sacale la foto al documento con la cámara del celular, afuera de esta página, y elegila de la galería.
+                {fotoInfo.modo === 'obligatoria' ? ' Si no podés, pedile ayuda a recepción.' : ' También podés enviar el formulario sin foto y mostrar el documento en recepción.'}
+              </p>
+            )}
+            {estadoFoto === 'preparando' && <p className="ayuda" role="status">Preparando la foto…</p>}
             {estadoFoto === 'subiendo' && <p className="ayuda" role="status">Subiendo la foto…</p>}
             {fotoSubida && foto && <p className="ayuda ok" role="status">Foto guardada.</p>}
             {errFoto && <p className="msg" role="alert">{errFoto}</p>}
