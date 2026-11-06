@@ -53,7 +53,7 @@ const carpeta = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-checkin-'));
 execFileSync('npx', ['vite', 'build', '--outDir', path.join(carpeta, 'dist'), '--emptyOutDir'], {
   cwd: raiz, stdio: 'ignore', env: { ...process.env, VITE_SUPABASE_URL: `http://localhost:${PUERTO_BACK}`, VITE_SUPABASE_KEY: 'local-key' }
 });
-const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const tipos = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const web = http.createServer((req, res) => {
   const url = new URL(req.url, BASE);
   let archivo = path.join(carpeta, 'dist', decodeURIComponent(url.pathname));
@@ -184,7 +184,7 @@ await seccion('2. Admin general: inicio, editor de la guía (sin cambios) y hué
   await page.locator('input[name=clave]').fill(CLAVE_ADMIN);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await page.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
-  ok((await page.locator('nav a.tile').count()) === 2, 'inicio del admin con 2 botones');
+  ok((await page.locator('nav a.tile').count()) === 3, 'inicio del admin con 3 botones: editar, huéspedes y ver recepción');
   await captura(page, '20-admin-inicio');
 
   await page.getByRole('link', { name: /Editar landing page/ }).click();
@@ -653,7 +653,7 @@ await seccion('9. Seguridad de la base', async () => {
   ok(/permission denied/.test(await intento('select private.codigo_vigente()') ?? ''), 'ni llamar a las funciones internas');
   ok(/permission denied/.test(await intento(`update private.checkins set habitacion = 'x'`) ?? ''), 'ni modificar nada');
   const publicas = await back.sql(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and has_function_privilege('anon', p.oid, 'execute') order by 1`);
-  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_foto_permiso', 'admin_foto_quitar', 'admin_fotos', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'recepcion_foto_permiso', 'recepcion_fotos', 'verificar_clave'];
+  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_foto_permiso', 'admin_foto_quitar', 'admin_fotos', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'admin_sesion_cerrar', 'admin_sesiones', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'recepcion_foto_permiso', 'recepcion_fotos', 'sesion_cerrar', 'sesion_entrar', 'sesion_estado', 'verificar_clave'];
   ok(JSON.stringify(publicas.map((p) => p.proname)) === JSON.stringify(esperadas), 'las únicas funciones que puede llamar un anónimo son las previstas (' + publicas.length + ')');
   // todas las funciones expuestas rechazan claves malas
   for (const [fn, args] of [['admin_huespedes', { p_clave: 'x' }], ['admin_checkin_config', { p_clave: 'x' }], ['recepcion_estado', { p_clave: 'x' }], ['admin_checkin_auditoria', { p_clave: 'x' }]]) {
@@ -1359,6 +1359,149 @@ await seccion('15. Cámara dentro de la página: se saca la foto sin abrir la ap
 
   ok((await sql1('select count(*)::int as n from private.checkins')).n === 1, 'ninguna de estas pruebas dejó huéspedes de más ni borró nada');
   await rec.ctx.close();
+});
+
+await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda abierta en el dispositivo e instalable como app', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20 });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  const abiertas = (rol) => sql1(`select count(*)::int as n from private.sesiones where rol = $1 and revocada_en is null`, [rol]).then((x) => x.n);
+
+  // ---- el dueño pone la clave una sola vez
+  const due = await contexto({ hasTouch: true, isMobile: true });
+  await due.page.goto(BASE + '#/entrar');
+  await due.page.locator('input[name=clave]').waitFor();
+  ok(await due.page.getByRole('heading', { name: 'Ingreso del personal' }).isVisible(), 'en #/entrar hay una sola pantalla de ingreso para todo el personal');
+  await sinDesborde(due.page, 'ingreso del personal (celular)');
+  await captura(due.page, '55-personal-ingreso');
+  await due.page.locator('input[name=clave]').fill('clave-equivocada');
+  await due.page.getByRole('button', { name: 'Entrar' }).click();
+  await due.page.getByRole('alert').waitFor();
+  ok(/Clave incorrecta/.test(await due.page.getByRole('alert').innerText()) && await abiertas('admin') === 0, 'una clave mala se rechaza y no abre ninguna sesión');
+  await due.page.locator('input[name=clave]').fill(CLAVE_ADMIN);
+  await due.page.getByRole('button', { name: 'Entrar' }).click();
+  await due.page.waitForURL(/#\/admin$/);
+  await due.page.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
+  ok(true, 'con la clave del dueño se abre su panel (la pantalla reconoce el rol)');
+  const guardado = await due.page.evaluate(() => ({ local: localStorage.getItem('chipre-sesion'), sesion: JSON.stringify(sessionStorage) }));
+  ok(/"token":"sd_[0-9a-f]{64}"/.test(guardado.local) && !guardado.local.includes(CLAVE_ADMIN) && !guardado.sesion.includes(CLAVE_ADMIN), 'en el celular queda solo el código de dispositivo: la clave no se guarda en ningún lado');
+  ok(await abiertas('admin') === 1 && (await sql1(`select etiqueta from private.sesiones order by id desc limit 1`)).etiqueta?.length > 0, 'en la base queda una sesión abierta, con el nombre del dispositivo');
+
+  // ---- cierra la app y la vuelve a abrir: entra directo
+  await due.page.close();
+  const app = await due.ctx.newPage();
+  app.setDefaultTimeout(12000);
+  await app.goto(BASE + '#/entrar');
+  await app.waitForURL(/#\/admin$/);
+  await app.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
+  ok(!(await app.locator('input[name=clave]').count()), 'al volver a abrir la app entra directo, sin pedir la clave');
+  await app.goto(BASE + '#/admin/huespedes');
+  await app.getByRole('heading', { name: 'Huéspedes' }).first().waitFor();
+  ok(true, 'y las demás pantallas del dueño también');
+  await app.goto(BASE + '#/recepcion');
+  await app.locator('.codigo-grande').waitFor();
+  ok(await app.getByRole('link', { name: 'Panel del dueño' }).isVisible(), 'el dueño también entra a recepción con la misma sesión, y desde ahí vuelve a su panel');
+  await captura(app, '56-dueno-ve-recepcion');
+  await app.goto(BASE + '#/admin');
+  await app.getByRole('link', { name: /Ver recepción/ }).waitFor();
+  ok(true, 'en su inicio hay un acceso a "Ver recepción"');
+
+  // ---- recepción: su clave abre recepción, y solo recepción
+  const rec = await contexto({ hasTouch: true, isMobile: true });
+  await rec.page.goto(BASE + '#/entrar');
+  await rec.page.locator('input[name=clave]').fill(CLAVE_RECEPCION);
+  await rec.page.getByRole('button', { name: 'Entrar' }).click();
+  await rec.page.waitForURL(/#\/recepcion$/);
+  await rec.page.locator('.codigo-grande').waitFor();
+  ok(!(await rec.page.getByRole('link', { name: 'Panel del dueño' }).count()), 'con la clave de recepción se abre recepción (sin acceso al panel del dueño)');
+  await rec.page.reload();
+  await rec.page.locator('.codigo-grande').waitFor();
+  ok(true, 'y al recargar sigue adentro');
+  await rec.page.goto(BASE + '#/admin');
+  await rec.page.locator('input[name=clave]').waitFor();
+  ok(await rec.page.getByRole('heading', { name: 'Panel del dueño' }).isVisible(), 'pero el panel del dueño le pide la clave del dueño');
+  await rec.page.goto(BASE + '#/recepcion');
+  await rec.page.locator('.codigo-grande').waitFor();
+
+  // ---- el dueño ve los dispositivos y cierra los demás
+  await app.reload();
+  await app.getByRole('region', { name: 'Dispositivos con sesión abierta' }).waitFor();
+  await hasta(async () => (await app.locator('.dispositivos .foto-item').count()) === 2, 8000);
+  ok(await app.getByText(/este dispositivo/).isVisible() && await app.locator('.dispositivos').getByText('Recepción', { exact: false }).first().isVisible(), 'el dueño ve la lista de dispositivos: el suyo y el de recepción');
+  await sinDesborde(app, 'panel del dueño con la lista de dispositivos (celular)');
+  await captura(app, '57-dueno-dispositivos');
+  app.on('dialog', (d) => d.accept());
+  await app.getByRole('button', { name: 'Cerrar en los demás dispositivos' }).click();
+  await hasta(async () => (await abiertas('recepcion')) === 0, 8000);
+  ok(await abiertas('admin') === 1, 'cierra en los demás dispositivos y el del dueño se queda adentro');
+  await rec.page.reload();
+  await rec.page.locator('input[name=clave]').waitFor();
+  ok(true, 'el celular de recepción queda afuera: al abrir pide la clave de nuevo');
+  const filas = (await sql1(`select count(*)::int as n from private.sesiones`)).n;
+  ok(filas === 2, 'nada se borró: las sesiones cerradas siguen en la base marcadas como cerradas');
+
+  // ---- "Salir" cierra la sesión de ese dispositivo
+  await rec.page.locator('input[name=clave]').fill(CLAVE_RECEPCION);
+  await rec.page.getByRole('button', { name: 'Entrar' }).click();
+  await rec.page.locator('.codigo-grande').waitFor();
+  ok(await abiertas('recepcion') === 1, 'recepción vuelve a entrar con su clave');
+  await rec.page.getByRole('button', { name: 'Salir' }).click();
+  await rec.page.locator('input[name=clave]').waitFor();
+  ok(await abiertas('recepcion') === 0 && (await rec.page.evaluate(() => localStorage.getItem('chipre-sesion'))) === null, '"Salir" cierra la sesión en la base y borra el código del celular');
+
+  // ---- un celular abierto no puede cambiar la clave del dueño
+  await app.goto(BASE + '#/admin/editar/datos');
+  const claveActual = app.getByLabel('Tu clave actual');
+  await claveActual.waitFor();
+  await claveActual.fill('no-es-la-clave');
+  await app.getByLabel('Clave nueva (mínimo 10 caracteres)').fill('una-clave-nueva-12345');
+  await app.getByLabel('Repetí la clave nueva').fill('una-clave-nueva-12345');
+  await app.getByRole('button', { name: 'Cambiar clave' }).click();
+  await app.getByText('Clave incorrecta.').waitFor();
+  ok((await sql1(`select count(*)::int as n from private.sesiones where rol = 'admin' and revocada_en is null`)).n === 1, 'para cambiar la clave del dueño hay que escribir la clave actual: con una mala no pasa nada');
+  const otro = await contexto({ hasTouch: true, isMobile: true });
+  await otro.page.goto(BASE + '#/entrar');
+  await otro.page.locator('input[name=clave]').fill(CLAVE_ADMIN);
+  await otro.page.getByRole('button', { name: 'Entrar' }).click();
+  await otro.page.waitForURL(/#\/admin$/);
+  await claveActual.fill(CLAVE_ADMIN);
+  await app.getByRole('button', { name: 'Cambiar clave' }).click();
+  await app.getByText(/Clave cambiada/).waitFor();
+  ok(true, 'con la clave actual se cambia');
+  ok(await abiertas('admin') === 1, 'cierra la sesión de los demás dispositivos del dueño y abre una nueva en este');
+  await otro.page.reload();
+  await otro.page.locator('input[name=clave]').waitFor();
+  ok(true, 'el otro dispositivo del dueño queda afuera: ahí hay que usar la clave nueva');
+  await app.reload();
+  await app.getByRole('heading', { name: /Datos generales|Panel/ }).first().waitFor();
+  ok(!(await app.locator('input[name=clave]').count()), 'y este dispositivo sigue adentro');
+  await due.ctx.close(); await rec.ctx.close(); await otro.ctx.close();
+
+  // ---- instalable como app
+  const inst = await contexto({ hasTouch: true, isMobile: true });
+  await inst.page.goto(BASE + '#/entrar');
+  await inst.page.locator('input[name=clave]').waitFor();
+  const href = await inst.page.locator('link[rel=manifest]').getAttribute('href');
+  ok(href === 'personal.webmanifest', 'el ingreso del personal ofrece el manifiesto de la app');
+  const man = await inst.page.evaluate(async () => (await fetch(document.querySelector('link[rel=manifest]').href)).json());
+  ok(man.display === 'standalone' && man.start_url === './#/entrar' && man.scope === './' && man.icons.length === 3 && man.icons.some((i) => i.purpose === 'maskable'), 'abre a pantalla completa en #/entrar y trae los 3 íconos (uno "maskable" para Android)');
+  const iconos = await inst.page.evaluate(async (lista) => Promise.all(lista.map(async (u) => { const r = await fetch(new URL(u, document.querySelector('link[rel=manifest]').href)); return [r.status, r.headers.get('content-type')]; })), [...man.icons.map((i) => i.src), 'iconos/apple-touch-icon.png']);
+  ok(iconos.every(([st, tipo]) => st === 200 && /image\/png/.test(tipo)), 'los íconos existen (incluido el de iPhone)');
+  const cdp = await inst.ctx.newCDPSession(inst.page);
+  // el navegador de prueba es una ventana privada: ese aviso no cuenta (en un celular de verdad no aparece)
+  const { errors } = await cdp.send('Page.getInstallabilityErrors').then((r) => ({ errors: r.installabilityErrors.filter((e) => e.errorId !== 'in-incognito') })).catch(() => ({ errors: ['no se pudo consultar'] }));
+  ok(errors.length === 0, 'Chrome no encuentra ningún problema para instalarla' + (errors.length ? ': ' + JSON.stringify(errors) : ''));
+  await inst.page.goto(BASE + '#/');
+  await menuVisible(inst.page);
+  ok((await inst.page.locator('link[rel=manifest]').count()) === 0, 'la guía de los huéspedes no ofrece instalar nada');
+  await inst.ctx.close();
+  const iph = await contexto({ hasTouch: true, isMobile: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' });
+  await iph.page.goto(BASE + '#/entrar');
+  await iph.page.getByText(/Añadir a pantalla de inicio/).waitFor();
+  ok(true, 'en iPhone explica cómo agregarla a la pantalla de inicio');
+  await captura(iph.page, '58-personal-iphone-instalar');
+  await iph.ctx.close();
+  ok((await sql1(`select count(*)::int as n from private.checkins`)).n === 0, 'nada de esto tocó los datos de huéspedes');
 });
 
 await navegador.close();

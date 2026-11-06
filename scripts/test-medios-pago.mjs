@@ -82,6 +82,7 @@ console.log('\n== 1. La migración (base de hoy + supabase/medios_pago.sql)');
   // checkin.sql es el estado final: también incluye las fotos que carga el dueño, que en producción se aplican después de esta migración.
   await db.exec(fs.readFileSync(ruta('supabase/fotos_admin.sql'), 'utf8'));
   await db.exec(fs.readFileSync(ruta('supabase/fotos_recepcion.sql'), 'utf8')); // y las fotos desde recepción, que van después
+  await db.exec(fs.readFileSync(ruta('supabase/sesiones.sql'), 'utf8')); // y el ingreso con sesión de dispositivo, que va después
   const hv = await huella(db); const hn = await huella(nueva);
   const distintas = [...new Set([...Object.keys(hv), ...Object.keys(hn)])].filter((f) => hv[f] !== hn[f]);
   ok(distintas.length === 0, `la base migrada y una base nueva tienen las mismas ${Object.keys(hn).length} funciones` + (distintas.length ? ' · distintas: ' + distintas.join(', ') : ''));

@@ -1,38 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import FotosHuesped from '../admin/FotosHuesped.jsx';
-import { recepcionCodigoNuevo, recepcionEditar, recepcionEntrar, recepcionEstado, textoCodigo } from './checkinApi.js';
+import { useNoIndexar } from '../personal.js';
+import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
+import { recepcionCodigoNuevo, recepcionEditar, recepcionEstado, textoCodigo } from './checkinApi.js';
 import EditarHuesped from './EditarHuesped.jsx';
 import Planilla from './Planilla.jsx';
 import { agruparCodigo, useAhora } from './util.js';
 
-const CLAVE = 'chipre-recepcion';
 const CADA_MS = 3000;
 
-const leerClave = () => { try { return sessionStorage.getItem(CLAVE) ?? ''; } catch { return ''; } };
-const guardarClave = (k) => { try { sessionStorage.setItem(CLAVE, k); } catch { /* sin almacenamiento */ } };
-const borrarClave = () => { try { sessionStorage.removeItem(CLAVE); } catch { /* sin almacenamiento */ } };
-
-// Esta pantalla no se enlaza desde la guía y no debe aparecer en buscadores.
-function useNoIndexar(titulo) {
-  useEffect(() => {
-    const previo = document.title;
-    document.title = titulo;
-    const meta = document.createElement('meta');
-    meta.name = 'robots';
-    meta.content = 'noindex, nofollow';
-    document.head.appendChild(meta);
-    return () => { document.title = previo; meta.remove(); };
-  }, [titulo]);
-}
-
-// Pantalla de recepción: clave propia → código para el huésped + planilla de los últimos días.
+// Pantalla de recepción: ingreso con la clave de recepción (o la del dueño, desde su panel) → código para el huésped + planilla de los
+// últimos días. La sesión queda abierta en el dispositivo (ver sesion.js).
 export default function Recepcion() {
   useNoIndexar('Recepción');
-  const [clave, setClave] = useState(leerClave);
-  const salir = useCallback(() => { borrarClave(); setClave(''); }, []);
-  if (!clave) return <Ingreso alEntrar={(k) => { guardarClave(k); setClave(k); }} />;
-  return <Panel clave={clave} salir={salir} />;
+  const [sesion, setSesion] = useState(leerSesion); // { token, rol } o null
+  const salir = useCallback(() => { cerrarSesion(); setSesion(null); }, []);
+  if (!sesion) return <Ingreso alEntrar={setSesion} />;
+  return <Panel clave={sesion.token} rol={sesion.rol} salir={salir} />;
 }
 
 function Ingreso({ alEntrar }) {
@@ -44,10 +29,9 @@ function Ingreso({ alEntrar }) {
     setEntrando(true);
     setError('');
     try {
-      const r = await recepcionEntrar(k);
-      if (r.ok) alEntrar(k); else setError(textoCodigo(r.error));
-    } catch {
-      setError('No se pudo conectar. Revisá tu conexión.');
+      alEntrar(await entrarConClave(k));
+    } catch (err) {
+      setError(err.codigo ? textoCodigo(err.codigo) : 'No se pudo conectar. Revisá tu conexión.');
     } finally {
       setEntrando(false);
     }
@@ -70,7 +54,7 @@ function Ingreso({ alEntrar }) {
   );
 }
 
-function Panel({ clave, salir }) {
+function Panel({ clave, rol, salir }) {
   const [estado, setEstado] = useState(null); // la última respuesta + { recibido }
   const [error, setError] = useState('');
   const [editando, setEditando] = useState(null);
@@ -151,7 +135,10 @@ function Panel({ clave, salir }) {
             <p className="eyebrow">Recepción</p>
             <h1>Check-in digital</h1>
           </div>
-          <button type="button" className="btn mini claro" onClick={salir}>Salir</button>
+          <div className="rec-acciones">
+            {rol === 'admin' && <a className="btn mini claro" href="#/admin">Panel del dueño</a>}
+            <button type="button" className="btn mini claro" onClick={salir}>Salir</button>
+          </div>
         </header>
 
         {!estado && !error && <p className="intro" role="status">Cargando…</p>}

@@ -400,3 +400,8 @@ dd{margin:3px 0 0;font-size:15px;line-height:1.45}
 .entrada{display:block;width:100%;max-width:560px;min-height:48px;margin-top:8px;padding:0 12px;border:1.5px solid rgba(34,51,42,.28);border-radius:10px;background:#fff;color:var(--texto);font:400 15px var(--sans)}
 .codigo-script{display:block;width:100%;margin:8px 0;padding:10px;border:1px solid var(--linea);border-radius:10px;background:#fff;color:var(--texto);font:12px/1.4 ui-monospace,Menlo,Consolas,monospace}
 .historial{margin:8px 0 0;padding-left:18px;font-size:13px;line-height:1.6}
+.instalar{margin-top:18px;padding:14px 16px;border-radius:16px;background:var(--verde-claro)}
+.instalar .sub{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:17px}
+.instalar .ayuda{margin:0}
+.dispositivos{margin-top:22px}
+.dispositivos .sub{margin:0 0 4px}

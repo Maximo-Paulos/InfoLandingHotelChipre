@@ -141,7 +141,7 @@ function Contenido({ clave, salir }) {
   );
 }
 
-const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
+const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', sesion_abierta: 'abrió sesión en un dispositivo', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
 const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación', medio_pago: 'medio de pago' };
 
 // Quién cambió qué y cuándo (no guarda los valores, solo los nombres de los campos).

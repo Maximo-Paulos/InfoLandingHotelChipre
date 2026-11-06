@@ -24,6 +24,7 @@ function Idiomas() {
 // Cambio de la clave del panel (se guarda en la base como hash, nunca en texto).
 function CambiarClave() {
   const { cambiarClave } = useDatos();
+  const [actual, setActual] = useState('');
   const [nueva, setNueva] = useState('');
   const [repetida, setRepetida] = useState('');
   const [aviso, setAviso] = useState(null);
@@ -33,14 +34,18 @@ function CambiarClave() {
     e.preventDefault();
     if (nueva !== repetida) { setAviso({ ok: false, mensaje: 'Las dos claves no coinciden.' }); return; }
     setEnviando(true);
-    const r = await cambiarClave(nueva);
+    const r = await cambiarClave(actual, nueva);
     setEnviando(false);
     setAviso(r);
-    if (r.ok) { setNueva(''); setRepetida(''); }
+    if (r.ok) { setActual(''); setNueva(''); setRepetida(''); }
   };
 
   return (
     <form onSubmit={enviar}>
+      <label className="caja">
+        <span>Tu clave actual</span>
+        <input type="password" autoComplete="current-password" required value={actual} onChange={(e) => setActual(e.target.value)} />
+      </label>
       <label className="caja">
         <span>Clave nueva (mínimo 10 caracteres)</span>
         <input type="password" autoComplete="new-password" minLength={10} required value={nueva} onChange={(e) => setNueva(e.target.value)} />

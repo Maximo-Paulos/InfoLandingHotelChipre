@@ -1,4 +1,5 @@
 import Icon from '../components/Icon.jsx';
+import Dispositivos from './Dispositivos.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
 
 // Inicio del panel del admin general: elegir entre editar la guía o ver a los huéspedes.
@@ -24,7 +25,13 @@ export default function AdminInicio() {
             <span>Ver huéspedes</span>
             <small>Check-ins cargados, configuración y conexión con Drive.</small>
           </a>
+          <a className="tile hot grande" href="#/recepcion">
+            <Icon name="llave" size={28} sw={1.6} />
+            <span>Ver recepción</span>
+            <small>Lo que ve recepción: el código para el huésped y la planilla.</small>
+          </a>
         </nav>
+        <Dispositivos clave={sesion.clave} />
         <div className="btns">
           <a className="btn claro" href="#/">Ver la guía</a>
           <button type="button" className="btn claro" onClick={sesion.salir}>Salir</button>

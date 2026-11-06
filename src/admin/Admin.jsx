@@ -5,8 +5,7 @@ import { cambiarClave, guardarContenido, leerContenido, textoError, verificarCla
 import { DataContext } from '../data/DataContext.jsx';
 import respaldo from '../data/hotel.js';
 import { mezclar } from '../data/mezclar.js';
-
-const CLAVE_SESION = 'chipre-clave';
+import { borrarSesion, cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 
 const horaLocal = (d) => d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 
@@ -21,29 +20,36 @@ export default function Admin({ ruta }) {
   const [estado, setEstado] = useState('');
   const [trabajando, setTrabajando] = useState(false);
 
-  const entrar = useCallback(async (k) => {
+  // esClave: lo que se escribió es la clave (se cambia por un código de dispositivo); si no, es el código guardado en este dispositivo.
+  const entrar = useCallback(async (k, esClave = false) => {
     setError('');
     try {
-      const r = await verificarClave(k);
-      if (!r.ok) throw Object.assign(new Error(r.error), { codigo: r.error });
+      let cred = k;
+      if (esClave) {
+        const s = await entrarConClave(k);
+        if (s.rol !== 'admin') { location.hash = '#/recepcion'; return; } // era la clave de recepción
+        cred = s.token;
+      } else {
+        const r = await verificarClave(cred);
+        if (!r.ok) throw Object.assign(new Error(r.error), { codigo: r.error });
+      }
       let contenido = respaldo;
       try { contenido = (await leerContenido()).contenido; } catch { /* base vacía: se parte del contenido de ejemplo */ }
       const c = mezclar(respaldo, contenido);
       setDraft(c);
       setGuardado(c);
-      setClave(k);
-      sessionStorage.setItem(CLAVE_SESION, k);
+      setClave(cred);
       setFase('ok');
     } catch (e) {
-      sessionStorage.removeItem(CLAVE_SESION);
-      setError(textoError(e));
+      // Solo se cierra la sesión guardada si la base dijo que ya no vale; si fue un corte de red se conserva.
+      if (!esClave && e.codigo) { borrarSesion(); setError('La sesión de este dispositivo venció. Ingresá de nuevo.'); } else setError(textoError(e));
       setFase('login');
     }
   }, []);
 
   useEffect(() => {
-    const k = sessionStorage.getItem(CLAVE_SESION);
-    if (k) entrar(k); else setFase('login');
+    const s = leerSesion();
+    if (s?.rol === 'admin') entrar(s.token); else setFase('login');
   }, [entrar]);
 
   const sucio = useMemo(() => fase === 'ok' && JSON.stringify(draft) !== JSON.stringify(guardado), [fase, draft, guardado]);
@@ -62,21 +68,22 @@ export default function Admin({ ruta }) {
     set: (p, v) => setDraft((d) => setIn(d, p, v)),
     add: (p, item) => setDraft((d) => setIn(d, p, [...get(d, p), item])),
     remove: (p, i) => setDraft((d) => setIn(d, p, get(d, p).filter((_, k) => k !== i))),
-    // Solo existe en el panel: cambia la clave del dueño y la recuerda para esta sesión.
-    cambiarClave: async (nueva) => {
+    // Solo existe en el panel: cambia la clave del dueño. Pide la clave de verdad (el código del dispositivo no alcanza) y, como el cambio
+    // cierra la sesión de todos los dispositivos, abre otra en este con la clave nueva.
+    cambiarClave: async (actual, nueva) => {
       try {
-        const r = await cambiarClave(clave, nueva);
+        const r = await cambiarClave(actual, nueva);
         if (!r.ok) return { ok: false, mensaje: textoError({ codigo: r.error }) };
-        setClave(nueva);
-        sessionStorage.setItem(CLAVE_SESION, nueva);
-        return { ok: true, mensaje: 'Clave cambiada. Usá la nueva la próxima vez que entres.' };
+        const s = await entrarConClave(nueva);
+        setClave(s.token);
+        return { ok: true, mensaje: 'Clave cambiada. Se cerró la sesión en los demás dispositivos: ahí hay que usar la clave nueva.' };
       } catch (e) {
         return { ok: false, mensaje: textoError(e) };
       }
     }
-  }), [draft, clave]);
+  }), [draft]);
 
-  const salir = () => { sessionStorage.removeItem(CLAVE_SESION); setDraft(null); setClave(''); setFase('login'); };
+  const salir = () => { cerrarSesion(); setDraft(null); setClave(''); setFase('login'); };
 
   const guardar = async () => {
     setTrabajando(true);
@@ -107,7 +114,7 @@ export default function Admin({ ruta }) {
         <main className="card login">
           <h1>Panel del dueño</h1>
           {fase === 'verificando' ? <p>Entrando…</p> : (
-            <form onSubmit={async (e) => { e.preventDefault(); const k = e.currentTarget.elements.clave.value; setEntrando(true); await entrar(k); setEntrando(false); }}>
+            <form onSubmit={async (e) => { e.preventDefault(); const k = e.currentTarget.elements.clave.value; setEntrando(true); await entrar(k, true); setEntrando(false); }}>
               <p className="lead">Ingresá tu clave para editar la guía.</p>
               <label className="caja">
                 <span>Clave</span>

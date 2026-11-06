@@ -5,12 +5,14 @@ import DatosGenerales from './admin/DatosGenerales.jsx';
 import Idioma from './components/Idioma.jsx';
 import { ToastContext } from './components/ui.jsx';
 import { PublicoProvider, useDatos } from './data/DataContext.jsx';
+import { useManifestoPersonal } from './personal.js';
 import { SECCIONES } from './secciones.jsx';
 
 // Pantallas del personal: se descargan solo cuando se abren.
 const Recepcion = lazy(() => import('./checkin/Recepcion.jsx'));
 const AdminInicio = lazy(() => import('./admin/AdminInicio.jsx'));
 const AdminHuespedes = lazy(() => import('./admin/AdminHuespedes.jsx'));
+const Entrar = lazy(() => import('./Entrar.jsx'));
 const cargando = <div className="page"><main className="card"><p style={{ margin: 0 }} role="status">Cargando…</p></main></div>;
 
 const leerHash = () => location.hash.replace(/^#\/?/, '').split('?')[0];
@@ -56,6 +58,8 @@ export default function App() {
   const hash = useHash();
   const esAdmin = hash === 'admin' || hash.startsWith('admin/');
   const esRecepcion = hash === 'recepcion' || hash.startsWith('recepcion/');
+  const esEntrar = hash === 'entrar';
+  useManifestoPersonal(esAdmin || esRecepcion || esEntrar);
   const ruta = esAdmin ? hash.slice(6).replace(/^\//, '') : hash;
 
   const [aviso, setAviso] = useState('');
@@ -69,6 +73,7 @@ export default function App() {
   return (
     <ToastContext.Provider value={toast}>
       <Suspense fallback={cargando}>
+        {esEntrar && <Entrar />}
         {esRecepcion && <Recepcion />}
         {!esRecepcion && esAdmin && ruta === '' && <AdminInicio />}
         {!esRecepcion && esAdmin && ruta === 'huespedes' && <AdminHuespedes />}
@@ -76,7 +81,7 @@ export default function App() {
         {!esRecepcion && esAdmin && ruta !== '' && ruta !== 'huespedes' && (
           <Admin ruta={ruta === 'editar' || ruta.startsWith('editar/') ? ruta.slice(6).replace(/^\//, '') : ruta} />
         )}
-        {!esRecepcion && !esAdmin && <PublicoProvider><Pantalla ruta={ruta} /></PublicoProvider>}
+        {!esRecepcion && !esAdmin && !esEntrar && <PublicoProvider><Pantalla ruta={ruta} /></PublicoProvider>}
       </Suspense>
       {aviso && <p className="toast" role="status">{aviso}</p>}
     </ToastContext.Provider>

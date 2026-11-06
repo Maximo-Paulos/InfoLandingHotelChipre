@@ -182,6 +182,10 @@ create or replace function private.comprobar_recepcion(p_clave text)
 returns text language plpgsql security definer set search_path = '' as $$
 declare v_hash text;
 begin
+  -- Sesión de dispositivo (la de recepción o la del dueño, que también puede entrar a recepción).
+  if p_clave ~ '^sd_[0-9a-f]{64}$' then
+    return case when private.sesion_activa(p_clave, array['admin', 'recepcion']) is not null then 'ok' else 'clave_incorrecta' end;
+  end if;
   if private.limite_alcanzado('rec', 8) then
     return 'demasiados_intentos';
   end if;
@@ -783,6 +787,7 @@ begin
     return json_build_object('ok', false, 'error', 'clave_corta');
   end if;
   update private.checkin_config set hash_recepcion = extensions.crypt(p_nueva, extensions.gen_salt('bf')) where id = 1;
+  update private.sesiones set revocada_en = now() where rol = 'recepcion' and revocada_en is null;
   perform private.auditar('admin', 'clave_recepcion', null, null);
   return json_build_object('ok', true);
 end;
@@ -1127,6 +1132,44 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------- ingreso único con sesión de dispositivo
+
+-- Una sola pantalla de ingreso para todo el personal: la clave del dueño abre su panel y la de recepción abre recepción.
+-- Devuelve un código de dispositivo (válido 60 días de uso) para que no haya que escribir la clave de nuevo.
+create or replace function public.sesion_entrar(p_clave text, p_etiqueta text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  v_ip text;
+  v_hash text;
+  v_rol text;
+  v_token text;
+begin
+  v_ip := 'ses|' || private.ip_actual();
+  if (select count(*) from private.intentos where ip = v_ip and at > now() - interval '1 minute') >= 8 then
+    return json_build_object('ok', false, 'error', 'demasiados_intentos');
+  end if;
+  if p_clave is not null and length(p_clave) between 1 and 200 then
+    if exists (select 1 from private.admin a where a.hash = extensions.crypt(p_clave, a.hash)) then
+      v_rol := 'admin';
+    else
+      select hash_recepcion into v_hash from private.checkin_config where id = 1;
+      if v_hash is not null and extensions.crypt(p_clave, v_hash) = v_hash then
+        v_rol := 'recepcion';
+      end if;
+    end if;
+  end if;
+  if v_rol is null then
+    insert into private.intentos (ip) values (v_ip);
+    return json_build_object('ok', false, 'error', 'clave_incorrecta');
+  end if;
+  v_token := 'sd_' || encode(extensions.gen_random_bytes(32), 'hex');
+  insert into private.sesiones (token_hash, rol, etiqueta, vence)
+    values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_rol, nullif(left(btrim(coalesce(p_etiqueta, '')), 60), ''), now() + interval '60 days');
+  perform private.auditar(v_rol, 'sesion_abierta', null, null);
+  return json_build_object('ok', true, 'rol', v_rol, 'token', v_token);
+end;
+$$;
+
 -- ---------------------------------------------------------------- permisos
 
 revoke all on function public.checkin_estado() from public, anon, authenticated;
@@ -1135,6 +1178,7 @@ revoke all on function public.checkin_sesion(text) from public, anon, authentica
 revoke all on function public.checkin_enviar(text, jsonb, text, boolean) from public, anon, authenticated;
 revoke all on function public.checkin_foto_registrar(text, text, text, text) from public, anon, authenticated;
 revoke all on function public.recepcion_entrar(text) from public, anon, authenticated;
+revoke all on function public.sesion_entrar(text, text) from public, anon, authenticated;
 revoke all on function public.recepcion_estado(text) from public, anon, authenticated;
 revoke all on function public.recepcion_codigo_nuevo(text) from public, anon, authenticated;
 revoke all on function public.recepcion_editar(text, bigint, jsonb, text) from public, anon, authenticated;
@@ -1158,6 +1202,7 @@ grant execute on function public.checkin_sesion(text) to anon, authenticated;
 grant execute on function public.checkin_enviar(text, jsonb, text, boolean) to anon, authenticated;
 grant execute on function public.checkin_foto_registrar(text, text, text, text) to anon, authenticated;
 grant execute on function public.recepcion_entrar(text) to anon, authenticated;
+grant execute on function public.sesion_entrar(text, text) to anon, authenticated;
 grant execute on function public.recepcion_estado(text) to anon, authenticated;
 grant execute on function public.recepcion_codigo_nuevo(text) to anon, authenticated;
 grant execute on function public.recepcion_editar(text, bigint, jsonb, text) to anon, authenticated;

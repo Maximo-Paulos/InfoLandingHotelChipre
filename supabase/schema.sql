@@ -28,6 +28,21 @@ create table private.historial (id bigserial primary key, data jsonb not null, g
 create table private.admin (id int primary key check (id = 1), hash text not null);
 create table private.intentos (id bigserial primary key, ip text not null, at timestamptz not null default now());
 create index on private.intentos (ip, at);
+
+-- Sesiones por dispositivo: después de poner la clave una vez, el celular recibe un código al azar (sd_ + 64 letras y números) que
+-- vale 60 días de uso. En la base solo queda su huella (sha256), nunca el código ni la clave. Se pueden cerrar (revocada_en);
+-- nada se borra.
+create table if not exists private.sesiones (
+  id bigint generated always as identity primary key,
+  token_hash text not null unique,
+  rol text not null check (rol in ('admin', 'recepcion')),
+  etiqueta text,
+  creado timestamptz not null default now(),
+  ultimo_uso timestamptz not null default now(),
+  vence timestamptz not null,
+  revocada_en timestamptz
+);
+alter table private.sesiones enable row level security;
 create sequence private.hist_seq;
 alter table private.historial enable row level security;
 alter table private.admin enable row level security;
@@ -66,7 +81,33 @@ end;
 $$;
 revoke all on function private.ip_actual() from public, anon, authenticated;
 
-create or replace function private.comprobar_clave(p_clave text)
+-- Rol de una sesión de dispositivo vigente (o null). Cada vez que se usa después de un día, se renueva por 60 días más.
+create or replace function private.sesion_activa(p_token text, p_roles text[])
+returns text language plpgsql security definer set search_path = '' as $$
+declare
+  v_hash text;
+  v_rol text;
+  v_uso timestamptz;
+begin
+  if p_token is null or p_token !~ '^sd_[0-9a-f]{64}$' then
+    return null;
+  end if;
+  v_hash := encode(extensions.digest(p_token, 'sha256'), 'hex');
+  select s.rol, s.ultimo_uso into v_rol, v_uso from private.sesiones s
+   where s.token_hash = v_hash and s.revocada_en is null and s.vence > now() and s.rol = any (p_roles);
+  if v_rol is null then
+    return null;
+  end if;
+  if v_uso < now() - interval '1 day' then
+    update private.sesiones set ultimo_uso = now(), vence = now() + interval '60 days' where token_hash = v_hash;
+  end if;
+  return v_rol;
+end;
+$$;
+revoke all on function private.sesion_activa(text, text[]) from public, anon, authenticated;
+
+-- Solo la clave del dueño (sin sesiones de dispositivo). La usan las acciones que no se pueden hacer con un celular que quedó abierto.
+create or replace function private.comprobar_clave_estricta(p_clave text)
 returns text language plpgsql security definer set search_path = '' as $$
 declare v_ip text;
 begin
@@ -79,6 +120,18 @@ begin
     return 'clave_incorrecta';
   end if;
   return 'ok';
+end;
+$$;
+revoke all on function private.comprobar_clave_estricta(text) from public, anon, authenticated;
+
+-- La clave del dueño o una sesión de dispositivo de admin: la usan todas las pantallas del dueño.
+create or replace function private.comprobar_clave(p_clave text)
+returns text language plpgsql security definer set search_path = '' as $$
+begin
+  if p_clave ~ '^sd_[0-9a-f]{64}$' then
+    return case when private.sesion_activa(p_clave, array['admin']) is not null then 'ok' else 'clave_incorrecta' end;
+  end if;
+  return private.comprobar_clave_estricta(p_clave);
 end;
 $$;
 revoke all on function private.comprobar_clave(text) from public, anon, authenticated;
@@ -124,7 +177,7 @@ create or replace function public.cambiar_clave(p_actual text, p_nueva text)
 returns json language plpgsql security definer set search_path = '' as $$
 declare r text;
 begin
-  r := private.comprobar_clave(p_actual);
+  r := private.comprobar_clave_estricta(p_actual);
   if r <> 'ok' then
     return json_build_object('ok', false, 'error', r);
   end if;
@@ -132,6 +185,66 @@ begin
     return json_build_object('ok', false, 'error', 'clave_corta');
   end if;
   update private.admin set hash = extensions.crypt(p_nueva, extensions.gen_salt('bf')) where id = 1;
+  update private.sesiones set revocada_en = now() where rol = 'admin' and revocada_en is null;
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Qué rol tiene una sesión de dispositivo (para abrir la pantalla que corresponde sin pedir la clave otra vez).
+create or replace function public.sesion_estado(p_token text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare v_rol text;
+begin
+  v_rol := private.sesion_activa(p_token, array['admin', 'recepcion']);
+  return json_build_object('ok', v_rol is not null, 'rol', v_rol);
+end;
+$$;
+
+-- Cierra la sesión de este dispositivo (el botón "Salir"). No borra nada: la marca como cerrada.
+create or replace function public.sesion_cerrar(p_token text)
+returns json language plpgsql security definer set search_path = '' as $$
+begin
+  if p_token ~ '^sd_[0-9a-f]{64}$' then
+    update private.sesiones set revocada_en = now()
+     where token_hash = encode(extensions.digest(p_token, 'sha256'), 'hex') and revocada_en is null;
+  end if;
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Los dispositivos con sesión abierta (del más reciente al más viejo). "actual" marca el que está pidiendo la lista.
+create or replace function public.admin_sesiones(p_clave text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  v_hash text;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  v_hash := case when p_clave ~ '^sd_[0-9a-f]{64}$' then encode(extensions.digest(p_clave, 'sha256'), 'hex') end;
+  return json_build_object('ok', true, 'sesiones', coalesce((
+    select json_agg(json_build_object('id', s.id, 'rol', s.rol, 'etiqueta', s.etiqueta, 'creado', s.creado,
+                                      'ultimo_uso', s.ultimo_uso, 'actual', s.token_hash = v_hash) order by s.ultimo_uso desc, s.id desc)
+      from private.sesiones s where s.revocada_en is null and s.vence > now()), '[]'::json));
+end;
+$$;
+
+-- Cierra la sesión de un dispositivo (p_id) o la de todos los demás (sin p_id). El dispositivo que lo pide se queda adentro.
+create or replace function public.admin_sesion_cerrar(p_clave text, p_id bigint default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  v_hash text;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  v_hash := case when p_clave ~ '^sd_[0-9a-f]{64}$' then encode(extensions.digest(p_clave, 'sha256'), 'hex') end;
+  update private.sesiones set revocada_en = now()
+   where revocada_en is null and (p_id is null or id = p_id) and token_hash is distinct from v_hash;
   return json_build_object('ok', true);
 end;
 $$;
@@ -142,6 +255,14 @@ revoke all on function public.cambiar_clave(text, text) from public, anon, authe
 grant execute on function public.verificar_clave(text) to anon, authenticated;
 grant execute on function public.guardar_contenido(text, jsonb) to anon, authenticated;
 grant execute on function public.cambiar_clave(text, text) to anon, authenticated;
+revoke all on function public.sesion_estado(text) from public, anon, authenticated;
+revoke all on function public.sesion_cerrar(text) from public, anon, authenticated;
+revoke all on function public.admin_sesiones(text) from public, anon, authenticated;
+revoke all on function public.admin_sesion_cerrar(text, bigint) from public, anon, authenticated;
+grant execute on function public.sesion_estado(text) to anon, authenticated;
+grant execute on function public.sesion_cerrar(text) to anon, authenticated;
+grant execute on function public.admin_sesiones(text) to anon, authenticated;
+grant execute on function public.admin_sesion_cerrar(text, bigint) to anon, authenticated;
 
 -- Clave inicial del dueño (cambiá 'TU-CLAVE' antes de ejecutar). Después se cambia desde el panel.
 -- insert into private.admin (id, hash) values (1, extensions.crypt('TU-CLAVE', extensions.gen_salt('bf')));
