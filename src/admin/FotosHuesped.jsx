@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import Modal from '../checkin/Modal.jsx';
-import { adminFotoPermiso, adminFotoQuitar, adminFotos, textoCodigo } from '../checkin/checkinApi.js';
+import { adminFotoPermiso, adminFotoQuitar, adminFotos, recepcionFotoPermiso, recepcionFotos, textoCodigo } from '../checkin/checkinApi.js';
 import { comprimirImagen } from '../checkin/comprimir.js';
 import { subirFoto } from '../checkin/foto.js';
 import { esperar, fechaHora, urlDrive } from '../checkin/util.js';
@@ -14,12 +14,15 @@ const ERRORES_SCRIPT = {
   registro: 'La foto llegó a Drive pero no se pudo anotar en el huésped. Probá de nuevo.'
 };
 const ORIGEN = { admin: 'La cargó el dueño', huesped: 'La mandó el huésped' };
+const origenDe = (f) => (f.cargada_por === 'recepcion' ? 'La cargó recepción' : ORIGEN[f.origen]);
 
-// Las fotos del documento de un huésped, para el dueño: ver, agregar (si el huésped no la mandó, o la primera no se ve) y quitar.
+// Las fotos del documento de un huésped: ver, agregar (si el huésped no la mandó, o la primera no se ve) y, solo el dueño, quitar.
 // "Quitar" NO borra nada: la foto sale de la lista pero sigue en Drive y en la base, y se puede volver a poner.
+// Con modo="recepcion" (clave de recepción) solo se ve y se agrega: no hay botón para quitar ni se ven las quitadas.
 //   fila: el huésped de la planilla ({ id, datos })
 //   alCambiar(): se llama cuando cambia algo, para que la planilla se actualice
-export default function FotosHuesped({ clave, fila, onCerrar, alCambiar }) {
+export default function FotosHuesped({ clave, fila, onCerrar, alCambiar, modo = 'admin' }) {
+  const recepcion = modo === 'recepcion';
   const [datos, setDatos] = useState(null); // { fotos, drive } o null mientras carga
   const [error, setError] = useState('');
   const [nueva, setNueva] = useState(null); // la foto elegida, todavía sin subir: { base64, vista, bytes }
@@ -35,7 +38,7 @@ export default function FotosHuesped({ clave, fila, onCerrar, alCambiar }) {
 
   const cargar = async () => {
     try {
-      const r = await adminFotos(clave, fila.id);
+      const r = await (recepcion ? recepcionFotos : adminFotos)(clave, fila.id);
       if (!vivo.current) return null;
       if (r.ok) { setDatos(r); setError(''); return r; }
       setError(textoCodigo(r.error));
@@ -91,7 +94,7 @@ export default function FotosHuesped({ clave, fila, onCerrar, alCambiar }) {
     setMsg('');
     const antes = datos?.fotos.length ?? 0;
     try {
-      const p = await adminFotoPermiso(clave, fila.id);
+      const p = await (recepcion ? recepcionFotoPermiso : adminFotoPermiso)(clave, fila.id);
       if (!p.ok) { setErrFoto(textoCodigo(p.error)); return; }
       const r = await subirFoto({ url: p.url, ticket: p.ticket, nombre: fila.datos?.nombre, apellido: fila.datos?.apellido, imagen: nueva.base64 });
       if (r.ok === false) { setErrFoto(ERRORES_SCRIPT[r.error] ?? 'No se pudo subir la foto. Probá de nuevo.'); return; }
@@ -139,12 +142,17 @@ export default function FotosHuesped({ clave, fila, onCerrar, alCambiar }) {
   };
 
   const nombre = `${fila.datos?.nombre ?? ''} ${fila.datos?.apellido ?? ''}`.trim();
-  const activas = datos?.fotos.filter((f) => f.activa) ?? [];
-  const quitadas = datos?.fotos.filter((f) => !f.activa) ?? [];
+  // La lista de recepción trae solo las activas y sin el campo "activa": lo que no dice lo contrario se muestra.
+  const activas = datos?.fotos.filter((f) => f.activa !== false) ?? [];
+  const quitadas = datos?.fotos.filter((f) => f.activa === false) ?? [];
   const ocupado = estado !== '';
   return (
     <Modal titulo={`Fotos de ${nombre}`} onCerrar={onCerrar}>
-      <p className="ayuda">Acá ves las fotos del documento de este huésped. Podés agregar otra (por ejemplo, la que sacó recepción) o quitar la que no se vea. Quitar solo la saca de la lista: el archivo sigue en tu Drive y la podés volver a poner.</p>
+      <p className="ayuda">
+        {recepcion
+          ? 'Acá ves las fotos del documento de este huésped. Si no la subió él, sacale una foto al documento y agregala. Una foto que ya está cargada no se puede quitar desde recepción.'
+          : 'Acá ves las fotos del documento de este huésped. Podés agregar otra (por ejemplo, la que sacó recepción) o quitar la que no se vea. Quitar solo la saca de la lista: el archivo sigue en tu Drive y la podés volver a poner.'}
+      </p>
       {error && <p className="ed-error" role="alert">{error}</p>}
       {!datos && !error && <p className="intro" role="status">Cargando…</p>}
       {datos && (
@@ -157,13 +165,13 @@ export default function FotosHuesped({ clave, fila, onCerrar, alCambiar }) {
                 <div className="foto-fila">
                   <div className="foto-datos">
                     <b>Foto {i + 1}</b>
-                    <small className="muted">{ORIGEN[f.origen] ?? ''} · {fechaHora(f.creado)}</small>
+                    <small className="muted">{origenDe(f) ?? ''} · {fechaHora(f.creado)}</small>
                   </div>
                   <div className="foto-acciones">
                     <a className="btn mini claro" href={urlDrive(f.foto_id)} target="_blank" rel="noopener noreferrer" title={f.nombre ?? ''}>
                       <Icon name="imagen" size={16} sw={1.8} /> Abrir
                     </a>
-                    <button type="button" className="btn mini claro" onClick={() => setConfirmando(f.id)} disabled={trabajando === f.id} aria-label={`Quitar la foto ${i + 1}`}>Quitar</button>
+                    {!recepcion && <button type="button" className="btn mini claro" onClick={() => setConfirmando(f.id)} disabled={trabajando === f.id} aria-label={`Quitar la foto ${i + 1}`}>Quitar</button>}
                   </div>
                 </div>
                 {confirmando === f.id && (
@@ -204,14 +212,14 @@ export default function FotosHuesped({ clave, fila, onCerrar, alCambiar }) {
             {errFoto && <p className="ed-error" role="alert">{errFoto}</p>}
           </div>
 
-          {quitadas.length > 0 && (
+          {!recepcion && quitadas.length > 0 && (
             <div className="medios-quitados foto-quitadas">
               <h4>Quitadas</h4>
               <p className="ayuda">Ya no se muestran en la planilla, pero siguen en tu Drive.</p>
               <ul>
                 {quitadas.map((f) => (
                   <li key={f.id}>
-                    <span>{ORIGEN[f.origen] ?? 'Foto'}<small className="muted"> · {fechaHora(f.creado)}</small></span>
+                    <span>{origenDe(f) ?? 'Foto'}<small className="muted"> · {fechaHora(f.creado)}</small></span>
                     <span className="foto-acciones">
                       <a className="btn mini claro" href={urlDrive(f.foto_id)} target="_blank" rel="noopener noreferrer" title={f.nombre ?? ''}>Abrir</a>
                       <button type="button" className="btn mini claro" onClick={() => cambiarEstado(f.id, false)} disabled={trabajando === f.id}>{trabajando === f.id ? 'Poniendo…' : 'Volver a poner'}</button>

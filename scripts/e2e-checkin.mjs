@@ -653,7 +653,7 @@ await seccion('9. Seguridad de la base', async () => {
   ok(/permission denied/.test(await intento('select private.codigo_vigente()') ?? ''), 'ni llamar a las funciones internas');
   ok(/permission denied/.test(await intento(`update private.checkins set habitacion = 'x'`) ?? ''), 'ni modificar nada');
   const publicas = await back.sql(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and has_function_privilege('anon', p.oid, 'execute') order by 1`);
-  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_foto_permiso', 'admin_foto_quitar', 'admin_fotos', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'verificar_clave'];
+  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_foto_permiso', 'admin_foto_quitar', 'admin_fotos', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'recepcion_foto_permiso', 'recepcion_fotos', 'verificar_clave'];
   ok(JSON.stringify(publicas.map((p) => p.proname)) === JSON.stringify(esperadas), 'las únicas funciones que puede llamar un anónimo son las previstas (' + publicas.length + ')');
   // todas las funciones expuestas rechazan claves malas
   for (const [fn, args] of [['admin_huespedes', { p_clave: 'x' }], ['admin_checkin_config', { p_clave: 'x' }], ['recepcion_estado', { p_clave: 'x' }], ['admin_checkin_auditoria', { p_clave: 'x' }]]) {
@@ -1012,7 +1012,13 @@ await seccion('13. Fotos del documento: el dueño las carga a mano, agrega otra 
   await rec.page.locator('.planilla tbody tr').nth(1).waitFor();
   const recBeto = rec.page.locator('.planilla tbody tr', { hasText: 'Beto' });
   ok((await recBeto.locator('.ver-foto').allInnerTexts()).map((t) => t.trim()).join('|') === 'Ver 1|Ver 2', 'recepción ve las dos fotos de Beto (para consultarlas)');
-  ok((await rec.page.getByRole('button', { name: /Agregar foto|Fotos de/ }).count()) === 0, 'pero no tiene botones para agregar ni quitar fotos');
+  await recBeto.getByRole('button', { name: 'Fotos de Dos Beto' }).tap();
+  const recDlg = rec.page.getByRole('dialog', { name: 'Fotos de Beto Dos' });
+  await recDlg.waitFor();
+  await recDlg.getByText('Foto 2', { exact: true }).waitFor();
+  ok(await recDlg.getByText('Foto 1', { exact: true }).isVisible(), 'recepción abre las fotos de Beto y ve la 1 y la 2');
+  ok((await recDlg.getByRole('button', { name: /^Quitar/ }).count()) === 0 && (await recDlg.getByText('Quitadas').count()) === 0, 'pero no tiene ningún botón para quitarlas');
+  await recDlg.locator('.modal-pie').getByRole('button', { name: 'Cerrar' }).tap();
   await rec.ctx.close();
 
   // ---- el historial de cambios
@@ -1034,6 +1040,66 @@ await seccion('13. Fotos del documento: el dueño las carga a mano, agrega otra 
   ok((await sql1('select count(*)::int as n from private.checkins')).n === 2 && (await sql1('select count(*)::int as n from private.checkin_fotos')).n === 3, 'no se borró ningún huésped ni ninguna foto en todo el recorrido');
   ok(adm.errores.length === 0, 'sin errores en la consola ' + adm.errores.join('|'));
   await adm.ctx.close();
+});
+
+await seccion('13b. Fotos del documento: recepción agrega la foto que el huésped no subió, pero no puede quitar ninguna', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await huespedPorApi({ nombre: 'Ana', apellido: 'Uno', doc_numero: '30000001' }, { conFoto: true });
+  await huespedPorApi({ nombre: 'Beto', apellido: 'Dos', doc_numero: '30000002' });
+  const drive = async () => (await fetch(`${back.url}/__test/drive`).then((x) => x.json())).filter((a) => a.mime === 'image/jpeg');
+  const fotosDe = (n) => back.sql(`select f.foto_id, f.origen, f.cargada_por, f.activa from private.checkin_fotos f join private.checkins k on k.id = f.checkin_id where k.datos ->> 'nombre' = $1 order by f.id`, [n]);
+
+  const rec = await contexto({ hasTouch: true, isMobile: true });
+  await recepcionLogin(rec.page);
+  await rec.page.locator('.planilla tbody tr').nth(1).waitFor();
+  const fila = (n) => rec.page.locator('.planilla tbody tr', { hasText: n });
+  ok(await fila('Beto').getByRole('button', { name: 'Agregar foto de Dos Beto' }).isVisible() && await fila('Ana').getByRole('button', { name: 'Fotos de Uno Ana' }).isVisible(), 'en la planilla de recepción, Beto (sin foto) tiene "Agregar foto" y Ana "Fotos"');
+  await sinDesborde(rec.page, 'recepción: planilla con el botón de fotos (celular)');
+
+  await fila('Beto').getByRole('button', { name: 'Agregar foto de Dos Beto' }).tap();
+  const dlg = rec.page.getByRole('dialog', { name: 'Fotos de Beto Dos' });
+  await dlg.waitFor();
+  await dlg.getByText('Este huésped no tiene ninguna foto cargada.').waitFor();
+  ok(await dlg.getByRole('button', { name: /Sacar foto/ }).isEnabled() && await dlg.getByRole('button', { name: /Elegir de la galería/ }).isEnabled(), 'recepción ve "Sacar foto" y "Elegir de la galería"');
+  await captura(rec.page, '53-recepcion-fotos-sin-foto');
+  const b64 = await jpegBase64(rec.page);
+  await dlg.locator('input[type=file]').nth(1).setInputFiles({ name: 'dni.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(b64, 'base64') });
+  await dlg.locator('.foto-prev').waitFor();
+  await dlg.getByRole('button', { name: 'Subir esta foto' }).tap();
+  await dlg.getByText('Foto agregada.').waitFor({ timeout: 15000 });
+  ok(await dlg.getByText('Foto 1', { exact: true }).isVisible() && await dlg.getByText(/La cargó recepción/).isVisible(), 'recepción sube la foto y queda en la lista como "La cargó recepción"');
+  ok((await dlg.getByRole('button', { name: /^Quitar/ }).count()) === 0, 'sin botón para quitarla');
+  await captura(rec.page, '54-recepcion-foto-agregada');
+  const d1 = await drive();
+  const fb = await fotosDe('Beto');
+  ok(d1.length === 2 && fb.length === 1 && fb[0].origen === 'admin' && fb[0].cargada_por === 'recepcion' && fb[0].activa === true && fb[0].foto_id === d1[1].id, 'el archivo quedó en Drive y en la base solo el id, marcada como cargada por recepción');
+  await dlg.locator('.modal-pie').getByRole('button', { name: 'Cerrar' }).tap();
+  await dlg.waitFor({ state: 'hidden' });
+  await hasta(async () => (await fila('Beto').locator('.ver-foto').count()) === 1, 8000);
+  ok(await fila('Beto').locator('.ver-foto').isVisible(), 'al cerrar, la planilla de recepción ya muestra el link "Ver"');
+
+  // lo que mandó el huésped no se puede quitar desde recepción
+  await fila('Ana').getByRole('button', { name: 'Fotos de Uno Ana' }).tap();
+  const dlgAna = rec.page.getByRole('dialog', { name: 'Fotos de Ana Uno' });
+  await dlgAna.waitFor();
+  await dlgAna.getByText(/La mandó el huésped/).waitFor();
+  ok((await dlgAna.getByRole('button', { name: /^Quitar/ }).count()) === 0, 'la foto que mandó el huésped no tiene botón para quitarla');
+  await dlgAna.locator('.modal-pie').getByRole('button', { name: 'Cerrar' }).tap();
+  await rec.ctx.close();
+
+  // el dueño ve las dos marcas
+  const adm = await contexto({ hasTouch: true, isMobile: true });
+  await entrarAdmin(adm.page, '#/admin/huespedes');
+  await adm.page.locator('.planilla tbody tr').nth(1).waitFor();
+  await adm.page.locator('.planilla tbody tr', { hasText: 'Beto' }).getByRole('button', { name: 'Fotos de Dos Beto' }).tap();
+  const dlgAdm = adm.page.getByRole('dialog', { name: 'Fotos de Beto Dos' });
+  await dlgAdm.waitFor();
+  await dlgAdm.getByText('Foto 1', { exact: true }).waitFor();
+  ok(await dlgAdm.getByText(/La cargó recepción/).isVisible() && await dlgAdm.getByRole('button', { name: /^Quitar/ }).isVisible(), 'el dueño ve que la cargó recepción y sí puede quitarla');
+  await adm.ctx.close();
+  ok((await fotosDe('Ana')).length === 1 && (await fotosDe('Beto')).length === 1, 'al final no se borró ninguna foto');
 });
 
 await seccion('14. Foto grande del celular y página cerrada por falta de memoria', async () => {

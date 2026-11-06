@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon.jsx';
+import FotosHuesped from '../admin/FotosHuesped.jsx';
 import { recepcionCodigoNuevo, recepcionEditar, recepcionEntrar, recepcionEstado, textoCodigo } from './checkinApi.js';
 import EditarHuesped from './EditarHuesped.jsx';
 import Planilla from './Planilla.jsx';
@@ -74,6 +75,7 @@ function Panel({ clave, salir }) {
   const [error, setError] = useState('');
   const [editando, setEditando] = useState(null);
   const [nuevo, setNuevo] = useState(false);
+  const [fotos, setFotos] = useState(null);
   const ahora = useAhora(250);
   const reloj = useRef(null);
   const ultimoVencido = useRef(0);
@@ -190,10 +192,12 @@ function Panel({ clave, salir }) {
                 ? `Podés corregir los datos y cargar la habitación durante ${estado.config.edicion_min} minutos desde que el huésped envía el formulario.`
                 : 'Por ahora recepción no puede editar los datos. Si hay que corregir algo, avisale al administrador.'}
             </p>
-            <Planilla filas={huespedes} restante={estado.config.edicion_activa ? segundosEdicion : () => 0} onEditar={(f) => setEditando({ ...f, venceEn: estado.recibido + f.editable_seg * 1000 })} vacio="Todavía no hay huéspedes cargados en estos días." />
+            <Planilla filas={huespedes} restante={estado.config.edicion_activa ? segundosEdicion : () => 0} onEditar={(f) => setEditando({ ...f, venceEn: estado.recibido + f.editable_seg * 1000 })} onFotos={setFotos} vacio="Todavía no hay huéspedes cargados en estos días." />
           </>
         )}
       </main>
+
+      {fotos && <FotosHuesped modo="recepcion" clave={clave} fila={fotos} onCerrar={() => setFotos(null)} alCambiar={refrescar} />}
 
       {editando && (
         <EditarHuesped

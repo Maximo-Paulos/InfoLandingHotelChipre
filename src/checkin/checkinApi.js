@@ -18,6 +18,9 @@ export const recepcionCodigoNuevo = (clave) => rpc('recepcion_codigo_nuevo', { p
 const conMedio = (datos, medioPago) => (medioPago ? { ...datos, medio_pago: medioPago } : datos);
 export const recepcionEditar = (clave, id, datos, habitacion, medioPago) =>
   rpc('recepcion_editar', { p_clave: clave, p_id: id, p_datos: conMedio(datos, medioPago), p_habitacion: habitacion || null });
+// Fotos del documento desde recepción: ve las de un huésped y agrega otra. No hay forma de quitar ni cambiar las que ya están.
+export const recepcionFotos = (clave, id) => rpc('recepcion_fotos', { p_clave: clave, p_id: id });
+export const recepcionFotoPermiso = (clave, id) => rpc('recepcion_foto_permiso', { p_clave: clave, p_id: id });
 
 // Admin general
 export const adminConfig = (clave) => rpc('admin_checkin_config', { p_clave: clave });

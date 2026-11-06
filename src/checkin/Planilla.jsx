@@ -9,7 +9,7 @@ const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_i
 // La planilla de huéspedes: una fila por persona, con la habitación fija a la izquierda y scroll hacia los costados.
 //   filas: [{ id, creado, habitacion, datos, foto_id, foto_nombre, fotos?, editable_seg? }]
 //   puedeEditar(fila) -> segundos que quedan para editar (null = sin límite, 0 = no se puede)
-//   onFotos(fila): si viene, cada fila tiene un botón para ver, agregar y quitar sus fotos (solo el dueño)
+//   onFotos(fila): si viene, cada fila tiene un botón para ver y agregar sus fotos (el dueño también puede quitarlas; recepción no)
 export default function Planilla({ filas, onEditar, onFotos, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
   const [lib, setLib] = useState(null);
   useEffect(() => {
