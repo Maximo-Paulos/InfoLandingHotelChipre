@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pantalla } from '../App.jsx';
 import { get, setIn } from '../components/Editable.jsx';
 import { cambiarClave, guardarContenido, leerContenido, textoError, verificarClave } from '../data/api.js';
+import BarraPersonal from '../BarraPersonal.jsx';
 import { DataContext } from '../data/DataContext.jsx';
 import respaldo from '../data/hotel.js';
 import { mezclar } from '../data/mezclar.js';
@@ -131,18 +132,19 @@ export default function Admin({ ruta }) {
 
   return (
     <DataContext.Provider value={valor}>
-      <div className="barra-admin" role="region" aria-label="Barra del panel">
-        <strong>Modo edición</strong>
-        <span className="estado" aria-live="polite">{estado || (sucio ? 'Hay cambios sin guardar' : 'Sin cambios')}</span>
-        <div className="acciones">
-          <button type="button" className="btn mini" onClick={guardar} disabled={!sucio || trabajando}>Guardar cambios</button>
-          <button type="button" className="btn mini claro" onClick={descartar} disabled={!sucio || trabajando}>Descartar</button>
-          <a className="btn mini claro" href="#/admin" onClick={(e) => { if (sucio && !window.confirm('Hay cambios sin guardar. ¿Salir igual?')) e.preventDefault(); }}>Inicio</a>
-          <a className="btn mini claro" href="#/" target="_blank" rel="noopener noreferrer">Ver guía</a>
-          <button type="button" className="btn mini claro" onClick={salir}>Salir</button>
-        </div>
+      <div className="page-editor">
+        <BarraPersonal titulo="Editar la guía" actual="editar" atras={{ href: '#/admin', texto: 'Inicio' }} salir={salir}
+          confirmar={() => !sucio || window.confirm('Hay cambios sin guardar. ¿Salir igual?')}>
+          <div className="bp-editor">
+            <span className="estado" aria-live="polite">{estado || (sucio ? 'Hay cambios sin guardar' : 'Sin cambios')}</span>
+            <div className="acciones">
+              <button type="button" className="btn mini" onClick={guardar} disabled={!sucio || trabajando}>Guardar cambios</button>
+              <button type="button" className="btn mini claro" onClick={descartar} disabled={!sucio || trabajando}>Descartar</button>
+            </div>
+          </div>
+        </BarraPersonal>
+        <Pantalla ruta={ruta} />
       </div>
-      <Pantalla ruta={ruta} />
     </DataContext.Provider>
   );
 }

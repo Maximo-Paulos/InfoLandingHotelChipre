@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import FotosHuesped from '../admin/FotosHuesped.jsx';
+import BarraPersonal from '../BarraPersonal.jsx';
 import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 import { recepcionCodigoNuevo, recepcionEditar, recepcionEstado, textoCodigo } from './checkinApi.js';
@@ -128,17 +129,12 @@ function Panel({ clave, rol, salir }) {
   const pct = Math.max(0, Math.min(100, (restanteCodigo / duracion) * 100));
 
   return (
-    <div className="page">
+    <div className="page personal">
+      <BarraPersonal titulo="Recepción" actual="recepcion" rol={rol} atras={rol === 'admin' ? { href: '#/admin', texto: 'Inicio' } : undefined} salir={salir} ancha />
       <main className="card ancha">
-        <header className="rec-cab">
-          <div>
-            <p className="eyebrow">Recepción</p>
-            <h1>Check-in digital</h1>
-          </div>
-          <div className="rec-acciones">
-            {rol === 'admin' && <a className="btn mini claro" href="#/admin">Panel del dueño</a>}
-            <button type="button" className="btn mini claro" onClick={salir}>Salir</button>
-          </div>
+        <header>
+          <p className="eyebrow">Recepción</p>
+          <h1>Check-in digital</h1>
         </header>
 
         {!estado && !error && <p className="intro" role="status">Cargando…</p>}

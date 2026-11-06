@@ -82,7 +82,7 @@ export function ConfigCheckin({ clave, config, recargar }) {
   };
 
   return (
-    <details className="panel" open>
+    <details className="panel">
       <summary>Configuración del check-in</summary>
       <form onSubmit={guardar} className="cfg" noValidate>
         {f.activo && !config.recepcion_con_clave && <p className="note" role="alert">Falta cargar la clave de recepción: sin clave nadie puede ver el código.</p>}

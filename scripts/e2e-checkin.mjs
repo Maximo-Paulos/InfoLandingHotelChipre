@@ -188,7 +188,8 @@ await seccion('2. Admin general: inicio, editor de la guía (sin cambios) y hué
   await captura(page, '20-admin-inicio');
 
   await page.getByRole('link', { name: /Editar landing page/ }).click();
-  await page.locator('.barra-admin').waitFor();
+  await page.locator('.barra-personal').waitFor();
+  await page.locator('.tile-wrap').first().waitFor();
   ok(await page.locator('.tile-wrap').count() >= 12, 'el editor de la landing es el de siempre (12 botones con sus cajas)');
   const caja = page.locator('.caja textarea').first();
   await caja.fill('¿Qué necesitás hoy?');
@@ -207,7 +208,7 @@ await seccion('2. Admin general: inicio, editor de la guía (sin cambios) y hué
   ok(true, 'el link "Inicio" vuelve al inicio del admin');
 
   await page.goto(BASE + '#/admin/wifi');
-  await page.locator('.barra-admin').waitFor();
+  await page.locator('.barra-personal').waitFor();
   ok((await page.locator('.caja').count()) > 3, 'los links viejos (#/admin/wifi) siguen abriendo el editor');
   await page.goto(BASE + '#/admin/editar/datos');
   await page.getByRole('heading', { name: 'Datos generales' }).waitFor();
@@ -215,6 +216,7 @@ await seccion('2. Admin general: inicio, editor de la guía (sin cambios) y hué
 
   await page.goto(BASE + '#/admin/huespedes');
   await page.getByRole('heading', { name: 'Huéspedes', exact: true }).waitFor();
+  await page.getByText('Configuración del check-in').click(); // los ajustes vienen cerrados: lo primero que se ve es la lista de huéspedes
   await page.locator('#cfg-activo').waitFor();
   ok((await page.locator('#cfg-codigo_seg').inputValue()) === '15' && (await page.locator('#cfg-usos_max').inputValue()) === '3', 'configuración con los valores iniciales (15 s, 3 personas)');
   ok((await page.locator('#cfg-edicion_min').inputValue()) === '10', 'edición de recepción: 10 minutos');
@@ -1400,7 +1402,7 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   ok(true, 'y las demás pantallas del dueño también');
   await app.goto(BASE + '#/recepcion');
   await app.locator('.codigo-grande').waitFor();
-  ok(await app.getByRole('link', { name: 'Panel del dueño' }).isVisible(), 'el dueño también entra a recepción con la misma sesión, y desde ahí vuelve a su panel');
+  ok(await app.getByRole('link', { name: 'Inicio' }).isVisible(), 'el dueño también entra a recepción con la misma sesión, y desde ahí vuelve a su panel con la flecha');
   await captura(app, '56-dueno-ve-recepcion');
   await app.goto(BASE + '#/admin');
   await app.getByRole('link', { name: /Ver recepción/ }).waitFor();
@@ -1413,7 +1415,7 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   await rec.page.getByRole('button', { name: 'Entrar' }).click();
   await rec.page.waitForURL(/#\/recepcion$/);
   await rec.page.locator('.codigo-grande').waitFor();
-  ok(!(await rec.page.getByRole('link', { name: 'Panel del dueño' }).count()), 'con la clave de recepción se abre recepción (sin acceso al panel del dueño)');
+  ok(!(await rec.page.getByRole('link', { name: 'Inicio' }).count()), 'con la clave de recepción se abre recepción (sin flecha al panel del dueño)');
   await rec.page.reload();
   await rec.page.locator('.codigo-grande').waitFor();
   ok(true, 'y al recargar sigue adentro');
@@ -1445,7 +1447,8 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   await rec.page.getByRole('button', { name: 'Entrar' }).click();
   await rec.page.locator('.codigo-grande').waitFor();
   ok(await abiertas('recepcion') === 1, 'recepción vuelve a entrar con su clave');
-  await rec.page.getByRole('button', { name: 'Salir' }).click();
+  await rec.page.getByRole('button', { name: 'Menú' }).click();
+  await rec.page.getByRole('button', { name: /^Salir/ }).click();
   await rec.page.locator('input[name=clave]').waitFor();
   ok(await abiertas('recepcion') === 0 && (await rec.page.evaluate(() => localStorage.getItem('chipre-sesion'))) === null, '"Salir" cierra la sesión en la base y borra el código del celular');
 
@@ -1502,6 +1505,87 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   await captura(iph.page, '58-personal-iphone-instalar');
   await iph.ctx.close();
   ok((await sql1(`select count(*)::int as n from private.checkins`)).n === 0, 'nada de esto tocó los datos de huéspedes');
+});
+
+await seccion('17. App del personal: flecha para volver, menú de pantallas y huéspedes en tarjetas (sin deslizar de costado)', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
+  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await huespedPorApi({ nombre: 'Ana María', apellido: 'Pérez García', doc_numero: '30000001' }, { conFoto: true });
+  await huespedPorApi({ nombre: 'Beto', apellido: 'Gómez', doc_numero: '30000002' });
+  const botonesDelMenu = async (page) => (await page.getByRole('dialog', { name: 'Menú' }).locator('a.bp-item, button.bp-item').allInnerTexts()).map((t) => t.split('\n')[0].trim());
+
+  // ---- el dueño, en el celular
+  const due = await contexto({ hasTouch: true, isMobile: true });
+  await entrarAdmin(due.page, '#/admin/huespedes');
+  await due.page.locator('.planilla tbody tr').nth(1).waitFor();
+  const barra = due.page.locator('.barra-personal');
+  ok(await barra.getByRole('link', { name: 'Inicio' }).isVisible() && await barra.getByRole('button', { name: 'Menú' }).isVisible() && /Huéspedes/.test(await barra.locator('.bp-titulo').innerText()), 'arriba hay una flecha para volver al inicio, el nombre de la pantalla y el botón Menú');
+  const medidas = await due.page.evaluate(() => { const c = document.querySelector('.planilla-scroll'); return { ancho: c.clientWidth, contenido: c.scrollWidth }; });
+  ok(medidas.contenido <= medidas.ancho + 1, `la lista de huéspedes no se desliza hacia los costados en el celular (${medidas.contenido} de ${medidas.ancho} px)`);
+  const tarjeta = due.page.locator('.planilla tbody tr', { hasText: 'Gómez' });
+  ok(/Gómez\s+Beto/.test(await tarjeta.locator('.c-ape, .c-nom').allInnerTexts().then((t) => t.join(' '))) && await tarjeta.getByText('30000002').isVisible(), 'cada huésped es una tarjeta con su nombre, el documento y lo que se usa seguido');
+  ok(!(await tarjeta.locator('.c-email').isVisible()), 'los datos de contacto largos quedan para el botón Editar (la tarjeta no se llena de texto)');
+  const orden = await due.page.evaluate(() => { const y = (s) => document.querySelector(`.planilla tbody tr .${s}`).getBoundingClientRect().top; return y('c-ape') < y('c-pago') && y('c-pago') < y('c-doc'); });
+  ok(orden, 'en la tarjeta primero va el nombre, después el pago y el documento');
+  await captura(due.page, '59-huespedes-tarjetas');
+  ok((await due.page.getByRole('heading', { name: 'Ajustes' }).boundingBox()).y > (await due.page.locator('.planilla tbody tr').first().boundingBox()).y, 'primero está la lista de huéspedes y los ajustes quedan más abajo');
+  ok(!(await due.page.locator('#cfg-activo').isVisible()), 'y los ajustes vienen cerrados (se abren tocándolos)');
+
+  // ---- el menú
+  const menu = due.page.getByRole('button', { name: 'Menú' });
+  await menu.tap();
+  const dlg = due.page.getByRole('dialog', { name: 'Menú' });
+  await dlg.waitFor();
+  const opciones = await botonesDelMenu(due.page);
+  ok(JSON.stringify(opciones) === JSON.stringify(['Inicio', 'Huéspedes', 'Recepción', 'Editar la guía', 'Ver la guía del huésped', 'Salir']), 'el menú lista todas las pantallas del dueño, la guía del huésped y Salir: ' + opciones.join(' · '));
+  ok(await dlg.getByRole('link', { name: /^Huéspedes/ }).getAttribute('aria-current') === 'page', 'marca en cuál pantalla estás');
+  await captura(due.page, '60-menu-dueno');
+  await due.page.keyboard.press('Escape');
+  await dlg.waitFor({ state: 'hidden' });
+  await menu.click(); // con el mouse o el teclado el botón recibe el foco (con el dedo, según el navegador)
+  await due.page.keyboard.press('Escape');
+  await dlg.waitFor({ state: 'hidden' });
+  ok(await hasta(() => menu.evaluate((el) => el === document.activeElement), 3000), 'con Esc se cierra y el cursor vuelve al botón Menú');
+  await menu.tap();
+  await dlg.getByRole('link', { name: /^Recepción/ }).tap();
+  await due.page.locator('.codigo-grande').waitFor();
+  ok(!(await dlg.count()), 'elegir una pantalla del menú la abre y cierra el menú');
+  await due.page.getByRole('link', { name: 'Inicio' }).tap();
+  await due.page.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
+  ok(true, 'la flecha de "Inicio" vuelve al inicio del panel');
+  ok(!(await due.page.locator('.barra-personal').getByRole('link', { name: 'Inicio' }).count()), 'en el inicio no hay flecha: es la pantalla principal');
+
+  // ---- el editor avisa si hay cambios sin guardar
+  await due.page.getByRole('link', { name: /Editar landing page/ }).tap();
+  await due.page.locator('.tile-wrap').first().waitFor();
+  await due.page.locator('.caja textarea').first().fill('Texto sin guardar');
+  let pregunto = false;
+  due.page.once('dialog', (d) => { pregunto = true; d.dismiss(); });
+  await due.page.locator('.barra-personal').getByRole('link', { name: 'Inicio' }).tap();
+  await hasta(async () => pregunto, 4000);
+  ok(pregunto && /editar/i.test(await due.page.locator('.barra-personal .bp-titulo').innerText()), 'si hay cambios sin guardar, la flecha pregunta antes de salir (y si se dice que no, se queda)');
+  await sinDesborde(due.page, 'editor con la barra nueva (celular)');
+  await captura(due.page, '61-editor-barra');
+  await due.ctx.close();
+
+  // ---- recepción: menú más corto
+  const rec = await contexto({ hasTouch: true, isMobile: true });
+  await recepcionLogin(rec.page);
+  await rec.page.locator('.planilla tbody tr').nth(1).waitFor();
+  await rec.page.getByRole('button', { name: 'Menú' }).tap();
+  const opcionesRec = await botonesDelMenu(rec.page);
+  ok(JSON.stringify(opcionesRec) === JSON.stringify(['Recepción', 'Ver la guía del huésped', 'Salir']), 'recepción solo ve lo suyo en el menú: ' + opcionesRec.join(' · '));
+  await captura(rec.page, '62-menu-recepcion');
+  await rec.ctx.close();
+
+  // ---- en la compu se sigue viendo la tabla completa
+  const pc = await contexto({ viewport: { width: 1280, height: 800 } });
+  await entrarAdmin(pc.page, '#/admin/huespedes');
+  await pc.page.locator('.planilla tbody tr').nth(1).waitFor();
+  ok(await pc.page.locator('.planilla thead th', { hasText: 'Domicilio' }).isVisible() && await pc.page.locator('.planilla .c-email').first().isVisible(), 'en la compu la lista sigue siendo una tabla con todas las columnas');
+  await captura(pc.page, '63-huespedes-compu');
+  await pc.ctx.close();
 });
 
 await navegador.close();

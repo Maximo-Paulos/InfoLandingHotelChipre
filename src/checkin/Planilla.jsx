@@ -25,33 +25,34 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
   if (!filas.length) return <p className="planilla-vacia">{vacio}</p>;
   return (
     <div className="planilla-scroll" role="region" aria-label="Planilla de huéspedes" tabIndex={0}>
-      <table className="planilla">
-        <thead>
-          <tr>
-            <th className="fija" scope="col">Habitación</th>
-            <th scope="col">Medio de pago</th>
-            <th scope="col">Cargado</th>
-            <th scope="col">Apellido</th>
-            <th scope="col">Nombre</th>
-            <th scope="col">Documento</th>
-            <th scope="col">Nacionalidad</th>
-            <th scope="col">Localidad</th>
-            <th scope="col">Domicilio</th>
-            <th scope="col">Email</th>
-            <th scope="col">Teléfono</th>
-            <th scope="col">Foto</th>
-            <th scope="col"><span className="solo-lector">Acciones</span></th>
+      {/* En el celular cada fila se ve como una tarjeta (ver styles.css), por eso los roles explícitos: así se sigue leyendo como tabla. */}
+      <table className="planilla" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th className="fija" scope="col" role="columnheader">Habitación</th>
+            <th scope="col" role="columnheader">Medio de pago</th>
+            <th scope="col" role="columnheader">Cargado</th>
+            <th scope="col" role="columnheader">Apellido</th>
+            <th scope="col" role="columnheader">Nombre</th>
+            <th scope="col" role="columnheader">Documento</th>
+            <th scope="col" role="columnheader">Nacionalidad</th>
+            <th scope="col" role="columnheader">Localidad</th>
+            <th scope="col" role="columnheader">Domicilio</th>
+            <th scope="col" role="columnheader">Email</th>
+            <th scope="col" role="columnheader">Teléfono</th>
+            <th scope="col" role="columnheader">Foto</th>
+            <th scope="col" role="columnheader"><span className="solo-lector">Acciones</span></th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {filas.map((f) => {
             const d = f.datos ?? {};
             const fotos = fotosDe(f);
             const seg = restante ? restante(f) : null;
             const puede = seg === null || seg > 0;
             return (
-              <tr key={f.id} className={f.habitacion ? '' : 'sin-hab'}>
-                <th className="fija" scope="row">
+              <tr key={f.id} role="row" className={f.habitacion ? '' : 'sin-hab'}>
+                <th className="fija" scope="row" role="rowheader">
                   {/* La habitación es lo primero que carga recepción: tocarla abre la edición sin tener que deslizar hasta el final. */}
                   {onEditar && puede ? (
                     <button type="button" className="hab-boton" onClick={() => onEditar(f)} aria-label={`Editar a ${d.apellido ?? ''} ${d.nombre ?? ''}`.trim()}>
@@ -60,17 +61,17 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
                     </button>
                   ) : (f.habitacion ? <b>{f.habitacion}</b> : <span className="pendiente">Sin asignar</span>)}
                 </th>
-                <td>{f.medio_pago ? <span className="pago">{f.medio_pago}</span> : <span className="muted">—</span>}</td>
-                <td>{fechaHora(f.creado)}</td>
-                <td>{d.apellido}</td>
-                <td>{d.nombre}</td>
-                <td><span className="doc-tipo">{d.doc_tipo}</span> {d.doc_numero}</td>
-                <td>{d.nacionalidad}</td>
-                <td>{d.localidad}</td>
-                <td className="dom">{d.domicilio}</td>
-                <td>{d.email}</td>
-                <td className="nowrap">{tel(d.telefono)}</td>
-                <td className="fotos-celda">
+                <td role="cell" className="c-pago" data-label="Pago">{f.medio_pago ? <span className="pago">{f.medio_pago}</span> : <span className="muted">—</span>}</td>
+                <td role="cell" className="c-cargado" data-label="Cargado">{fechaHora(f.creado)}</td>
+                <td role="cell" className="c-ape" data-label="Apellido">{d.apellido}</td>
+                <td role="cell" className="c-nom" data-label="Nombre">{d.nombre}</td>
+                <td role="cell" className="c-doc" data-label="Documento"><span className="doc-tipo">{d.doc_tipo}</span> {d.doc_numero}</td>
+                <td role="cell" className="c-nac" data-label="Nacionalidad">{d.nacionalidad}</td>
+                <td role="cell" className="c-loc" data-label="Localidad">{d.localidad}</td>
+                <td role="cell" className="dom c-dom" data-label="Domicilio">{d.domicilio}</td>
+                <td role="cell" className="c-email" data-label="Email">{d.email}</td>
+                <td role="cell" className="nowrap c-tel" data-label="Teléfono">{tel(d.telefono)}</td>
+                <td role="cell" className="fotos-celda c-foto" data-label="Foto">
                   {fotos.length === 0 && <span className="muted">—</span>}
                   {fotos.map((p, i) => (
                     <a key={p.foto_id} className="ver-foto" href={urlDrive(p.foto_id)} target="_blank" rel="noopener noreferrer" title={p.nombre ?? ''}>
@@ -83,7 +84,7 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
                     </button>
                   )}
                 </td>
-                <td className="acciones">
+                <td role="cell" className="acciones c-acciones">
                   {onEditar && (
                     puede
                       ? <button type="button" className="btn mini claro" onClick={() => onEditar(f)}>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import BarraPersonal from '../BarraPersonal.jsx';
 import Icon from '../components/Icon.jsx';
 import { adminAuditoria, adminHuespedEditar, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
 import EditarHuesped from '../checkin/EditarHuesped.jsx';
@@ -91,23 +92,14 @@ function Contenido({ clave, salir }) {
   };
 
   return (
-    <div className="page">
+    <div className="page personal">
+      <BarraPersonal titulo="Huéspedes" actual="huespedes" atras={{ href: '#/admin', texto: 'Inicio' }} salir={salir} ancha />
       <main className="card ancha">
-        <header className="rec-cab">
-          <div>
-            <p className="eyebrow">Solo para el dueño</p>
-            <h1>Huéspedes</h1>
-          </div>
-          <div className="rec-acciones">
-            <a className="btn mini claro" href="#/admin">← Inicio</a>
-            <button type="button" className="btn mini claro" onClick={salir}>Salir</button>
-          </div>
+        <header>
+          <h1>Huéspedes</h1>
+          <p className="lead">Quiénes hicieron el check-in. Tocá una habitación para cargarla.</p>
         </header>
-
         {errorConfig && <p className="ed-error" role="alert">{errorConfig}</p>}
-        <ConfigCheckin clave={clave} config={config} recargar={recargar} />
-        <PanelMediosPago clave={clave} medios={medios} alGuardar={(lista) => { setMedios(lista); cargar('refrescar'); }} />
-        <ConectarDrive clave={clave} config={config} recargar={recargar} />
 
         <div className="head-row">
           <h2>Todos los huéspedes</h2>
@@ -125,6 +117,11 @@ function Contenido({ clave, salir }) {
         {filas.length > 0 && <p className="ayuda" role="status">Mostrando {filas.length} {filas.length === 1 ? 'huésped' : 'huéspedes'}{hayMas ? '. Tocá «Cargar más» para ver a los anteriores.' : '.'}</p>}
         {hayMas && <div className="btns"><button type="button" className="btn claro" onClick={() => cargar('mas')} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar más'}</button></div>}
 
+        <h2 className="sub">Ajustes</h2>
+        <p className="ayuda">Lo que se toca de vez en cuando: el check-in, los pagos, las fotos y el historial.</p>
+        <ConfigCheckin clave={clave} config={config} recargar={recargar} />
+        <PanelMediosPago clave={clave} medios={medios} alGuardar={(lista) => { setMedios(lista); cargar('refrescar'); }} />
+        <ConectarDrive clave={clave} config={config} recargar={recargar} />
         <Historial clave={clave} />
       </main>
 

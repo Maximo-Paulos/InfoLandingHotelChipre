@@ -1,3 +1,4 @@
+import BarraPersonal from '../BarraPersonal.jsx';
 import Icon from '../components/Icon.jsx';
 import Dispositivos from './Dispositivos.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
@@ -7,7 +8,8 @@ export default function AdminInicio() {
   const sesion = useSesionAdmin();
   if (sesion.fase !== 'ok') return <LoginAdmin sesion={sesion} />;
   return (
-    <div className="page">
+    <div className="page personal">
+      <BarraPersonal titulo="Panel del dueño" actual="inicio" salir={sesion.salir} />
       <main className="card">
         <header>
           <p className="eyebrow" style={{ paddingTop: 6 }}>Solo para el dueño</p>
@@ -32,10 +34,6 @@ export default function AdminInicio() {
           </a>
         </nav>
         <Dispositivos clave={sesion.clave} />
-        <div className="btns">
-          <a className="btn claro" href="#/">Ver la guía</a>
-          <button type="button" className="btn claro" onClick={sesion.salir}>Salir</button>
-        </div>
       </main>
     </div>
   );

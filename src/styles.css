@@ -405,3 +405,55 @@ dd{margin:3px 0 0;font-size:15px;line-height:1.45}
 .instalar .ayuda{margin:0}
 .dispositivos{margin-top:22px}
 .dispositivos .sub{margin:0 0 4px}
+
+/* Barra de arriba del personal: flecha para volver, nombre de la pantalla y botón Menú. Fija arriba al deslizar. */
+.page.personal{padding-top:0}
+.barra-personal{position:sticky;top:0;z-index:20;margin:0 -10px 14px;padding:max(8px,env(safe-area-inset-top)) 10px 8px;background:var(--salvia);box-shadow:0 1px 0 rgba(34,51,42,.14)}
+.page-editor .barra-personal{margin:0}
+.bp-fila{display:flex;align-items:center;gap:10px;max-width:460px;min-height:48px;margin:0 auto}
+.barra-personal.ancha .bp-fila{max-width:1320px}
+.bp-vacio{flex:none;width:2px}
+.bp-titulo{flex:1;min-width:0;margin:0;overflow:hidden;text-align:center;text-overflow:ellipsis;white-space:nowrap;font:500 18px/1.15 var(--serif);color:var(--verde-oscuro)}
+.bp-btn{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:48px;padding:0 16px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie);color:var(--texto);font:700 15px/1 var(--sans);text-decoration:none;cursor:pointer}
+.bp-editor{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;max-width:460px;margin:6px auto 0}
+.bp-editor .estado{flex:1 1 130px;font-size:13px;font-weight:700;color:var(--terracota-texto)}
+.bp-editor .acciones{display:flex;flex-wrap:wrap;gap:6px}
+.bp-editor .btn.mini{margin-top:0;min-height:44px;padding:0 14px}
+.bp-lista{display:grid;gap:8px;margin:14px 0 0;padding:0;list-style:none}
+.bp-item{display:flex;align-items:center;gap:14px;width:100%;min-height:64px;padding:10px 14px;border:1px solid var(--linea);border-radius:16px;background:var(--superficie);color:var(--texto);font:inherit;text-align:left;text-decoration:none;cursor:pointer}
+.bp-item b{display:block;font:500 19px/1.2 var(--serif)}
+.bp-item small{display:block;margin-top:2px;font-size:13px;line-height:1.35;color:var(--texto-suave)}
+.bp-item .svg{flex:none;color:var(--verde)}
+.bp-item[aria-current=page]{border-color:var(--verde);background:var(--verde-claro)}
+.bp-sesion{margin:14px 0 0;text-align:center;font-size:13px;color:var(--texto-suave)}
+
+/* La lista de huéspedes en el celular: una tarjeta por persona, sin tener que deslizar hacia los costados. */
+@media (max-width:760px){
+  .planilla-scroll{overflow:visible;border:0;border-radius:0;background:transparent}
+  .planilla,.planilla tbody{display:block;min-width:0}
+  .planilla thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .planilla tbody{display:grid;gap:12px}
+  .planilla tbody tr{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 8px;padding:14px;border:1px solid var(--linea);border-radius:16px;background:var(--superficie)}
+  .planilla tbody tr.sin-hab .hab-boton{border-color:var(--mostaza);background:var(--mostaza-claro)}
+  .planilla tbody th,.planilla tbody td{display:block;padding:0;border:0;text-align:left;white-space:normal}
+  .planilla .fija,.planilla tr.sin-hab .fija{position:static;order:0;flex:0 0 100%;min-width:0;border:0;background:transparent}
+  .planilla .fija::before{content:"Habitación";display:block;margin-bottom:2px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto-suave)}
+  .planilla .hab-boton{margin:0;min-height:48px;padding:0 14px;border:1px solid var(--linea);border-radius:12px;background:var(--hueso);font-size:17px}
+  .planilla td.c-nom,.planilla td.c-ape{order:1;font:500 22px/1.2 var(--serif)}
+  .planilla td.c-nom{order:2}
+  .planilla td.c-ape::after{content:","}
+  .planilla td[data-label]:not(.c-nom):not(.c-ape){order:4;flex:0 0 100%;font-size:15px;line-height:1.4}
+  .planilla td[data-label]::before{content:attr(data-label) ": ";font-weight:700;color:var(--texto-suave)}
+  .planilla td.c-nom::before,.planilla td.c-ape::before{content:none}
+  .planilla td.c-nom,.planilla td.c-ape{flex:0 0 auto}
+  .planilla td.c-pago{order:3;flex:0 0 100%;margin-top:4px}
+  .planilla td.c-foto{display:flex;flex-wrap:wrap;align-items:center;gap:8px;order:8}
+  .planilla td.c-cargado{order:9;font-size:13px;color:var(--texto-suave)}
+  .planilla td:empty{display:none}
+  /* en la tarjeta solo lo que se usa seguido; el resto (nacionalidad, localidad, domicilio y email) se ve al tocar Editar */
+  .planilla td.c-nac,.planilla td.c-loc,.planilla td.c-dom,.planilla td.c-email{display:none}
+  .planilla td.dom{min-width:0}
+  .planilla td.c-acciones{order:10;flex:0 0 100%;margin-top:6px}
+  .planilla td.c-acciones .btn.mini,.planilla td.c-acciones .candado{width:100%;min-height:48px;justify-content:center}
+}
+
