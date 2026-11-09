@@ -11,14 +11,15 @@ import { agruparCodigo, useAhora } from './util.js';
 
 const CADA_MS = 3000;
 
-// Pantalla de recepción: ingreso con la clave de recepción (o la del dueño, desde su panel) → código para el huésped + planilla de los
-// últimos días. La sesión queda abierta en el dispositivo (ver sesion.js).
-export default function Recepcion() {
+// Pantalla de recepción: ingreso con la clave propia de cada persona (o la del dueño, desde su panel). Tiene dos pestañas: «Código»
+// (el código para el huésped, que es de quien está en sesión) y «Huéspedes» (la planilla de los últimos días).
+// La sesión queda abierta en el dispositivo (ver sesion.js).
+export default function Recepcion({ vista = 'codigo' }) {
   useNoIndexar('Recepción');
   const [sesion, setSesion] = useState(leerSesion); // { token, rol } o null
   const salir = useCallback(() => { cerrarSesion(); setSesion(null); }, []);
   if (!sesion) return <Ingreso alEntrar={setSesion} />;
-  return <Panel clave={sesion.token} rol={sesion.rol} salir={salir} />;
+  return <Panel clave={sesion.token} rol={sesion.rol} vista={vista} salir={salir} />;
 }
 
 function Ingreso({ alEntrar }) {
@@ -55,7 +56,7 @@ function Ingreso({ alEntrar }) {
   );
 }
 
-function Panel({ clave, rol, salir }) {
+function Panel({ clave, rol, vista, salir }) {
   const [estado, setEstado] = useState(null); // la última respuesta + { recibido }
   const [error, setError] = useState('');
   const [editando, setEditando] = useState(null);
@@ -130,21 +131,21 @@ function Panel({ clave, rol, salir }) {
 
   return (
     <div className="page personal">
-      <BarraPersonal titulo="Recepción" actual="recepcion" rol={rol} atras={rol === 'admin' ? { href: '#/admin', texto: 'Inicio' } : undefined} salir={salir} ancha />
-      <main className="card ancha">
+      <BarraPersonal titulo={vista === 'codigo' ? 'Código' : 'Huéspedes'} actual={vista === 'codigo' ? 'codigo' : rol === 'admin' ? 'huespedes' : 'huespedesRec'} salir={salir} ancha={vista !== 'codigo'} />
+      <main className={`card${vista === 'codigo' ? '' : ' ancha'}`}>
         <header>
           <p className="eyebrow">Recepción</p>
-          <h1>Check-in digital</h1>
+          <h1>{vista === 'codigo' ? 'Código para el huésped' : 'Huéspedes cargados'}</h1>
         </header>
 
         {!estado && !error && <p className="intro" role="status">Cargando…</p>}
         {error && <p className="ed-error" role="alert">{error}</p>}
 
-        {estado && (
+        {estado && vista === 'codigo' && (
           <section className="codigo-panel" aria-label="Código para el huésped">
             {activo ? (
               <>
-                <p className="etq">Código para el huésped</p>
+                <p className="etq">Dáselo al huésped</p>
                 {restanteCodigo > 0
                   ? <p className="codigo-grande" aria-label={`Código ${estado.codigo.valor.split('').join(' ')}`}>{agruparCodigo(estado.codigo.valor)}</p>
                   : <p className="codigo-grande generando" role="status">Generando…</p>}
@@ -157,6 +158,7 @@ function Panel({ clave, rol, salir }) {
                 <button type="button" className="btn mini claro" onClick={codigoNuevo} disabled={nuevo}>
                   <Icon name="refrescar" size={18} sw={1.8} /> {nuevo ? 'Generando…' : 'Código nuevo ahora'}
                 </button>
+                {estado.quien && <p className="codigo-quien">Es tu código: los check-ins que se hagan con él quedan a nombre de <b>{estado.quien}</b>.</p>}
               </>
             ) : (
               <p className="codigo-apagado" role="status">El check-in digital está apagado. Lo prende el administrador desde su panel.</p>
@@ -164,10 +166,9 @@ function Panel({ clave, rol, salir }) {
           </section>
         )}
 
-        {estado && (
+        {estado && vista !== 'codigo' && (
           <>
             <div className="head-row">
-              <h2>Huéspedes cargados</h2>
               <span className="muted">Últimos {estado.config.dias} {estado.config.dias === 1 ? 'día' : 'días'}</span>
             </div>
             <p className="aclara">

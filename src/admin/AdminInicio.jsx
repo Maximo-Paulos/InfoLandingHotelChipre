@@ -1,5 +1,6 @@
 import BarraPersonal from '../BarraPersonal.jsx';
 import Icon from '../components/Icon.jsx';
+import { perfilGuardado } from '../sesion.js';
 import Dispositivos from './Dispositivos.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
 
@@ -9,7 +10,7 @@ export default function AdminInicio() {
   if (sesion.fase !== 'ok') return <LoginAdmin sesion={sesion} />;
   return (
     <div className="page personal">
-      <BarraPersonal titulo="Panel del dueño" actual="inicio" salir={sesion.salir} />
+      <BarraPersonal titulo="Inicio" actual="inicio" salir={sesion.salir} />
       <main className="card">
         <header>
           <p className="eyebrow" style={{ paddingTop: 6 }}>Solo para el dueño</p>
@@ -29,9 +30,16 @@ export default function AdminInicio() {
           </a>
           <a className="tile hot grande" href="#/recepcion">
             <Icon name="llave" size={28} sw={1.6} />
-            <span>Ver recepción</span>
-            <small>Lo que ve recepción: el código para el huésped y la planilla.</small>
+            <span>Código para el huésped</span>
+            <small>El código para dar en recepción. Queda a nombre de «Dueño».</small>
           </a>
+          {perfilGuardado()?.dueno && (
+            <a className="tile hot grande" href="#/admin/equipo">
+              <Icon name="equipo" size={28} sw={1.6} />
+              <span>Equipo</span>
+              <small>Quién tiene clave: nombres y claves de recepción.</small>
+            </a>
+          )}
         </nav>
         <Dispositivos clave={sesion.clave} />
       </main>

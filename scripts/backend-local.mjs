@@ -18,6 +18,9 @@ const raiz = (ruta) => fileURLToPath(new URL(`../${ruta}`, import.meta.url));
 export const CLAVE_ADMIN = 'admin-test-123';
 export const CLAVE_RECEPCION = 'recepcion-test-123';
 const CARPETA = 'CARPETA1234567890';
+// Deja a "Recepción" (una persona del equipo) con la clave que se pasa como $1: la crea o le cambia la clave. Lo usan las pruebas.
+export const SQL_RECEPCION = `insert into private.usuarios (alias, rol, hash_clave) values ('Recepción', 'recepcion', extensions.crypt($1, extensions.gen_salt('bf')))
+  on conflict (lower(btrim(alias))) where activo do update set hash_clave = excluded.hash_clave`;
 
 async function crearBase() {
   const db = new PGlite({ extensions: { pgcrypto } });

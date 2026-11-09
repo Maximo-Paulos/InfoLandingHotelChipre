@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { CLAVE_ADMIN, CLAVE_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 import { infoJpeg } from '../src/checkin/jpegReducido.js';
 import { ESQUINAS_EXIF, conOrientacion, esquinasDe, jpegGrande } from './fotos-ayuda.mjs';
 
@@ -125,15 +125,19 @@ async function completarFormulario(page, d = DATOS, { tipo = 'DNI', nacionalidad
   await page.getByLabel('Tipo de documento', { exact: true }).selectOption(tipo);
   await page.getByLabel('Número de documento', { exact: true }).fill(d.doc_numero);
 }
+// Recepción tiene dos pestañas: Código (#/recepcion) y Huéspedes (#/recepcion/huespedes).
+const verPlanilla = (page) => page.goto(BASE + '#/recepcion/huespedes');
+const verCodigo = (page) => page.goto(BASE + '#/recepcion');
 async function codigoDeRecepcion(rec) {
+  if (!(await rec.locator('.codigo-grande').count())) await verCodigo(rec);
   await rec.locator('.codigo-grande:not(.generando)').waitFor();
   return (await rec.locator('.codigo-grande').innerText()).replace(/\D/g, '');
 }
 async function ingresarCodigo(page, codigo) {
   await page.locator('#registro-codigo').fill(codigo);
 }
-async function recepcionLogin(page) {
-  await page.goto(BASE + '#/recepcion');
+async function recepcionLogin(page, vista = 'codigo') {
+  await page.goto(BASE + (vista === 'huespedes' ? '#/recepcion/huespedes' : '#/recepcion'));
   await page.locator('input[name=clave]').fill(CLAVE_RECEPCION);
   await page.getByRole('button', { name: 'Entrar' }).click();
 }
@@ -184,7 +188,7 @@ await seccion('2. Admin general: inicio, editor de la guía (sin cambios) y hué
   await page.locator('input[name=clave]').fill(CLAVE_ADMIN);
   await page.getByRole('button', { name: 'Entrar' }).click();
   await page.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
-  ok((await page.locator('nav a.tile').count()) === 3, 'inicio del admin con 3 botones: editar, huéspedes y ver recepción');
+  ok((await page.locator('nav a.tile').count()) === 4, 'inicio del admin con 4 botones: editar, huéspedes, código y equipo');
   await captura(page, '20-admin-inicio');
 
   await page.getByRole('link', { name: /Editar landing page/ }).click();
@@ -203,7 +207,7 @@ await seccion('2. Admin general: inicio, editor de la guía (sin cambios) y hué
   ok((await page.locator('.caja').count()) >= 30, 'tocando el botón en el editor se abren los textos del check-in para editarlos');
   await page.getByRole('link', { name: /Menú/ }).first().click();
   await page.locator('.tile-wrap').first().waitFor();
-  await page.getByRole('link', { name: 'Inicio' }).click();
+  await page.locator('.barra-personal').getByRole('link', { name: 'Inicio' }).click();
   await page.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
   ok(true, 'el link "Inicio" vuelve al inicio del admin');
 
@@ -231,14 +235,22 @@ await seccion('2. Admin general: inicio, editor de la guía (sin cambios) y hué
   await page.getByText('Configuración guardada.').waitFor();
   const cfg = await sql1('select activo, codigo_seg, usos_max from private.checkin_config where id = 1');
   ok(cfg.activo === true && cfg.codigo_seg === 120, 'la configuración queda guardada en la base');
-  await page.getByText('Falta cargar la clave de recepción').waitFor();
-  ok(true, 'avisa que falta la clave de recepción');
-  await page.locator('#cfg-clave-recepcion').fill('corta');
-  ok(await page.getByRole('button', { name: 'Guardar clave de recepción' }).isDisabled(), 'una clave corta no se puede guardar');
-  await page.locator('#cfg-clave-recepcion').fill(CLAVE_RECEPCION);
-  await page.getByRole('button', { name: 'Guardar clave de recepción' }).click();
-  await page.getByText('Clave de recepción guardada').waitFor();
-  ok((await sql1('select hash_recepcion is not null as h from private.checkin_config where id = 1')).h, 'la clave de recepción queda guardada (con hash)');
+  await page.getByText('Todavía no hay nadie en el equipo').waitFor();
+  ok(true, 'avisa que todavía no hay nadie en el equipo');
+  await page.goto(BASE + '#/admin/equipo');
+  await page.getByRole('heading', { name: 'Equipo', exact: true }).waitFor();
+  await page.getByText('Todavía no cargaste a nadie').waitFor();
+  await page.getByRole('button', { name: 'Agregar persona' }).click();
+  await page.getByLabel('Nombre (como lo ves en la lista)').fill('Recepción');
+  await page.locator('#eq-clave').fill('corta');
+  await page.getByRole('button', { name: 'Agregar', exact: true }).click();
+  ok(await page.locator('#eq-clave').evaluate((el) => !el.validity.valid) && (await sql1('select count(*)::int as n from private.usuarios')).n === 0, 'una clave corta no se puede guardar');
+  await page.locator('#eq-clave').fill(CLAVE_RECEPCION);
+  await page.getByRole('button', { name: 'Agregar', exact: true }).click();
+  await page.getByText('Recepción ya puede entrar con su clave.').waitFor();
+  const u = await sql1('select alias, rol, hash_clave from private.usuarios');
+  ok(u.alias === 'Recepción' && u.rol === 'recepcion' && u.hash_clave.startsWith('$2'), 'la persona queda guardada con su clave encriptada');
+  await captura(page, '22-admin-equipo', { fullPage: true });
   await captura(page, '22-admin-huespedes-config', { fullPage: true });
   ok(errores.length === 0, 'sin errores en la consola ' + errores.join('|'));
   await ctx.close();
@@ -321,9 +333,11 @@ await seccion('3. Check-in completo: recepción muestra el código, el huésped 
   ok(await hue.page.evaluate(() => sessionStorage.getItem('chipre-registro') === null), 'no quedan datos del huésped guardados en el navegador');
 
   // recepción ve la fila
+  await verPlanilla(rec.page);
   await rec.page.locator('.planilla tbody tr').first().waitFor({ timeout: 8000 });
   ok(/Pérez García/.test(await rec.page.locator('.planilla tbody tr').first().innerText()), 'recepción ve al huésped en la planilla (se actualiza sola)');
   ok(await rec.page.locator('.planilla tbody tr').first().locator('.pendiente').isVisible(), 'figura "Sin asignar" en la habitación');
+  await hasta(async () => /\+54 11 5555 1234/.test(await rec.page.locator('.planilla tbody tr').first().innerText()), 5000); // la librería de teléfonos carga aparte
   ok(/\+54 11 5555 1234/.test(await rec.page.locator('.planilla tbody tr').first().innerText()), 'el teléfono se muestra con formato internacional');
   await sinDesborde(rec.page, 'recepción con la planilla (celular)');
   await captura(rec.page, '31-recepcion-planilla', { fullPage: true });
@@ -367,7 +381,7 @@ await seccion('3. Check-in completo: recepción muestra el código, el huésped 
 await seccion('4. Un código para varias personas (habitación triple) y límite de usos', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 120, usos_max: 3, hash_recepcion: null });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const rec = await contexto();
   await recepcionLogin(rec.page);
   const codigo = await codigoDeRecepcion(rec.page);
@@ -390,6 +404,7 @@ await seccion('4. Un código para varias personas (habitación triple) y límite
   await cuarta.page.getByText('El código no es correcto o ya venció').waitFor();
   ok(true, 'la cuarta persona con el mismo código: rechazada (se gastó)');
   await cuarta.ctx.close();
+  await verPlanilla(rec.page);
   await rec.page.locator('.planilla tbody tr').nth(2).waitFor({ timeout: 8000 });
   ok((await rec.page.locator('.planilla tbody tr').count()) === 3, 'recepción ve las 3 filas');
   await hasta(async () => (await codigoDeRecepcion(rec.page)) !== codigo, 8000);
@@ -397,7 +412,7 @@ await seccion('4. Un código para varias personas (habitación triple) y límite
   await captura(rec.page, '33-recepcion-3-huespedes', { fullPage: true });
   // la misma pantalla en una compu
   const desk = await contexto({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
-  await recepcionLogin(desk.page);
+  await recepcionLogin(desk.page, 'huespedes');
   await desk.page.locator('.planilla tbody tr').nth(2).waitFor();
   await sinDesborde(desk.page, 'recepción en la compu');
   await captura(desk.page, '35-recepcion-escritorio');
@@ -409,7 +424,7 @@ await seccion('4. Un código para varias personas (habitación triple) y límite
 await seccion('5. El código cambia solo y recepción puede pedir uno nuevo', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 5, usos_max: 3 });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const rec = await contexto();
   await recepcionLogin(rec.page);
   const a = await codigoDeRecepcion(rec.page);
@@ -435,7 +450,7 @@ await seccion('5. El código cambia solo y recepción puede pedir uno nuevo', as
 await seccion('6. Ventana de edición: pasados los minutos, recepción ya no edita; el admin sí', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 120 });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const rec = await contexto();
   await recepcionLogin(rec.page);
   const codigo = await codigoDeRecepcion(rec.page);
@@ -448,6 +463,7 @@ await seccion('6. Ventana de edición: pasados los minutos, recepción ya no edi
   await g.page.getByRole('button', { name: 'Enviar formulario' }).click();
   await g.page.getByRole('heading', { name: '¡Check-in realizado!' }).waitFor();
   await g.ctx.close();
+  await verPlanilla(rec.page);
   await rec.page.getByRole('button', { name: /Editar/ }).first().waitFor({ timeout: 8000 });
   await back.sql(`update private.checkins set creado = now() - interval '11 minutes'`);
   await rec.page.getByText('Cerrado').first().waitFor({ timeout: 8000 });
@@ -510,7 +526,7 @@ await seccion('6. Ventana de edición: pasados los minutos, recepción ya no edi
 await seccion('7. Foto del documento → Drive (simulado) y asistente de conexión', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 120 });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
 
   // asistente en el admin (el nombre de la foto lleva la hora del hotel: se usa la zona cargada en Datos generales)
   await back.sql(`update public.contenido set data = jsonb_set(data, '{hotel,zonaHoraria}', '"America/Montevideo"') where id = 1`);
@@ -570,6 +586,7 @@ await seccion('7. Foto del documento → Drive (simulado) y asistente de conexi�
   ok(fila.foto_id === drive[0].id && fila.foto_nombre === drive[0].nombre, `en la base solo quedó el id y el nombre del archivo (la imagen no está en la base) ${JSON.stringify(fila)} vs ${JSON.stringify(drive[0].id)}`);
   const peso = await sql1(`select pg_column_size(datos) as d from private.checkins order by id desc limit 1`);
   ok(peso.d < 1000, 'la fila del huésped pesa menos de 1 KB');
+  await verPlanilla(rec.page);
   await rec.page.locator('.ver-foto').first().waitFor({ timeout: 8000 });
   ok((await rec.page.locator('.ver-foto').first().getAttribute('href')) === `https://drive.google.com/file/d/${drive[0].id}/view`, 'recepción ve el link "Ver foto" que abre Drive');
   await captura(rec.page, '34-recepcion-con-foto', { fullPage: true });
@@ -615,7 +632,7 @@ await seccion('7. Foto del documento → Drive (simulado) y asistente de conexi�
 await seccion('8. Sesión: se retoma al recargar y vence a los 30 minutos', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 120 });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const rec = await contexto();
   await recepcionLogin(rec.page);
   const codigo = await codigoDeRecepcion(rec.page);
@@ -655,7 +672,7 @@ await seccion('9. Seguridad de la base', async () => {
   ok(/permission denied/.test(await intento('select private.codigo_vigente()') ?? ''), 'ni llamar a las funciones internas');
   ok(/permission denied/.test(await intento(`update private.checkins set habitacion = 'x'`) ?? ''), 'ni modificar nada');
   const publicas = await back.sql(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and has_function_privilege('anon', p.oid, 'execute') order by 1`);
-  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_foto_permiso', 'admin_foto_quitar', 'admin_fotos', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'admin_sesion_cerrar', 'admin_sesiones', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'recepcion_foto_permiso', 'recepcion_fotos', 'sesion_cerrar', 'sesion_entrar', 'sesion_estado', 'verificar_clave'];
+  const esperadas = ['admin_checkin_auditoria', 'admin_checkin_clave_recepcion', 'admin_checkin_config', 'admin_checkin_config_guardar', 'admin_equipo', 'admin_equipo_guardar', 'admin_foto_permiso', 'admin_foto_quitar', 'admin_fotos', 'admin_huesped_editar', 'admin_huespedes', 'admin_medios_pago', 'admin_medios_pago_guardar', 'admin_sesion_cerrar', 'admin_sesiones', 'cambiar_clave', 'checkin_canjear', 'checkin_enviar', 'checkin_estado', 'checkin_foto_registrar', 'checkin_sesion', 'guardar_contenido', 'recepcion_codigo_nuevo', 'recepcion_editar', 'recepcion_entrar', 'recepcion_estado', 'recepcion_foto_permiso', 'recepcion_fotos', 'sesion_cerrar', 'sesion_entrar', 'sesion_estado', 'verificar_clave'];
   ok(JSON.stringify(publicas.map((p) => p.proname)) === JSON.stringify(esperadas), 'las únicas funciones que puede llamar un anónimo son las previstas (' + publicas.length + ')');
   // todas las funciones expuestas rechazan claves malas
   for (const [fn, args] of [['admin_huespedes', { p_clave: 'x' }], ['admin_checkin_config', { p_clave: 'x' }], ['recepcion_estado', { p_clave: 'x' }], ['admin_checkin_auditoria', { p_clave: 'x' }]]) {
@@ -677,7 +694,7 @@ await seccion('9. Seguridad de la base', async () => {
 await seccion('10. Modo desarrollo (React en modo estricto, como con npm run dev / npm run local)', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 120 });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const est = await back.llamar('recepcion_estado', { p_clave: CLAVE_RECEPCION });
   const ses = await back.llamar('checkin_canjear', { p_codigo: String(est.codigo.valor) });
   await back.llamar('checkin_enviar', { p_token: ses.token, p_idioma: 'es', p_acepta: true, p_datos: { nombre: 'Ana María', apellido: 'Pérez García', email: 'ana@correo.com', telefono: '+541155551234', nacionalidad: 'Argentina', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: '30123456' } });
@@ -692,6 +709,8 @@ await seccion('10. Modo desarrollo (React en modo estricto, como con npm run dev
     await rec.page.goto(`http://localhost:${PUERTO_DEV}/#/recepcion`);
     await rec.page.locator('input[name=clave]').fill(CLAVE_RECEPCION);
     await rec.page.getByRole('button', { name: 'Entrar' }).click();
+    await rec.page.getByText('Código para el huésped').first().waitFor();
+    await rec.page.goto(`http://localhost:${PUERTO_DEV}/#/recepcion/huespedes`);
     await rec.page.locator('.planilla tbody tr').first().waitFor();
     await rec.page.locator('.hab-boton').first().tap();
     await rec.page.getByRole('dialog').waitFor();
@@ -713,7 +732,7 @@ await seccion('10. Modo desarrollo (React en modo estricto, como con npm run dev
 await seccion('11. Medio de pago: recepción lo elige y el dueño edita la lista', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 300, usos_max: 20 });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   await huespedPorApi({ nombre: 'Ana', apellido: 'Uno', doc_numero: '30000001' });
   await huespedPorApi({ nombre: 'Beto', apellido: 'Dos', doc_numero: '30000002' });
   await huespedPorApi({ nombre: 'Carla', apellido: 'Tres', doc_numero: '30000003' });
@@ -721,7 +740,7 @@ await seccion('11. Medio de pago: recepción lo elige y el dueño edita la lista
 
   // ---- recepción, en un celular
   const rec = await contexto({ hasTouch: true, isMobile: true });
-  await recepcionLogin(rec.page);
+  await recepcionLogin(rec.page, 'huespedes');
   await rec.page.locator('.planilla tbody tr').nth(2).waitFor();
   ok(await rec.page.locator('.planilla thead th', { hasText: 'Medio de pago' }).isVisible(), 'la planilla tiene la columna "Medio de pago"');
   const pagos = await rec.page.locator('.planilla tbody tr .pago').allInnerTexts();
@@ -839,7 +858,7 @@ await seccion('12. Planilla del admin: «Cargar más» muestra a todos los hués
   const adm = await contexto({ hasTouch: true, isMobile: true });
   await entrarAdmin(adm.page, '#/admin/huespedes');
   const filas = () => adm.page.locator('.planilla tbody tr');
-  const apellidos = () => adm.page.evaluate(() => [...document.querySelectorAll('.planilla tbody tr')].map((tr) => tr.querySelectorAll('td')[2]?.innerText.trim()));
+  const apellidos = () => adm.page.evaluate(() => [...document.querySelectorAll('.planilla tbody tr')].map((tr) => tr.querySelector('.c-ape')?.innerText.trim()));
   const botonMas = adm.page.getByRole('button', { name: 'Cargar más' });
   const todos = async () => adm.page.locator('main').innerText();
   await filas().nth(49).waitFor();
@@ -910,7 +929,7 @@ await seccion('12. Planilla del admin: «Cargar más» muestra a todos los hués
 await seccion('13. Fotos del documento: el dueño las carga a mano, agrega otra y quita la que no se ve', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   // Ana mandó su foto al hacer el check-in; Beto no (la foto era opcional y se la salteó)
   await huespedPorApi({ nombre: 'Ana', apellido: 'Uno', doc_numero: '30000001' }, { conFoto: true });
   await huespedPorApi({ nombre: 'Beto', apellido: 'Dos', doc_numero: '30000002' });
@@ -1010,7 +1029,7 @@ await seccion('13. Fotos del documento: el dueño las carga a mano, agrega otra 
 
   // ---- recepción solo las ve
   const rec = await contexto({ hasTouch: true, isMobile: true });
-  await recepcionLogin(rec.page);
+  await recepcionLogin(rec.page, 'huespedes');
   await rec.page.locator('.planilla tbody tr').nth(1).waitFor();
   const recBeto = rec.page.locator('.planilla tbody tr', { hasText: 'Beto' });
   ok((await recBeto.locator('.ver-foto').allInnerTexts()).map((t) => t.trim()).join('|') === 'Ver 1|Ver 2', 'recepción ve las dos fotos de Beto (para consultarlas)');
@@ -1047,14 +1066,14 @@ await seccion('13. Fotos del documento: el dueño las carga a mano, agrega otra 
 await seccion('13b. Fotos del documento: recepción agrega la foto que el huésped no subió, pero no puede quitar ninguna', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   await huespedPorApi({ nombre: 'Ana', apellido: 'Uno', doc_numero: '30000001' }, { conFoto: true });
   await huespedPorApi({ nombre: 'Beto', apellido: 'Dos', doc_numero: '30000002' });
   const drive = async () => (await fetch(`${back.url}/__test/drive`).then((x) => x.json())).filter((a) => a.mime === 'image/jpeg');
   const fotosDe = (n) => back.sql(`select f.foto_id, f.origen, f.cargada_por, f.activa from private.checkin_fotos f join private.checkins k on k.id = f.checkin_id where k.datos ->> 'nombre' = $1 order by f.id`, [n]);
 
   const rec = await contexto({ hasTouch: true, isMobile: true });
-  await recepcionLogin(rec.page);
+  await recepcionLogin(rec.page, 'huespedes');
   await rec.page.locator('.planilla tbody tr').nth(1).waitFor();
   const fila = (n) => rec.page.locator('.planilla tbody tr', { hasText: n });
   ok(await fila('Beto').getByRole('button', { name: 'Agregar foto de Dos Beto' }).isVisible() && await fila('Ana').getByRole('button', { name: 'Fotos de Uno Ana' }).isVisible(), 'en la planilla de recepción, Beto (sin foto) tiene "Agregar foto" y Ana "Fotos"');
@@ -1107,7 +1126,7 @@ await seccion('13b. Fotos del documento: recepción agrega la foto que el huésp
 await seccion('14. Foto grande del celular y página cerrada por falta de memoria', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const rec = await contexto();
   await recepcionLogin(rec.page);
   const cod = await codigoDeRecepcion(rec.page);
@@ -1237,7 +1256,7 @@ await seccion('14. Foto grande del celular y página cerrada por falta de memori
 await seccion('15. Cámara dentro de la página: se saca la foto sin abrir la aplicación de cámara del celular', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const rec = await contexto();
   await recepcionLogin(rec.page);
   const cod = await codigoDeRecepcion(rec.page);
@@ -1366,7 +1385,7 @@ await seccion('15. Cámara dentro de la página: se saca la foto sin abrir la ap
 await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda abierta en el dispositivo e instalable como app', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 300, usos_max: 20 });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   const abiertas = (rol) => sql1(`select count(*)::int as n from private.sesiones where rol = $1 and revocada_en is null`, [rol]).then((x) => x.n);
 
   // ---- el dueño pone la clave una sola vez
@@ -1402,11 +1421,11 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   ok(true, 'y las demás pantallas del dueño también');
   await app.goto(BASE + '#/recepcion');
   await app.locator('.codigo-grande').waitFor();
-  ok(await app.getByRole('link', { name: 'Inicio' }).isVisible(), 'el dueño también entra a recepción con la misma sesión, y desde ahí vuelve a su panel con la flecha');
+  ok(await app.getByRole('link', { name: 'Inicio' }).isVisible(), 'el dueño también entra a recepción con la misma sesión, y desde ahí vuelve a su panel con la pestaña Inicio');
   await captura(app, '56-dueno-ve-recepcion');
   await app.goto(BASE + '#/admin');
-  await app.getByRole('link', { name: /Ver recepción/ }).waitFor();
-  ok(true, 'en su inicio hay un acceso a "Ver recepción"');
+  await app.getByRole('link', { name: /Código para el huésped/ }).waitFor();
+  ok(true, 'en su inicio hay un acceso al código para el huésped');
 
   // ---- recepción: su clave abre recepción, y solo recepción
   const rec = await contexto({ hasTouch: true, isMobile: true });
@@ -1415,7 +1434,7 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   await rec.page.getByRole('button', { name: 'Entrar' }).click();
   await rec.page.waitForURL(/#\/recepcion$/);
   await rec.page.locator('.codigo-grande').waitFor();
-  ok(!(await rec.page.getByRole('link', { name: 'Inicio' }).count()), 'con la clave de recepción se abre recepción (sin flecha al panel del dueño)');
+  ok(!(await rec.page.getByRole('link', { name: 'Inicio' }).count()), 'con la clave de recepción se abre recepción (sin pestaña al panel del dueño)');
   await rec.page.reload();
   await rec.page.locator('.codigo-grande').waitFor();
   ok(true, 'y al recargar sigue adentro');
@@ -1447,7 +1466,7 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   await rec.page.getByRole('button', { name: 'Entrar' }).click();
   await rec.page.locator('.codigo-grande').waitFor();
   ok(await abiertas('recepcion') === 1, 'recepción vuelve a entrar con su clave');
-  await rec.page.getByRole('button', { name: 'Menú' }).click();
+  await rec.page.getByRole('button', { name: 'Más' }).click();
   await rec.page.getByRole('button', { name: /^Salir/ }).click();
   await rec.page.locator('input[name=clave]').waitFor();
   ok(await abiertas('recepcion') === 0 && (await rec.page.evaluate(() => localStorage.getItem('chipre-sesion'))) === null, '"Salir" cierra la sesión en la base y borra el código del celular');
@@ -1507,20 +1526,24 @@ await seccion('16. Ingreso del personal: una sola pantalla, sesión que queda ab
   ok((await sql1(`select count(*)::int as n from private.checkins`)).n === 0, 'nada de esto tocó los datos de huéspedes');
 });
 
-await seccion('17. App del personal: flecha para volver, menú de pantallas y huéspedes en tarjetas (sin deslizar de costado)', async () => {
+await seccion('17. App del personal: pestañas abajo, «Más» y huéspedes en tarjetas (sin deslizar de costado)', async () => {
   await reiniciar();
   await configurar({ activo: true, codigo_seg: 300, usos_max: 20, foto_url: `${back.url}/apps-script/exec` });
-  await back.sql(`update private.checkin_config set hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+  await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
   await huespedPorApi({ nombre: 'Ana María', apellido: 'Pérez García', doc_numero: '30000001' }, { conFoto: true });
   await huespedPorApi({ nombre: 'Beto', apellido: 'Gómez', doc_numero: '30000002' });
-  const botonesDelMenu = async (page) => (await page.getByRole('dialog', { name: 'Menú' }).locator('a.bp-item, button.bp-item').allInnerTexts()).map((t) => t.split('\n')[0].trim());
+  const pestanas = async (page) => (await page.locator('.tabs-personal li').allInnerTexts()).map((t) => t.trim());
 
   // ---- el dueño, en el celular
   const due = await contexto({ hasTouch: true, isMobile: true });
   await entrarAdmin(due.page, '#/admin/huespedes');
   await due.page.locator('.planilla tbody tr').nth(1).waitFor();
   const barra = due.page.locator('.barra-personal');
-  ok(await barra.getByRole('link', { name: 'Inicio' }).isVisible() && await barra.getByRole('button', { name: 'Menú' }).isVisible() && /Huéspedes/.test(await barra.locator('.bp-titulo').innerText()), 'arriba hay una flecha para volver al inicio, el nombre de la pantalla y el botón Menú');
+  const tabs = due.page.getByRole('navigation', { name: 'Secciones' });
+  ok(/Huéspedes/.test(await barra.locator('.bp-titulo').innerText()) && /Dueño/.test(await barra.locator('.bp-quien').innerText()), 'arriba se ve el nombre de la pantalla y quién entró');
+  const lista = await pestanas(due.page);
+  ok(JSON.stringify(lista) === JSON.stringify(['Inicio', 'Código', 'Huéspedes', 'Equipo', 'Más']), 'abajo hay pestañas, como una app: ' + lista.join(' · '));
+  ok(await tabs.getByRole('link', { name: 'Huéspedes' }).getAttribute('aria-current') === 'page', 'la pestaña de la pantalla donde estás está marcada');
   const medidas = await due.page.evaluate(() => { const c = document.querySelector('.planilla-scroll'); return { ancho: c.clientWidth, contenido: c.scrollWidth }; });
   ok(medidas.contenido <= medidas.ancho + 1, `la lista de huéspedes no se desliza hacia los costados en el celular (${medidas.contenido} de ${medidas.ancho} px)`);
   const tarjeta = due.page.locator('.planilla tbody tr', { hasText: 'Gómez' });
@@ -1532,51 +1555,62 @@ await seccion('17. App del personal: flecha para volver, menú de pantallas y hu
   ok((await due.page.getByRole('heading', { name: 'Ajustes' }).boundingBox()).y > (await due.page.locator('.planilla tbody tr').first().boundingBox()).y, 'primero está la lista de huéspedes y los ajustes quedan más abajo');
   ok(!(await due.page.locator('#cfg-activo').isVisible()), 'y los ajustes vienen cerrados (se abren tocándolos)');
 
-  // ---- el menú
-  const menu = due.page.getByRole('button', { name: 'Menú' });
-  await menu.tap();
-  const dlg = due.page.getByRole('dialog', { name: 'Menú' });
-  await dlg.waitFor();
-  const opciones = await botonesDelMenu(due.page);
-  ok(JSON.stringify(opciones) === JSON.stringify(['Inicio', 'Huéspedes', 'Recepción', 'Editar la guía', 'Ver la guía del huésped', 'Salir']), 'el menú lista todas las pantallas del dueño, la guía del huésped y Salir: ' + opciones.join(' · '));
-  ok(await dlg.getByRole('link', { name: /^Huéspedes/ }).getAttribute('aria-current') === 'page', 'marca en cuál pantalla estás');
-  await captura(due.page, '60-menu-dueno');
-  await due.page.keyboard.press('Escape');
-  await dlg.waitFor({ state: 'hidden' });
-  await menu.click(); // con el mouse o el teclado el botón recibe el foco (con el dedo, según el navegador)
-  await due.page.keyboard.press('Escape');
-  await dlg.waitFor({ state: 'hidden' });
-  ok(await hasta(() => menu.evaluate((el) => el === document.activeElement), 3000), 'con Esc se cierra y el cursor vuelve al botón Menú');
-  await menu.tap();
-  await dlg.getByRole('link', { name: /^Recepción/ }).tap();
+  // ---- las pestañas
+  await due.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  const caja = await tabs.boundingBox();
+  const alto = await due.page.evaluate(() => innerHeight);
+  ok(caja.y + caja.height >= alto - 1 && caja.height >= 56, 'las pestañas quedan fijas abajo aunque se deslice la pantalla, y son lo bastante grandes para tocar');
+  await tabs.getByRole('link', { name: 'Código' }).tap();
   await due.page.locator('.codigo-grande').waitFor();
-  ok(!(await dlg.count()), 'elegir una pantalla del menú la abre y cierra el menú');
-  await due.page.getByRole('link', { name: 'Inicio' }).tap();
+  ok(await tabs.getByRole('link', { name: 'Código' }).getAttribute('aria-current') === 'page' && /Dueño/.test(await due.page.locator('.codigo-quien').innerText()), 'la pestaña Código muestra el código del dueño y dice a nombre de quién queda');
+  await captura(due.page, '60-codigo-pestanas');
+  await tabs.getByRole('link', { name: 'Inicio' }).tap();
   await due.page.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
-  ok(true, 'la flecha de "Inicio" vuelve al inicio del panel');
-  ok(!(await due.page.locator('.barra-personal').getByRole('link', { name: 'Inicio' }).count()), 'en el inicio no hay flecha: es la pantalla principal');
+  ok(true, 'la pestaña Inicio vuelve al inicio del panel');
+
+  // ---- «Más»
+  const mas = tabs.getByRole('button', { name: 'Más' });
+  await mas.tap();
+  const dlg = due.page.getByRole('dialog', { name: 'Más' });
+  await dlg.waitFor();
+  const opciones = (await dlg.locator('a.bp-item, button.bp-item').allInnerTexts()).map((t) => t.split('\n')[0].trim());
+  ok(JSON.stringify(opciones) === JSON.stringify(['Editar la guía', 'Ver la guía del huésped', 'Salir']), '«Más» tiene lo que no es una sección: ' + opciones.join(' · '));
+  ok(/Dueño \(dueño\)/.test(await dlg.locator('.bp-sesion').innerText()), 'y dice quién tiene la sesión abierta');
+  await captura(due.page, '61-mas-dueno');
+  await due.page.keyboard.press('Escape');
+  await dlg.waitFor({ state: 'hidden' });
+  await mas.click(); // con el mouse o el teclado el botón recibe el foco (con el dedo, según el navegador)
+  await due.page.keyboard.press('Escape');
+  await dlg.waitFor({ state: 'hidden' });
+  ok(await hasta(() => mas.evaluate((el) => el === document.activeElement), 3000), 'con Esc se cierra y el cursor vuelve al botón Más');
+  await mas.tap();
+  await dlg.getByRole('link', { name: /^Editar la guía/ }).tap();
+  await due.page.locator('.tile-wrap').first().waitFor();
+  ok(!(await dlg.count()) && /activa/.test(await mas.getAttribute('class')), 'elegir «Editar la guía» la abre, cierra la ventana y deja marcado «Más»');
 
   // ---- el editor avisa si hay cambios sin guardar
-  await due.page.getByRole('link', { name: /Editar landing page/ }).tap();
-  await due.page.locator('.tile-wrap').first().waitFor();
   await due.page.locator('.caja textarea').first().fill('Texto sin guardar');
-  let pregunto = false;
-  due.page.once('dialog', (d) => { pregunto = true; d.dismiss(); });
+  let preguntas = 0;
+  due.page.on('dialog', (d) => { preguntas += 1; d.dismiss(); });
   await due.page.locator('.barra-personal').getByRole('link', { name: 'Inicio' }).tap();
-  await hasta(async () => pregunto, 4000);
-  ok(pregunto && /editar/i.test(await due.page.locator('.barra-personal .bp-titulo').innerText()), 'si hay cambios sin guardar, la flecha pregunta antes de salir (y si se dice que no, se queda)');
+  await tabs.getByRole('link', { name: 'Huéspedes' }).tap();
+  await mas.tap();
+  await hasta(async () => preguntas >= 3, 4000);
+  ok(preguntas === 3 && /editar/i.test(await due.page.locator('.barra-personal .bp-titulo').innerText()), 'si hay cambios sin guardar, la flecha, las pestañas y «Más» preguntan antes de salir (y si se dice que no, se queda)');
   await sinDesborde(due.page, 'editor con la barra nueva (celular)');
-  await captura(due.page, '61-editor-barra');
+  await captura(due.page, '62-editor-barra');
   await due.ctx.close();
 
-  // ---- recepción: menú más corto
+  // ---- recepción: solo lo suyo
   const rec = await contexto({ hasTouch: true, isMobile: true });
-  await recepcionLogin(rec.page);
+  await recepcionLogin(rec.page, 'huespedes');
   await rec.page.locator('.planilla tbody tr').nth(1).waitFor();
-  await rec.page.getByRole('button', { name: 'Menú' }).tap();
-  const opcionesRec = await botonesDelMenu(rec.page);
-  ok(JSON.stringify(opcionesRec) === JSON.stringify(['Recepción', 'Ver la guía del huésped', 'Salir']), 'recepción solo ve lo suyo en el menú: ' + opcionesRec.join(' · '));
-  await captura(rec.page, '62-menu-recepcion');
+  const listaRec = await pestanas(rec.page);
+  ok(JSON.stringify(listaRec) === JSON.stringify(['Código', 'Huéspedes', 'Más']), 'recepción solo tiene Código, Huéspedes y Más: ' + listaRec.join(' · '));
+  await rec.page.getByRole('button', { name: 'Más' }).tap();
+  const opcionesRec = (await rec.page.getByRole('dialog', { name: 'Más' }).locator('a.bp-item, button.bp-item').allInnerTexts()).map((t) => t.split('\n')[0].trim());
+  ok(JSON.stringify(opcionesRec) === JSON.stringify(['Ver la guía del huésped', 'Salir']), 'y en «Más» solo ve la guía del huésped y Salir: ' + opcionesRec.join(' · '));
+  await captura(rec.page, '63-mas-recepcion');
   await rec.ctx.close();
 
   // ---- en la compu se sigue viendo la tabla completa
@@ -1584,8 +1618,126 @@ await seccion('17. App del personal: flecha para volver, menú de pantallas y hu
   await entrarAdmin(pc.page, '#/admin/huespedes');
   await pc.page.locator('.planilla tbody tr').nth(1).waitFor();
   ok(await pc.page.locator('.planilla thead th', { hasText: 'Domicilio' }).isVisible() && await pc.page.locator('.planilla .c-email').first().isVisible(), 'en la compu la lista sigue siendo una tabla con todas las columnas');
-  await captura(pc.page, '63-huespedes-compu');
+  await captura(pc.page, '64-huespedes-compu');
   await pc.ctx.close();
+});
+
+await seccion('18. Equipo: cada persona con su alias y su clave, y «habilitó» en cada check-in', async () => {
+  await reiniciar();
+  await configurar({ activo: true, codigo_seg: 300, usos_max: 20 });
+  const checkinCon = async (codigo, nombre, doc) => {
+    const ses = await back.llamar('checkin_canjear', { p_codigo: codigo }, `198.51.100.${150 + Math.floor(Math.random() * 90)}`);
+    const env = await back.llamar('checkin_enviar', { p_token: ses.token, p_idioma: 'es', p_acepta: true, p_datos: { nombre, apellido: 'Prueba', email: 'p@correo.com', telefono: '+541155551234', nacionalidad: 'Argentina', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: String(doc) } });
+    if (!env.ok) throw new Error('no se pudo cargar: ' + JSON.stringify(env));
+  };
+  const due = await contexto({ hasTouch: true, isMobile: true });
+  await entrarAdmin(due.page, '#/admin/equipo');
+  await due.page.getByRole('heading', { name: 'Equipo', exact: true }).waitFor();
+  const agregar = async (nombre, rol, clave) => {
+    await due.page.getByRole('button', { name: 'Agregar persona' }).tap();
+    await due.page.getByLabel('Nombre (como lo ves en la lista)').fill(nombre);
+    if (rol === 'admin') await due.page.getByRole('radio', { name: /Dueño/ }).check();
+    if (clave) await due.page.locator('#eq-clave').fill(clave); else await due.page.getByRole('button', { name: 'Generar' }).tap();
+    const usada = await due.page.locator('#eq-clave').inputValue();
+    await due.page.getByRole('button', { name: 'Agregar', exact: true }).tap();
+    await due.page.getByText(`${nombre} ya puede entrar con su clave.`).waitFor();
+    return usada;
+  };
+  const claveJorge = await agregar('Jorge', 'recepcion');
+  ok(/^[a-z2-9]{10}$/.test(claveJorge) && !/[0oO1lI]/.test(claveJorge), 'el botón Generar arma una clave de 10 letras y números que no se confunden');
+  await agregar('Mara', 'recepcion', 'mara-clave-1234');
+  await agregar('Papá', 'admin', 'papa-clave-12345');
+  ok((await due.page.locator('.equipo-lista .foto-item').count()) === 3, 'el dueño agrega a Jorge, Mara y Papá y los ve en la lista');
+  await captura(due.page, '65-equipo');
+  await due.page.getByRole('button', { name: 'Agregar persona' }).tap();
+  await due.page.getByLabel('Nombre (como lo ves en la lista)').fill('jorge');
+  await due.page.locator('#eq-clave').fill('otra-clave-12345');
+  await due.page.getByRole('button', { name: 'Agregar', exact: true }).tap();
+  await due.page.getByRole('alert').waitFor();
+  ok(/Ya hay otra persona activa con ese nombre/.test(await due.page.getByRole('alert').innerText()), 'no deja repetir un nombre');
+  await due.page.getByLabel('Nombre (como lo ves en la lista)').fill('Lola');
+  await due.page.locator('#eq-clave').fill('mara-clave-1234');
+  await due.page.getByRole('button', { name: 'Agregar', exact: true }).tap();
+  await hasta(async () => /ya la usa otra persona/.test(await due.page.getByRole('alert').innerText().catch(() => '')), 4000);
+  ok(/ya la usa otra persona/.test(await due.page.getByRole('alert').innerText()), 'ni repetir una clave');
+  await due.page.getByRole('button', { name: 'Cancelar' }).tap();
+
+  // ---- cada uno entra con lo suyo y ve su código
+  const jorge = await contexto({ hasTouch: true, isMobile: true });
+  await jorge.page.goto(BASE + '#/entrar');
+  await jorge.page.locator('input[name=clave]').fill(claveJorge);
+  await jorge.page.getByRole('button', { name: 'Entrar' }).click();
+  await jorge.page.waitForURL(/#\/recepcion$/);
+  const codJ = await codigoDeRecepcion(jorge.page);
+  ok(/Jorge/.test(await jorge.page.locator('.bp-quien').innerText()) && /Jorge/.test(await jorge.page.locator('.codigo-quien').innerText()), 'Jorge entra con su clave: arriba dice Jorge y el código queda a su nombre');
+  const mara = await contexto({ hasTouch: true, isMobile: true });
+  await mara.page.goto(BASE + '#/entrar');
+  await mara.page.locator('input[name=clave]').fill('mara-clave-1234');
+  await mara.page.getByRole('button', { name: 'Entrar' }).click();
+  await mara.page.waitForURL(/#\/recepcion$/);
+  const codM = await codigoDeRecepcion(mara.page);
+  ok(codJ !== codM, `Jorge y Mara tienen códigos distintos (${codJ} y ${codM})`);
+
+  // ---- el check-in dice quién lo habilitó
+  await checkinCon(codJ, 'Ana', 30111001);
+  await checkinCon(codM, 'Beto', 30111002);
+  await verPlanilla(jorge.page);
+  await jorge.page.locator('.planilla tbody tr').nth(1).waitFor();
+  const filaAna = jorge.page.locator('.planilla tbody tr', { hasText: 'Ana' });
+  ok((await filaAna.locator('.c-hab-por').innerText()).trim() === 'Jorge' && (await jorge.page.locator('.planilla tbody tr', { hasText: 'Beto' }).locator('.c-hab-por').innerText()).trim() === 'Mara', 'la planilla de recepción dice «Habilitó» Jorge o Mara según de quién era el código');
+  await captura(jorge.page, '66-habilito-recepcion');
+  await due.page.goto(BASE + '#/admin/huespedes');
+  await due.page.locator('.planilla tbody tr').nth(1).waitFor();
+  ok(/Mara/.test(await due.page.locator('.planilla tbody tr', { hasText: 'Beto' }).locator('.c-hab-por').innerText()), 'y la del dueño también');
+
+  // ---- cambia el alias y la clave: lo anterior no cambia
+  await due.page.goto(BASE + '#/admin/equipo');
+  await due.page.getByRole('button', { name: 'Editar a Jorge' }).tap();
+  await due.page.getByLabel('Nombre (como lo ves en la lista)').fill('Lucas');
+  await due.page.getByText(/Los check-ins que ya hizo siguen diciendo «Jorge»/).waitFor();
+  await due.page.locator('#eq-clave').fill('lucas-clave-123');
+  await due.page.getByRole('button', { name: 'Guardar', exact: true }).tap();
+  await due.page.getByText('Cambios guardados en Lucas.').waitFor();
+  ok((await sql1(`select habilitado_por from private.checkins where datos ->> 'nombre' = 'Ana'`)).habilitado_por === 'Jorge', 'Jorge pasa a ser Lucas y el check-in anterior sigue diciendo Jorge');
+  await jorge.page.reload();
+  await jorge.page.locator('input[name=clave]').waitFor();
+  ok(true, 'el celular de Jorge queda afuera: ahí hay que poner la clave nueva');
+  await jorge.page.locator('input[name=clave]').fill('lucas-clave-123');
+  await jorge.page.getByRole('button', { name: 'Entrar' }).click();
+  const codL = await codigoDeRecepcion(jorge.page);
+  ok(/Lucas/.test(await jorge.page.locator('.bp-quien').innerText()), 'con la clave nueva entra Lucas');
+  await checkinCon(codL, 'Carla', 30111003);
+  ok((await sql1(`select habilitado_por from private.checkins where datos ->> 'nombre' = 'Carla'`)).habilitado_por === 'Lucas', 'y los check-ins que habilita ahora dicen Lucas');
+  await due.page.goto(BASE + '#/admin/huespedes');
+  await due.page.locator('.planilla tbody tr').nth(2).waitFor();
+  const quien = async (n) => (await due.page.locator('.planilla tbody tr', { hasText: n }).locator('.c-hab-por').innerText()).trim();
+  ok(await quien('Ana') === 'Jorge' && await quien('Carla') === 'Lucas', 'en la lista del dueño conviven: Ana con Jorge y Carla con Lucas');
+
+  // ---- dar de baja
+  await due.page.goto(BASE + '#/admin/equipo');
+  due.page.once('dialog', (d) => d.accept());
+  await due.page.getByRole('button', { name: 'Editar a Mara' }).tap();
+  await due.page.getByRole('button', { name: 'Dar de baja' }).tap();
+  await due.page.getByText('Mara quedó de baja.').waitFor();
+  ok(/de baja/.test(await due.page.locator('.equipo-lista .foto-item', { hasText: 'Mara' }).innerText()), 'el dueño da de baja a Mara');
+  await mara.page.reload();
+  await mara.page.locator('input[name=clave]').waitFor();
+  ok((await back.llamar('sesion_entrar', { p_clave: 'mara-clave-1234' }, '198.51.100.30')).ok === false, 'a Mara se le cierra el celular y su clave ya no entra');
+
+  // ---- Papá (acceso de dueño) no maneja al equipo
+  const papa = await contexto({ hasTouch: true, isMobile: true });
+  await papa.page.goto(BASE + '#/entrar');
+  await papa.page.locator('input[name=clave]').fill('papa-clave-12345');
+  await papa.page.getByRole('button', { name: 'Entrar' }).click();
+  await papa.page.waitForURL(/#\/admin$/);
+  await papa.page.getByRole('heading', { name: 'Panel del administrador' }).waitFor();
+  const listaPapa = (await papa.page.locator('.tabs-personal li').allInnerTexts()).map((t) => t.trim());
+  ok(JSON.stringify(listaPapa) === JSON.stringify(['Inicio', 'Código', 'Huéspedes', 'Más']) && !(await papa.page.locator('nav a.tile', { hasText: 'Equipo' }).count()), 'Papá ve todo el panel, pero no la pestaña Equipo: ' + listaPapa.join(' · '));
+  await papa.page.goto(BASE + '#/admin/equipo');
+  await papa.page.getByRole('alert').waitFor();
+  ok(/solamente el dueño/.test(await papa.page.getByRole('alert').innerText()), 'y si entra a Equipo por la dirección, la base le dice que es solo del dueño');
+  await captura(papa.page, '67-equipo-solo-dueno');
+  for (const c of [due, jorge, mara, papa]) await c.ctx.close();
 });
 
 await navegador.close();

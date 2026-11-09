@@ -4,17 +4,15 @@
 // Al cerrar (Ctrl+C) todo lo cargado se pierde: es solo para probar.
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { CLAVE_ADMIN, CLAVE_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 
 const raiz = fileURLToPath(new URL('..', import.meta.url));
 const PUERTO = 54321;
 
 const back = await iniciarBackend({ puerto: PUERTO, silencioso: false });
 // El check-in arranca prendido, con la clave de recepción cargada y con un Drive simulado, para ahorrar pasos.
-await back.sql(
-  `update private.checkin_config set activo = true, foto_url = $2, hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`,
-  [CLAVE_RECEPCION, `${back.url}/apps-script/exec`]
-);
+await back.sql(`update private.checkin_config set activo = true, foto_url = $1 where id = 1`, [`${back.url}/apps-script/exec`]);
+await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
 
 console.log(`
 Base de prueba lista en ${back.url} (vive solo en memoria).

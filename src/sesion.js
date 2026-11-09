@@ -31,11 +31,12 @@ export function etiquetaDispositivo() {
   return `${so}${nav ? ` · ${nav}` : ''}${app}`;
 }
 
-// Cambia la clave por un código de dispositivo y lo guarda. Devuelve { token, rol } o lanza un error con `codigo`.
+// Cambia la clave por un código de dispositivo y lo guarda. Devuelve { token, rol, alias, dueno } o lanza un error con `codigo`.
+// alias: cómo se llama quien entró (lo puso el dueño) · dueno: true si es el dueño de verdad (el único que maneja al equipo).
 export async function entrarConClave(clave) {
   const r = await rpc('sesion_entrar', { p_clave: clave, p_etiqueta: etiquetaDispositivo() });
   if (!r.ok) throw Object.assign(new Error(r.error), { codigo: r.error });
-  const s = { token: r.token, rol: r.rol };
+  const s = { token: r.token, rol: r.rol, alias: r.alias, dueno: r.dueno };
   guardarSesion(s);
   return s;
 }
@@ -48,5 +49,22 @@ export async function cerrarSesion() {
 }
 
 export const estadoSesion = (token) => rpc('sesion_estado', { p_token: token });
+
+// Pregunta a la base quién es esta sesión y actualiza lo guardado (las sesiones abiertas antes del equipo no tienen alias).
+export async function refrescarSesion() {
+  const s = leerSesion();
+  if (!s) return null;
+  const r = await estadoSesion(s.token);
+  if (!r.ok) return null;
+  const nueva = { ...s, rol: r.rol, alias: r.alias, dueno: r.dueno };
+  guardarSesion(nueva);
+  return nueva;
+}
 export const adminSesiones = (clave) => rpc('admin_sesiones', { p_clave: clave });
 export const adminSesionCerrar = (clave, id = null) => rpc('admin_sesion_cerrar', { p_clave: clave, p_id: id });
+
+// Lo que hay guardado de la sesión de este dispositivo, con el dueño por defecto para las sesiones de antes del equipo.
+export const perfilGuardado = () => {
+  const s = leerSesion();
+  return s && { rol: s.rol, alias: s.alias ?? null, dueno: s.dueno ?? s.rol === 'admin' };
+};

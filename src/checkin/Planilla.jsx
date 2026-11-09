@@ -32,6 +32,7 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
             <th className="fija" scope="col" role="columnheader">Habitación</th>
             <th scope="col" role="columnheader">Medio de pago</th>
             <th scope="col" role="columnheader">Cargado</th>
+            <th scope="col" role="columnheader">Habilitó</th>
             <th scope="col" role="columnheader">Apellido</th>
             <th scope="col" role="columnheader">Nombre</th>
             <th scope="col" role="columnheader">Documento</th>
@@ -63,6 +64,7 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
                 </th>
                 <td role="cell" className="c-pago" data-label="Pago">{f.medio_pago ? <span className="pago">{f.medio_pago}</span> : <span className="muted">—</span>}</td>
                 <td role="cell" className="c-cargado" data-label="Cargado">{fechaHora(f.creado)}</td>
+                <td role="cell" className="c-hab-por" data-label="Habilitó">{f.habilitado_por ?? ''}</td>
                 <td role="cell" className="c-ape" data-label="Apellido">{d.apellido}</td>
                 <td role="cell" className="c-nom" data-label="Nombre">{d.nombre}</td>
                 <td role="cell" className="c-doc" data-label="Documento"><span className="doc-tipo">{d.doc_tipo}</span> {d.doc_numero}</td>

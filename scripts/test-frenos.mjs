@@ -2,13 +2,14 @@
 // El cliente puede escribir lo que quiera en x-forwarded-for; cf-connecting-ip y sb-forwarded-for las escribe
 // Cloudflare / Supabase y no se pueden falsificar. Corre sobre el mismo SQL que producción, sin tocar nada real.
 //   node scripts/test-frenos.mjs
-import { CLAVE_ADMIN, CLAVE_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 
 const back = await iniciarBackend({ puerto: 54320 });
 let fallas = 0;
 let total = 0;
 const ok = (c, m) => { total += 1; console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
-await back.sql(`update private.checkin_config set activo = true, hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+await back.sql(`update private.checkin_config set activo = true where id = 1`);
+await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
 
 // manda `veces` intentos con clave mala y devuelve la última respuesta
 async function fallar(fn, cabeceras, veces = 9) {

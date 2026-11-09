@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
-import { CLAVE_ADMIN, CLAVE_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 
 const ruta = (r) => fileURLToPath(new URL(`../${r}`, import.meta.url));
 let fallas = 0;
@@ -67,6 +67,7 @@ console.log('\n== 1. La migración (base de hoy + supabase/fotos_recepcion.sql)'
   await nueva.exec(fs.readFileSync(ruta('supabase/checkin.sql'), 'utf8'));
   const huella = async (d) => Object.fromEntries((await d.query(`select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as fn, md5(regexp_replace(regexp_replace(p.prosrc, '--[^\n]*', '', 'g'), '\\s+', ' ', 'g')) as h from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('public','private')`)).rows.map((x) => [x.fn, x.h]));
   await db.exec(fs.readFileSync(ruta('supabase/sesiones.sql'), 'utf8')); // y el ingreso con sesión de dispositivo, que va después
+  await db.exec(fs.readFileSync(ruta('supabase/equipo.sql'), 'utf8')); // y el equipo con alias y clave propia, que va al final
   const hv = await huella(db); const hn = await huella(nueva);
   const distintas = [...new Set([...Object.keys(hv), ...Object.keys(hn)])].filter((f) => hv[f] !== hn[f]);
   ok(distintas.length === 0, `la base migrada y una base nueva tienen las mismas ${Object.keys(hn).length} funciones` + (distintas.length ? ' · distintas: ' + distintas.join(', ') : ''));
@@ -81,7 +82,8 @@ console.log('\n== 1. La migración (base de hoy + supabase/fotos_recepcion.sql)'
 console.log('\n== 2. Recepción ve y agrega fotos, pero no las quita');
 const back = await iniciarBackend({ puerto: 54397 });
 const SCRIPT = `${back.url}/apps-script/exec`;
-await back.sql(`update private.checkin_config set activo = true, codigo_seg = 300, usos_max = 20, foto_modo = 'opcional', foto_url = $2, hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION, SCRIPT]);
+await back.sql(`update private.checkin_config set activo = true, codigo_seg = 300, usos_max = 20, foto_modo = 'opcional', foto_url = $1 where id = 1`, [SCRIPT]);
+await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
 const recepcion = (fn, args, ip = '198.51.100.50') => back.llamar(fn, { p_clave: CLAVE_RECEPCION, ...args }, ip);
 const admin = (fn, args, ip = '198.51.100.60') => back.llamar(fn, { p_clave: CLAVE_ADMIN, ...args }, ip);
 const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 7)]).toString('base64');

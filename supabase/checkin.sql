@@ -6,7 +6,7 @@
 --   * Todo lo que guarda datos de huéspedes vive en el esquema `private`, sin acceso directo desde afuera.
 --   * Se entra únicamente por funciones de `public` que verifican quién llama:
 --       huésped    -> con un código de 6 números que muestra recepción (checkin_*)
---       recepción  -> con su propia clave, que solo cambia el admin general (recepcion_*)
+--       recepción  -> con la clave propia que le pone el dueño a cada persona del equipo (recepcion_*, admin_equipo*)
 --       admin      -> con la clave de admin de siempre (admin_checkin_*, admin_huesped*)
 --   * Los intentos fallidos se frenan por IP. Nada se borra: no hay funciones para eso.
 --   * La foto del documento NO se guarda acá: va a una carpeta de Drive; en la base queda solo el id y el nombre.
@@ -50,6 +50,23 @@ create table if not exists private.checkin_codigo (
 insert into private.checkin_codigo (id) values (1) on conflict (id) do nothing;
 create sequence if not exists private.checkin_grupo_seq;
 
+-- Un código vigente POR PERSONA del equipo (usuario_id 0 = el dueño): cada fila se reescribe en cada rotación (no crece). Así, al
+-- canjearse un código se sabe quién lo dio. La tabla de arriba (un solo código para todos) ya no se usa; queda por compatibilidad.
+create table if not exists private.codigos_usuario (
+  usuario_id bigint primary key,
+  grupo bigint not null default 0,
+  codigo text,
+  vence timestamptz,
+  usos int not null default 0,
+  usos_max int not null default 3,
+  prev_codigo text,
+  prev_vence timestamptz,
+  prev_usos int not null default 0,
+  prev_usos_max int not null default 3,
+  prev_grupo bigint not null default 0
+);
+alter table private.codigos_usuario enable row level security;
+
 -- Sesión del huésped: se obtiene al canjear el código y sirve para enviar UN formulario.
 create table if not exists private.checkin_sesiones (
   token_hash text primary key,
@@ -59,7 +76,8 @@ create table if not exists private.checkin_sesiones (
   usada boolean not null default false,
   fotos int not null default 0,
   foto_id text,
-  foto_nombre text
+  foto_nombre text,
+  habilitado_por text
 );
 create index if not exists checkin_sesiones_ref_idx on private.checkin_sesiones (left(token_hash, 32));
 
@@ -74,7 +92,8 @@ create table if not exists private.checkins (
   foto_id text,
   foto_nombre text,
   editado_en timestamptz,
-  editado_por text
+  editado_por text,
+  habilitado_por text
 );
 create index if not exists checkins_creado_idx on private.checkins (creado desc);
 
@@ -180,17 +199,18 @@ $$;
 
 create or replace function private.comprobar_recepcion(p_clave text)
 returns text language plpgsql security definer set search_path = '' as $$
-declare v_hash text;
+declare u private.usuarios;
 begin
   -- Sesión de dispositivo (la de recepción o la del dueño, que también puede entrar a recepción).
   if p_clave ~ '^sd_[0-9a-f]{64}$' then
-    return case when private.sesion_activa(p_clave, array['admin', 'recepcion']) is not null then 'ok' else 'clave_incorrecta' end;
+    return case when private.sesion_activa(p_clave, array['admin', 'recepcion']) is not null
+                 and private.actor(p_clave) is not null then 'ok' else 'clave_incorrecta' end;
   end if;
   if private.limite_alcanzado('rec', 8) then
     return 'demasiados_intentos';
   end if;
-  select hash_recepcion into v_hash from private.checkin_config where id = 1;
-  if p_clave is null or v_hash is null or extensions.crypt(p_clave, v_hash) <> v_hash then
+  u := private.usuario_por_clave(p_clave);
+  if u.id is null then
     perform private.registrar_fallo('rec');
     return 'clave_incorrecta';
   end if;
@@ -363,6 +383,49 @@ begin
 end;
 $$;
 
+-- El código vigente de una persona del equipo (0 = el dueño): igual que codigo_vigente, pero cada uno tiene el suyo. Un código nunca
+-- se repite con el de otra persona, así que al canjearlo se sabe de quién es.
+create or replace function private.codigo_usuario(p_usuario bigint, p_forzar boolean default false)
+returns private.codigos_usuario language plpgsql security definer set search_path = '' as $$
+declare
+  c private.codigos_usuario;
+  cfg private.checkin_config;
+  nuevo text;
+  n int := 0;
+begin
+  select * into cfg from private.checkin_config where id = 1;
+  insert into private.codigos_usuario (usuario_id) values (p_usuario) on conflict (usuario_id) do nothing;
+  select * into c from private.codigos_usuario where usuario_id = p_usuario for update;
+  if p_forzar or c.codigo is null or c.vence <= now() or c.usos >= c.usos_max then
+    if p_forzar or c.codigo is null then
+      c.prev_codigo := null;
+    else
+      c.prev_codigo := c.codigo;
+      c.prev_vence := c.vence;
+      c.prev_usos := c.usos;
+      c.prev_usos_max := c.usos_max;
+      c.prev_grupo := c.grupo;
+    end if;
+    loop
+      nuevo := lpad((('x' || encode(extensions.gen_random_bytes(4), 'hex'))::bit(32)::bigint % 1000000)::text, 6, '0');
+      n := n + 1;
+      exit when n > 20 or not exists (select 1 from private.codigos_usuario o where o.codigo = nuevo or o.prev_codigo = nuevo);
+    end loop;
+    c.grupo := nextval('private.checkin_grupo_seq');
+    c.codigo := nuevo;
+    c.vence := now() + make_interval(secs => cfg.codigo_seg);
+    c.usos := 0;
+    c.usos_max := cfg.usos_max;
+    update private.codigos_usuario set
+      grupo = c.grupo, codigo = c.codigo, vence = c.vence, usos = c.usos, usos_max = c.usos_max,
+      prev_codigo = c.prev_codigo, prev_vence = c.prev_vence, prev_usos = c.prev_usos,
+      prev_usos_max = c.prev_usos_max, prev_grupo = c.prev_grupo
+    where usuario_id = p_usuario;
+  end if;
+  return c;
+end;
+$$;
+
 revoke all on function private.ip_actual() from public, anon, authenticated;
 revoke all on function private.limite_alcanzado(text, int) from public, anon, authenticated;
 revoke all on function private.registrar_fallo(text) from public, anon, authenticated;
@@ -374,6 +437,7 @@ revoke all on function private.habitacion_normal(text) from public, anon, authen
 revoke all on function private.ticket_foto(text, timestamptz, text) from public, anon, authenticated;
 revoke all on function private.foto_info(private.checkin_config, text, timestamptz, boolean) from public, anon, authenticated;
 revoke all on function private.codigo_vigente(boolean) from public, anon, authenticated;
+revoke all on function private.codigo_usuario(bigint, boolean) from public, anon, authenticated;
 revoke all on function private.medio_pago_elegido(jsonb, int) from public, anon, authenticated;
 revoke all on function private.medios_pago_lista() from public, anon, authenticated;
 revoke all on function private.fotos_activas(bigint) from public, anon, authenticated;
@@ -398,9 +462,10 @@ create or replace function public.checkin_canjear(p_codigo text)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
   cfg private.checkin_config;
-  c private.checkin_codigo;
+  c private.codigos_usuario;
   v_cod text;
   v_grupo bigint;
+  v_alias text;
   v_token text;
   v_hash text;
   v_vence timestamptz;
@@ -413,21 +478,27 @@ begin
     return json_build_object('ok', false, 'error', 'demasiados_intentos');
   end if;
   v_cod := regexp_replace(coalesce(p_codigo, ''), '[^0-9]', '', 'g');
-  select * into c from private.checkin_codigo where id = 1 for update;
-  if length(v_cod) = 6 and c.codigo = v_cod and now() < c.vence + interval '10 seconds' and c.usos < c.usos_max then
-    update private.checkin_codigo set usos = usos + 1 where id = 1;
+  -- De quién es el código: si esa persona ya no está activa, su código no sirve.
+  select k.* into c from private.codigos_usuario k
+   where length(v_cod) = 6 and (k.codigo = v_cod or k.prev_codigo = v_cod)
+     and (k.usuario_id = 0 or exists (select 1 from private.usuarios u where u.id = k.usuario_id and u.activo))
+   order by (k.codigo = v_cod) desc limit 1 for update of k;
+  if found and c.codigo = v_cod and now() < c.vence + interval '10 seconds' and c.usos < c.usos_max then
+    update private.codigos_usuario set usos = usos + 1 where usuario_id = c.usuario_id;
     v_grupo := c.grupo;
-  elsif length(v_cod) = 6 and c.prev_codigo = v_cod and now() < c.prev_vence + interval '10 seconds' and c.prev_usos < c.prev_usos_max then
-    update private.checkin_codigo set prev_usos = prev_usos + 1 where id = 1;
+  elsif found and c.prev_codigo = v_cod and now() < c.prev_vence + interval '10 seconds' and c.prev_usos < c.prev_usos_max then
+    update private.codigos_usuario set prev_usos = prev_usos + 1 where usuario_id = c.usuario_id;
     v_grupo := c.prev_grupo;
   else
     perform private.registrar_fallo('cod');
     return json_build_object('ok', false, 'error', 'codigo_invalido');
   end if;
+  -- El nombre queda escrito tal como se llama hoy: si después le cambian el alias, este check-in sigue diciendo el de ese momento.
+  v_alias := case when c.usuario_id = 0 then 'Dueño' else (select u.alias from private.usuarios u where u.id = c.usuario_id) end;
   v_token := encode(extensions.gen_random_bytes(24), 'hex');
   v_hash := encode(extensions.digest(v_token, 'sha256'), 'hex');
   v_vence := now() + make_interval(mins => cfg.sesion_min);
-  insert into private.checkin_sesiones (token_hash, grupo, vence) values (v_hash, v_grupo, v_vence);
+  insert into private.checkin_sesiones (token_hash, grupo, vence, habilitado_por) values (v_hash, v_grupo, v_vence, v_alias);
   return json_build_object('ok', true, 'token', v_token, 'vence_seg', cfg.sesion_min * 60,
                            'foto', private.foto_info(cfg, v_hash, v_vence, false));
 end;
@@ -484,9 +555,9 @@ begin
   if cfg.foto_modo = 'obligatoria' and cfg.foto_url is not null and s.foto_id is null then
     return json_build_object('ok', false, 'error', 'foto_requerida');
   end if;
-  insert into private.checkins (grupo, idioma, datos, consentimiento, foto_id, foto_nombre)
+  insert into private.checkins (grupo, idioma, datos, consentimiento, foto_id, foto_nombre, habilitado_por)
     values (s.grupo, left(regexp_replace(coalesce(p_idioma, ''), '[^A-Za-z-]', '', 'g'), 10), v -> 'datos',
-            jsonb_build_object('aceptado', true, 'version', 1, 'en', now()), s.foto_id, s.foto_nombre)
+            jsonb_build_object('aceptado', true, 'version', 1, 'en', now()), s.foto_id, s.foto_nombre, s.habilitado_por)
     returning id into v_id;
   if s.foto_id is not null then
     insert into private.checkin_fotos (checkin_id, foto_id, nombre, origen) values (v_id, s.foto_id, s.foto_nombre, 'huesped');
@@ -560,7 +631,8 @@ returns json language plpgsql security definer set search_path = '' as $$
 declare
   r text;
   cfg private.checkin_config;
-  c private.checkin_codigo;
+  c private.codigos_usuario;
+  v_actor jsonb;
   v_lista json;
   v_config json;
   v_medios json;
@@ -569,9 +641,10 @@ begin
   if r <> 'ok' then
     return json_build_object('ok', false, 'error', r);
   end if;
+  v_actor := private.actor(p_clave);
   select * into cfg from private.checkin_config where id = 1;
   select coalesce(json_agg(row_to_json(t) order by t.creado desc), '[]'::json) into v_lista from (
-    select k.id, k.creado, k.habitacion, k.datos,
+    select k.id, k.creado, k.habitacion, k.datos, k.habilitado_por,
            (select f.foto_id from private.checkin_fotos f where f.checkin_id = k.id and f.activa order by f.id limit 1) as foto_id,
            (select f.nombre from private.checkin_fotos f where f.checkin_id = k.id and f.activa order by f.id limit 1) as foto_nombre,
            private.fotos_activas(k.id) as fotos,
@@ -590,10 +663,10 @@ begin
   select coalesce(json_agg(json_build_object('id', m.id, 'nombre', m.nombre) order by m.es_base, m.orden, m.id), '[]'::json)
     into v_medios from private.medios_pago m where m.activo;
   if not cfg.activo then
-    return json_build_object('ok', true, 'activo', false, 'codigo', null, 'config', v_config, 'huespedes', v_lista, 'medios_pago', v_medios);
+    return json_build_object('ok', true, 'activo', false, 'codigo', null, 'quien', v_actor ->> 'alias', 'config', v_config, 'huespedes', v_lista, 'medios_pago', v_medios);
   end if;
-  c := private.codigo_vigente(false);
-  return json_build_object('ok', true, 'activo', true,
+  c := private.codigo_usuario((v_actor ->> 'id')::bigint, false);
+  return json_build_object('ok', true, 'activo', true, 'quien', v_actor ->> 'alias',
     'codigo', json_build_object('valor', c.codigo,
                                 'vence_seg', greatest(0, ceil(extract(epoch from (c.vence - now()))))::int,
                                 'usos', c.usos, 'usos_max', c.usos_max),
@@ -607,18 +680,20 @@ returns json language plpgsql security definer set search_path = '' as $$
 declare
   r text;
   cfg private.checkin_config;
-  c private.checkin_codigo;
+  c private.codigos_usuario;
+  v_actor jsonb;
 begin
   r := private.comprobar_recepcion(p_clave);
   if r <> 'ok' then
     return json_build_object('ok', false, 'error', r);
   end if;
+  v_actor := private.actor(p_clave);
   select * into cfg from private.checkin_config where id = 1;
   if not cfg.activo then
     return json_build_object('ok', false, 'error', 'no_disponible');
   end if;
-  c := private.codigo_vigente(true);
-  perform private.auditar('recepcion', 'codigo_nuevo', null, null);
+  c := private.codigo_usuario((v_actor ->> 'id')::bigint, true);
+  perform private.auditar('recepcion', 'codigo_nuevo', null, jsonb_build_object('alias', v_actor ->> 'alias'));
   return json_build_object('ok', true,
     'codigo', json_build_object('valor', c.codigo,
                                 'vence_seg', greatest(0, ceil(extract(epoch from (c.vence - now()))))::int,
@@ -696,7 +771,7 @@ begin
     'activo', cfg.activo, 'codigo_seg', cfg.codigo_seg, 'usos_max', cfg.usos_max,
     'edicion_activa', cfg.edicion_activa, 'edicion_min', cfg.edicion_min, 'dias_recepcion', cfg.dias_recepcion,
     'foto_modo', cfg.foto_modo, 'foto_url', cfg.foto_url, 'foto_secreto', cfg.foto_secreto,
-    'recepcion_con_clave', cfg.hash_recepcion is not null));
+    'recepcion_con_clave', exists (select 1 from private.usuarios u where u.activo)));
 end;
 $$;
 
@@ -783,13 +858,8 @@ begin
   if r <> 'ok' then
     return json_build_object('ok', false, 'error', r);
   end if;
-  if p_nueva is null or length(p_nueva) < 8 or length(p_nueva) > 100 then
-    return json_build_object('ok', false, 'error', 'clave_corta');
-  end if;
-  update private.checkin_config set hash_recepcion = extensions.crypt(p_nueva, extensions.gen_salt('bf')) where id = 1;
-  update private.sesiones set revocada_en = now() where rol = 'recepcion' and revocada_en is null;
-  perform private.auditar('admin', 'clave_recepcion', null, null);
-  return json_build_object('ok', true);
+  -- Las claves ahora son una por persona (admin_equipo_guardar). Esta función queda solo para pantallas viejas.
+  return json_build_object('ok', false, 'error', 'usar_equipo');
 end;
 $$;
 
@@ -817,7 +887,7 @@ begin
   select coalesce(json_agg(row_to_json(t) order by t.id desc) filter (where t.rn <= v_lim), '[]'::json), count(*)
     into v_lista, v_n
     from (
-      select k.id, k.creado, k.habitacion, k.datos,
+      select k.id, k.creado, k.habitacion, k.datos, k.habilitado_por,
              (select f.foto_id from private.checkin_fotos f where f.checkin_id = k.id and f.activa order by f.id limit 1) as foto_id,
              (select f.nombre from private.checkin_fotos f where f.checkin_id = k.id and f.activa order by f.id limit 1) as foto_nombre,
              private.fotos_activas(k.id) as fotos,
@@ -1132,6 +1202,107 @@ begin
 end;
 $$;
 
+
+-- ---------------------------------------------------------------- equipo (solo el dueño)
+
+-- La lista del equipo, con cuántos dispositivos tiene abiertos cada uno y cuándo los usó por última vez.
+create or replace function private.equipo_lista()
+returns json language sql stable security definer set search_path = '' as $$
+  select coalesce(json_agg(json_build_object(
+           'id', u.id, 'alias', u.alias, 'rol', u.rol, 'activo', u.activo, 'creado', u.creado,
+           'sesiones', (select count(*)::int from private.sesiones s where s.usuario_id = u.id and s.revocada_en is null and s.vence > now()),
+           'ultimo_uso', (select max(s.ultimo_uso) from private.sesiones s where s.usuario_id = u.id))
+         order by u.activo desc, lower(u.alias), u.id), '[]'::json)
+    from private.usuarios u;
+$$;
+revoke all on function private.equipo_lista() from public, anon, authenticated;
+
+create or replace function public.admin_equipo(p_clave text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare r text;
+begin
+  r := private.comprobar_dueno(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  return json_build_object('ok', true, 'usuarios', private.equipo_lista());
+end;
+$$;
+
+-- Crea a alguien del equipo (p_id nulo: hacen falta alias, rol y clave) o cambia lo que se mande de una persona que ya está
+-- (alias, rol, clave nueva, activo). Cambiar la clave, el rol o dar de baja cierra sus sesiones; cambiar solo el alias no.
+-- Cambiar el alias NO toca los check-ins ya hechos: ellos guardan el nombre que tenía en ese momento.
+create or replace function public.admin_equipo_guardar(p_clave text, p_id bigint, p_alias text, p_rol text, p_clave_usuario text, p_activo boolean default true)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  u private.usuarios;
+  v_alias text;
+  v_rol text;
+  v_activo boolean;
+  v_clave boolean := nullif(p_clave_usuario, '') is not null;
+  v_cambios text[] := array[]::text[];
+begin
+  r := private.comprobar_dueno(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  if p_id is not null then
+    select * into u from private.usuarios where id = p_id for update;
+    if not found then
+      return json_build_object('ok', false, 'error', 'no_existe');
+    end if;
+  end if;
+  v_alias := coalesce(nullif(btrim(coalesce(p_alias, '')), ''), u.alias);
+  v_rol := coalesce(p_rol, u.rol);
+  v_activo := coalesce(p_activo, u.activo, true);
+  if v_alias is null or v_alias !~ '^[^[:cntrl:]]{1,30}$' then
+    return json_build_object('ok', false, 'error', 'alias_invalido');
+  end if;
+  if v_rol is null or v_rol not in ('admin', 'recepcion') then
+    return json_build_object('ok', false, 'error', 'rol_invalido');
+  end if;
+  if v_clave then
+    if length(p_clave_usuario) < 8 or length(p_clave_usuario) > 100 then
+      return json_build_object('ok', false, 'error', 'clave_corta');
+    end if;
+    -- una clave no puede repetirse: con ella se sabe quién entra (ni con la del dueño ni con la de alguien que ya no está)
+    if exists (select 1 from private.admin a where a.hash = extensions.crypt(p_clave_usuario, a.hash))
+       or exists (select 1 from private.usuarios x where x.id is distinct from p_id and x.hash_clave = extensions.crypt(p_clave_usuario, x.hash_clave)) then
+      return json_build_object('ok', false, 'error', 'clave_repetida');
+    end if;
+  elsif p_id is null then
+    return json_build_object('ok', false, 'error', 'clave_corta');
+  end if;
+  if v_activo and (lower(v_alias) in ('dueño', 'dueno')
+                   or exists (select 1 from private.usuarios x where x.activo and x.id is distinct from p_id and lower(btrim(x.alias)) = lower(v_alias))) then
+    return json_build_object('ok', false, 'error', 'alias_repetido');
+  end if;
+  if p_id is null then
+    insert into private.usuarios (alias, rol, hash_clave, activo)
+      values (v_alias, v_rol, extensions.crypt(p_clave_usuario, extensions.gen_salt('bf')), v_activo)
+      returning * into u;
+    perform private.auditar('admin', 'usuario_creado', null, jsonb_build_object('alias', v_alias, 'rol', v_rol));
+  else
+    if v_alias <> u.alias then v_cambios := array_append(v_cambios, 'alias'); end if;
+    if v_rol <> u.rol then v_cambios := array_append(v_cambios, 'rol'); end if;
+    if v_clave then v_cambios := array_append(v_cambios, 'clave'); end if;
+    if v_activo <> u.activo then v_cambios := array_append(v_cambios, case when v_activo then 'alta' else 'baja' end); end if;
+    if array_length(v_cambios, 1) is not null then
+      update private.usuarios set alias = v_alias, rol = v_rol, activo = v_activo, actualizado = now(),
+             hash_clave = case when v_clave then extensions.crypt(p_clave_usuario, extensions.gen_salt('bf')) else hash_clave end
+       where id = u.id;
+      if v_clave or v_rol <> u.rol or not v_activo then
+        update private.sesiones set revocada_en = now() where usuario_id = u.id and revocada_en is null;
+      end if;
+      perform private.auditar('admin', 'usuario_editado', null,
+        jsonb_build_object('alias', v_alias, 'antes', u.alias, 'campos', to_jsonb(v_cambios)));
+    end if;
+  end if;
+  return json_build_object('ok', true, 'usuarios', private.equipo_lista());
+end;
+$$;
+
 -- ---------------------------------------------------------------- ingreso único con sesión de dispositivo
 
 -- Una sola pantalla de ingreso para todo el personal: la clave del dueño abre su panel y la de recepción abre recepción.
@@ -1140,9 +1311,11 @@ create or replace function public.sesion_entrar(p_clave text, p_etiqueta text de
 returns json language plpgsql security definer set search_path = '' as $$
 declare
   v_ip text;
-  v_hash text;
   v_rol text;
+  v_usuario bigint;
+  v_alias text;
   v_token text;
+  u private.usuarios;
 begin
   v_ip := 'ses|' || private.ip_actual();
   if (select count(*) from private.intentos where ip = v_ip and at > now() - interval '1 minute') >= 8 then
@@ -1151,10 +1324,13 @@ begin
   if p_clave is not null and length(p_clave) between 1 and 200 then
     if exists (select 1 from private.admin a where a.hash = extensions.crypt(p_clave, a.hash)) then
       v_rol := 'admin';
+      v_alias := 'Dueño';
     else
-      select hash_recepcion into v_hash from private.checkin_config where id = 1;
-      if v_hash is not null and extensions.crypt(p_clave, v_hash) = v_hash then
-        v_rol := 'recepcion';
+      u := private.usuario_por_clave(p_clave);
+      if u.id is not null then
+        v_rol := u.rol;
+        v_usuario := u.id;
+        v_alias := u.alias;
       end if;
     end if;
   end if;
@@ -1163,10 +1339,10 @@ begin
     return json_build_object('ok', false, 'error', 'clave_incorrecta');
   end if;
   v_token := 'sd_' || encode(extensions.gen_random_bytes(32), 'hex');
-  insert into private.sesiones (token_hash, rol, etiqueta, vence)
-    values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_rol, nullif(left(btrim(coalesce(p_etiqueta, '')), 60), ''), now() + interval '60 days');
-  perform private.auditar(v_rol, 'sesion_abierta', null, null);
-  return json_build_object('ok', true, 'rol', v_rol, 'token', v_token);
+  insert into private.sesiones (token_hash, rol, etiqueta, vence, usuario_id)
+    values (encode(extensions.digest(v_token, 'sha256'), 'hex'), v_rol, nullif(left(btrim(coalesce(p_etiqueta, '')), 60), ''), now() + interval '60 days', v_usuario);
+  perform private.auditar(v_rol, 'sesion_abierta', null, jsonb_build_object('alias', v_alias));
+  return json_build_object('ok', true, 'rol', v_rol, 'token', v_token, 'alias', v_alias, 'dueno', v_usuario is null);
 end;
 $$;
 
@@ -1195,6 +1371,8 @@ revoke all on function public.admin_foto_permiso(text, bigint) from public, anon
 revoke all on function public.admin_foto_quitar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.recepcion_fotos(text, bigint) from public, anon, authenticated;
 revoke all on function public.recepcion_foto_permiso(text, bigint) from public, anon, authenticated;
+revoke all on function public.admin_equipo(text) from public, anon, authenticated;
+revoke all on function public.admin_equipo_guardar(text, bigint, text, text, text, boolean) from public, anon, authenticated;
 
 grant execute on function public.checkin_estado() to anon, authenticated;
 grant execute on function public.checkin_canjear(text) to anon, authenticated;
@@ -1219,3 +1397,5 @@ grant execute on function public.admin_foto_permiso(text, bigint) to anon, authe
 grant execute on function public.admin_foto_quitar(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.recepcion_fotos(text, bigint) to anon, authenticated;
 grant execute on function public.recepcion_foto_permiso(text, bigint) to anon, authenticated;
+grant execute on function public.admin_equipo(text) to anon, authenticated;
+grant execute on function public.admin_equipo_guardar(text, bigint, text, text, text, boolean) to anon, authenticated;

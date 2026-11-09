@@ -29,6 +29,21 @@ create table private.admin (id int primary key check (id = 1), hash text not nul
 create table private.intentos (id bigserial primary key, ip text not null, at timestamptz not null default now());
 create index on private.intentos (ip, at);
 
+-- Equipo: el dueño le da a cada persona de recepción (o a un familiar con acceso de dueño) un alias y una clave propia. Solo el dueño
+-- los crea y les pone la clave. Nada se borra: "dar de baja" a alguien lo deja inactivo (y le cierra las sesiones). Cambiar el alias
+-- de una fila NO cambia lo ya registrado: cada check-in guarda el nombre de quien lo habilitó tal como se llamaba en ese momento.
+create table if not exists private.usuarios (
+  id bigint generated always as identity primary key,
+  alias text not null check (length(btrim(alias)) between 1 and 30),
+  rol text not null check (rol in ('admin', 'recepcion')),
+  hash_clave text not null,
+  activo boolean not null default true,
+  creado timestamptz not null default now(),
+  actualizado timestamptz not null default now()
+);
+create unique index if not exists usuarios_alias_uq on private.usuarios (lower(btrim(alias))) where activo;
+alter table private.usuarios enable row level security;
+
 -- Sesiones por dispositivo: después de poner la clave una vez, el celular recibe un código al azar (sd_ + 64 letras y números) que
 -- vale 60 días de uso. En la base solo queda su huella (sha256), nunca el código ni la clave. Se pueden cerrar (revocada_en);
 -- nada se borra.
@@ -40,7 +55,8 @@ create table if not exists private.sesiones (
   creado timestamptz not null default now(),
   ultimo_uso timestamptz not null default now(),
   vence timestamptz not null,
-  revocada_en timestamptz
+  revocada_en timestamptz,
+  usuario_id bigint references private.usuarios (id)
 );
 alter table private.sesiones enable row level security;
 create sequence private.hist_seq;
@@ -136,6 +152,72 @@ end;
 $$;
 revoke all on function private.comprobar_clave(text) from public, anon, authenticated;
 
+-- La persona del equipo dueña de una clave (fila vacía si ninguna). Las claves del equipo no se repiten entre sí ni con la del dueño.
+create or replace function private.usuario_por_clave(p_clave text)
+returns private.usuarios language plpgsql security definer set search_path = '' as $$
+declare u private.usuarios;
+begin
+  if p_clave is null or length(p_clave) not between 1 and 200 then
+    return u;
+  end if;
+  select * into u from private.usuarios x where x.activo and x.hash_clave = extensions.crypt(p_clave, x.hash_clave) limit 1;
+  return u;
+end;
+$$;
+revoke all on function private.usuario_por_clave(text) from public, anon, authenticated;
+
+-- Quién está detrás de una clave o de un código de dispositivo: { id, alias, rol, dueno } o null. El dueño es id 0 y se llama "Dueño".
+create or replace function private.actor(p_clave text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  s record;
+  u private.usuarios;
+begin
+  if p_clave is null then
+    return null;
+  end if;
+  if p_clave ~ '^sd_[0-9a-f]{64}$' then
+    select x.rol, x.usuario_id, y.alias, y.activo into s
+      from private.sesiones x left join private.usuarios y on y.id = x.usuario_id
+     where x.token_hash = encode(extensions.digest(p_clave, 'sha256'), 'hex') and x.revocada_en is null and x.vence > now();
+    if not found then
+      return null;
+    end if;
+    if s.usuario_id is null then
+      -- una sesión sin persona del equipo es la del dueño (si no es de rol admin no es de nadie)
+      return case when s.rol = 'admin' then jsonb_build_object('id', 0, 'alias', 'Dueño', 'rol', 'admin', 'dueno', true) end;
+    end if;
+    if not s.activo then
+      return null;
+    end if;
+    return jsonb_build_object('id', s.usuario_id, 'alias', s.alias, 'rol', s.rol, 'dueno', false);
+  end if;
+  if length(p_clave) between 1 and 200 and exists (select 1 from private.admin a where a.hash = extensions.crypt(p_clave, a.hash)) then
+    return jsonb_build_object('id', 0, 'alias', 'Dueño', 'rol', 'admin', 'dueno', true);
+  end if;
+  u := private.usuario_por_clave(p_clave);
+  if u.id is null then
+    return null;
+  end if;
+  return jsonb_build_object('id', u.id, 'alias', u.alias, 'rol', u.rol, 'dueno', false);
+end;
+$$;
+revoke all on function private.actor(text) from public, anon, authenticated;
+
+-- Lo que solo puede hacer el dueño de verdad (su clave o su sesión), no un familiar con acceso de dueño: manejar al equipo.
+create or replace function private.comprobar_dueno(p_clave text)
+returns text language plpgsql security definer set search_path = '' as $$
+declare r text;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return r;
+  end if;
+  return case when coalesce((private.actor(p_clave) ->> 'dueno')::boolean, false) then 'ok' else 'sin_permiso' end;
+end;
+$$;
+revoke all on function private.comprobar_dueno(text) from public, anon, authenticated;
+
 create or replace function public.verificar_clave(p_clave text)
 returns json language plpgsql security definer set search_path = '' as $$
 declare r text;
@@ -185,7 +267,7 @@ begin
     return json_build_object('ok', false, 'error', 'clave_corta');
   end if;
   update private.admin set hash = extensions.crypt(p_nueva, extensions.gen_salt('bf')) where id = 1;
-  update private.sesiones set revocada_en = now() where rol = 'admin' and revocada_en is null;
+  update private.sesiones set revocada_en = now() where rol = 'admin' and usuario_id is null and revocada_en is null;
   return json_build_object('ok', true);
 end;
 $$;
@@ -193,10 +275,14 @@ $$;
 -- Qué rol tiene una sesión de dispositivo (para abrir la pantalla que corresponde sin pedir la clave otra vez).
 create or replace function public.sesion_estado(p_token text)
 returns json language plpgsql security definer set search_path = '' as $$
-declare v_rol text;
+declare
+  v_rol text;
+  v_actor jsonb;
 begin
   v_rol := private.sesion_activa(p_token, array['admin', 'recepcion']);
-  return json_build_object('ok', v_rol is not null, 'rol', v_rol);
+  v_actor := case when v_rol is not null then private.actor(p_token) end;
+  return json_build_object('ok', v_actor is not null, 'rol', case when v_actor is not null then v_rol end,
+                           'alias', v_actor ->> 'alias', 'dueno', coalesce((v_actor ->> 'dueno')::boolean, false));
 end;
 $$;
 
@@ -225,9 +311,10 @@ begin
   end if;
   v_hash := case when p_clave ~ '^sd_[0-9a-f]{64}$' then encode(extensions.digest(p_clave, 'sha256'), 'hex') end;
   return json_build_object('ok', true, 'sesiones', coalesce((
-    select json_agg(json_build_object('id', s.id, 'rol', s.rol, 'etiqueta', s.etiqueta, 'creado', s.creado,
+    select json_agg(json_build_object('id', s.id, 'rol', s.rol, 'alias', coalesce(u.alias, 'Dueño'), 'etiqueta', s.etiqueta, 'creado', s.creado,
                                       'ultimo_uso', s.ultimo_uso, 'actual', s.token_hash = v_hash) order by s.ultimo_uso desc, s.id desc)
-      from private.sesiones s where s.revocada_en is null and s.vence > now()), '[]'::json));
+      from private.sesiones s left join private.usuarios u on u.id = s.usuario_id
+     where s.revocada_en is null and s.vence > now()), '[]'::json));
 end;
 $$;
 

@@ -93,7 +93,7 @@ function Contenido({ clave, salir }) {
 
   return (
     <div className="page personal">
-      <BarraPersonal titulo="Huéspedes" actual="huespedes" atras={{ href: '#/admin', texto: 'Inicio' }} salir={salir} ancha />
+      <BarraPersonal titulo="Huéspedes" actual="huespedes" salir={salir} ancha />
       <main className="card ancha">
         <header>
           <h1>Huéspedes</h1>
@@ -138,7 +138,7 @@ function Contenido({ clave, salir }) {
   );
 }
 
-const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', sesion_abierta: 'abrió sesión en un dispositivo', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
+const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', usuario_creado: 'agregó a una persona al equipo', usuario_editado: 'cambió a una persona del equipo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', sesion_abierta: 'abrió sesión en un dispositivo', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
 const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación', medio_pago: 'medio de pago' };
 
 // Quién cambió qué y cuándo (no guarda los valores, solo los nombres de los campos).
@@ -163,9 +163,10 @@ function Historial({ clave }) {
         <ul className="historial">
           {registros.map((r) => (
             <li key={r.id}>
-              <b>{fechaHora(r.en)}</b> · {r.quien === 'admin' ? 'Administrador' : 'Recepción'} {ACCIONES[r.accion] ?? r.accion}
+              <b>{fechaHora(r.en)}</b> · {r.detalle?.alias && r.accion !== 'usuario_creado' && r.accion !== 'usuario_editado' ? `${r.detalle.alias} (${r.quien === 'admin' ? 'dueño' : 'recepción'})` : r.quien === 'admin' ? 'Dueño' : 'Recepción'} {ACCIONES[r.accion] ?? r.accion}
               {r.checkin_id ? ` (huésped n.º ${r.checkin_id})` : ''}
-              {r.detalle?.campos?.length ? `: ${r.detalle.campos.map((c) => CAMPOS[c] ?? c).join(', ')}` : ''}
+              {r.detalle?.alias && (r.accion === 'usuario_creado' || r.accion === 'usuario_editado') ? `: ${r.detalle.antes && r.detalle.antes !== r.detalle.alias ? `${r.detalle.antes} → ` : ''}${r.detalle.alias}` : ''}
+              {r.detalle?.campos?.length && r.accion === 'editar' ? `: ${r.detalle.campos.map((c) => CAMPOS[c] ?? c).join(', ')}` : ''}
             </li>
           ))}
         </ul>

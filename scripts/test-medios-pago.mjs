@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
-import { CLAVE_ADMIN, CLAVE_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 
 const ruta = (r) => fileURLToPath(new URL(`../${r}`, import.meta.url));
 let fallas = 0;
@@ -83,6 +83,7 @@ console.log('\n== 1. La migración (base de hoy + supabase/medios_pago.sql)');
   await db.exec(fs.readFileSync(ruta('supabase/fotos_admin.sql'), 'utf8'));
   await db.exec(fs.readFileSync(ruta('supabase/fotos_recepcion.sql'), 'utf8')); // y las fotos desde recepción, que van después
   await db.exec(fs.readFileSync(ruta('supabase/sesiones.sql'), 'utf8')); // y el ingreso con sesión de dispositivo, que va después
+  await db.exec(fs.readFileSync(ruta('supabase/equipo.sql'), 'utf8')); // y el equipo con alias y clave propia, que va al final
   const hv = await huella(db); const hn = await huella(nueva);
   const distintas = [...new Set([...Object.keys(hv), ...Object.keys(hn)])].filter((f) => hv[f] !== hn[f]);
   ok(distintas.length === 0, `la base migrada y una base nueva tienen las mismas ${Object.keys(hn).length} funciones` + (distintas.length ? ' · distintas: ' + distintas.join(', ') : ''));
@@ -94,7 +95,8 @@ console.log('\n== 1. La migración (base de hoy + supabase/medios_pago.sql)');
 // ---------------------------------------------------------------- Parte 2: las funciones, como las usa la guía
 console.log('\n== 2. Elegir, agregar, quitar y volver a poner medios de pago');
 const back = await iniciarBackend({ puerto: 54395 });
-await back.sql(`update private.checkin_config set activo = true, codigo_seg = 300, usos_max = 20, hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+await back.sql(`update private.checkin_config set activo = true, codigo_seg = 300, usos_max = 20 where id = 1`);
+await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
 const recepcion = (fn, args) => back.llamar(fn, { p_clave: CLAVE_RECEPCION, ...args }, '198.51.100.50');
 const admin = (fn, args) => back.llamar(fn, { p_clave: CLAVE_ADMIN, ...args }, '198.51.100.60');
 async function nuevoHuesped(nombre, doc) {

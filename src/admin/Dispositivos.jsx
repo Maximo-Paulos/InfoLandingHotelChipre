@@ -56,7 +56,7 @@ export default function Dispositivos({ clave }) {
             <li key={s.id} className="foto-item">
               <div className="foto-fila">
                 <div className="foto-datos">
-                  <b>{s.etiqueta || 'Dispositivo'}{s.actual ? ' · este dispositivo' : ''}</b>
+                  <b>{s.alias ? `${s.alias} · ` : ''}{s.etiqueta || 'Dispositivo'}{s.actual ? ' · este dispositivo' : ''}</b>
                   <small className="muted">{ROL[s.rol] ?? s.rol} · último uso {fechaHora(s.ultimo_uso)}</small>
                 </div>
                 {!s.actual && (

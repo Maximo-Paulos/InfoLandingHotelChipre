@@ -33,6 +33,11 @@ export const adminHuespedEditar = (clave, id, datos, habitacion, medioPago) =>
 // Medios de pago que elige recepción: el dueño los ve todos (también los quitados) y guarda la lista completa.
 export const adminMediosPago = (clave) => rpc('admin_medios_pago', { p_clave: clave });
 export const adminMediosPagoGuardar = (clave, lista) => rpc('admin_medios_pago_guardar', { p_clave: clave, p_lista: lista });
+// Equipo (solo el dueño): cada persona tiene un alias y su propia clave. Con id se cambia lo que se mande (alias, rol, clave nueva, activo);
+// sin id se crea. Nada se borra: dar de baja deja a la persona inactiva.
+export const adminEquipo = (clave) => rpc('admin_equipo', { p_clave: clave });
+export const adminEquipoGuardar = (clave, { id = null, alias = null, rol = null, claveNueva = null, activo = null }) =>
+  rpc('admin_equipo_guardar', { p_clave: clave, p_id: id, p_alias: alias, p_rol: rol, p_clave_usuario: claveNueva, p_activo: activo });
 export const adminAuditoria = (clave, limite = 40) => rpc('admin_checkin_auditoria', { p_clave: clave, p_limite: limite });
 // Fotos del documento: el dueño ve todas las de un huésped (también las quitadas), pide permiso para subir una y quita o vuelve a poner.
 // Quitar nunca borra: la foto sigue en Drive y en la base.
@@ -49,11 +54,17 @@ export const MENSAJES = {
   habitacion_invalida: 'La habitación puede tener hasta 12 letras o números.',
   fuera_de_tiempo: 'Ya pasó el tiempo para editar este huésped. Pedile al administrador que lo corrija.',
   no_existe: 'Ese huésped ya no está en la lista. Actualizá la pantalla.',
-  clave_corta: 'La clave nueva debe tener al menos 8 caracteres.',
+  clave_corta: 'La clave tiene que tener al menos 8 caracteres.',
   config_invalida: 'Algún valor de la configuración no es válido.',
   consentimiento: 'Tenés que aceptar para poder enviar.',
   foto_requerida: 'Falta la foto del documento.',
   sin_drive: 'Para subir fotos primero hay que conectar Drive (más arriba, en «Conectar Drive para las fotos»).',
+  alias_invalido: 'El nombre tiene que tener entre 1 y 30 letras.',
+  alias_repetido: 'Ya hay otra persona activa con ese nombre. Elegí otro.',
+  clave_repetida: 'Esa clave ya la usa otra persona. Elegí una distinta.',
+  rol_invalido: 'Elegí qué puede hacer esta persona.',
+  sin_permiso: 'Esto lo puede hacer solamente el dueño.',
+  usar_equipo: 'Las claves ahora se manejan desde «Equipo».',
   limite_fotos: 'Este huésped ya tiene 10 fotos. Quitá alguna para poder agregar otra.'
 };
 

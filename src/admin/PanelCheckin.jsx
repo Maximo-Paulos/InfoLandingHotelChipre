@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { SUPABASE_KEY, SUPABASE_URL } from '../config.js';
 import { leerContenido } from '../data/api.js';
-import { adminClaveRecepcion, adminConfig, adminConfigGuardar, textoCodigo } from '../checkin/checkinApi.js';
+import { adminConfig, adminConfigGuardar, textoCodigo } from '../checkin/checkinApi.js';
 import { probarConexion } from '../checkin/foto.js';
 import codigoScript from '../../apps-script/Codigo.gs?raw';
 
@@ -33,8 +33,6 @@ export function ConfigCheckin({ clave, config, recargar }) {
   const [f, setF] = useState(null);
   const [msg, setMsg] = useState(null);
   const [guardando, setGuardando] = useState(false);
-  const [claveNueva, setClaveNueva] = useState('');
-  const [msgClave, setMsgClave] = useState(null);
 
   useEffect(() => {
     if (config) setF({ ...config, foto_url: config.foto_url ?? '' });
@@ -70,22 +68,11 @@ export function ConfigCheckin({ clave, config, recargar }) {
     }
   };
 
-  const guardarClave = async (e) => {
-    e.preventDefault();
-    setMsgClave(null);
-    try {
-      const r = await adminClaveRecepcion(clave, claveNueva);
-      if (r.ok) { setClaveNueva(''); setMsgClave({ ok: true, texto: 'Clave de recepción guardada. Pasale la nueva a recepción.' }); await recargar(); } else setMsgClave({ ok: false, texto: textoCodigo(r.error) });
-    } catch {
-      setMsgClave({ ok: false, texto: 'No se pudo conectar. Revisá tu conexión.' });
-    }
-  };
-
   return (
     <details className="panel">
       <summary>Configuración del check-in</summary>
       <form onSubmit={guardar} className="cfg" noValidate>
-        {f.activo && !config.recepcion_con_clave && <p className="note" role="alert">Falta cargar la clave de recepción: sin clave nadie puede ver el código.</p>}
+        {f.activo && !config.recepcion_con_clave && <p className="note" role="alert">Todavía no hay nadie en el equipo: sin clave nadie puede ver el código. Cargalo en <a href="#/admin/equipo">Equipo</a>.</p>}
         <div className="campo">
           <label htmlFor="cfg-activo">Check-in digital</label>
           <select id="cfg-activo" value={f.activo ? 'si' : 'no'} onChange={(e) => cambia('activo', e.target.value === 'si')}>
@@ -125,17 +112,7 @@ export function ConfigCheckin({ clave, config, recargar }) {
         <div className="btns"><button type="submit" className="btn" disabled={guardando || !sucio}>{guardando ? 'Guardando…' : 'Guardar configuración'}</button></div>
       </form>
 
-      <form onSubmit={guardarClave} className="cfg" noValidate>
-        <h3>Clave de recepción</h3>
-        <p className="ayuda">{config.recepcion_con_clave ? 'Hay una clave cargada. Si la cambiás, la anterior deja de servir.' : 'Todavía no hay clave: recepción no puede entrar.'} Solo vos podés cambiarla.</p>
-        <div className="campo">
-          <label htmlFor="cfg-clave-recepcion">Clave nueva (mínimo 8 caracteres)</label>
-          <input id="cfg-clave-recepcion" type="password" autoComplete="new-password" minLength={8} value={claveNueva} onChange={(e) => { setClaveNueva(e.target.value); setMsgClave(null); }} />
-        </div>
-        {msgClave && <p className={msgClave.ok ? 'ed-ok' : 'ed-error'} role="status">{msgClave.texto}</p>}
-        <div className="btns"><button type="submit" className="btn claro" disabled={claveNueva.length < 8}>Guardar clave de recepción</button></div>
-        <p className="ayuda">La pantalla de recepción está en <a href="#/recepcion" target="_blank" rel="noopener noreferrer">/#/recepcion</a>.</p>
-      </form>
+      <p className="ayuda">Las claves de recepción se manejan en <a href="#/admin/equipo">Equipo</a>: cada persona tiene la suya.</p>
     </details>
   );
 }

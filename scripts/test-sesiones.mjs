@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
-import { CLAVE_ADMIN, CLAVE_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 
 const ruta = (r) => fileURLToPath(new URL(`../${r}`, import.meta.url));
 let fallas = 0;
@@ -63,6 +63,7 @@ console.log('\n== 1. La migración (base de hoy + supabase/sesiones.sql)');
   ok((await llamarEn(db, 'verificar_clave', { p_clave: 'mala-clave-1234' })).ok === false, 'y una clave mala sigue rechazada');
   ok((await db.query('select count(*)::int as n from private.sesiones')).rows[0].n === 0, 'la tabla de sesiones arranca vacía');
 
+  await db.exec(fs.readFileSync(ruta('supabase/equipo.sql'), 'utf8')); // el equipo con alias y clave propia va después de esta migración
   const nueva = await baseCon('supabase/schema.sql', 'supabase/checkin.sql');
   const huella = async (d) => Object.fromEntries((await d.query(`select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as fn, md5(regexp_replace(regexp_replace(p.prosrc, '--[^\n]*', '', 'g'), '\\s+', ' ', 'g')) as h from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('public','private')`)).rows.map((x) => [x.fn, x.h]));
   const hv = await huella(db); const hn = await huella(nueva);
@@ -78,7 +79,8 @@ console.log('\n== 1. La migración (base de hoy + supabase/sesiones.sql)');
 // ---------------------------------------------------------------- Parte 2: las funciones, como las usa la guía
 console.log('\n== 2. La clave se canjea por un código de dispositivo');
 const back = await iniciarBackend({ puerto: 54398 });
-await back.sql(`update private.checkin_config set activo = true, hash_recepcion = extensions.crypt($1, extensions.gen_salt('bf')) where id = 1`, [CLAVE_RECEPCION]);
+await back.sql(`update private.checkin_config set activo = true where id = 1`);
+await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
 let ipN = 10;
 const ip = () => `198.51.100.${ipN++}`;
 const llamar = (fn, args, ipp = ip()) => back.llamar(fn, args, ipp);
@@ -183,11 +185,15 @@ x = await llamar('cambiar_clave', { p_actual: 'una-clave-nueva-12345', p_nueva: 
 ok(x.ok === true, '(se vuelve a la clave de las pruebas)');
 const f = await llamar('sesion_entrar', { p_clave: CLAVE_ADMIN });
 x = await llamar('admin_checkin_clave_recepcion', { p_clave: f.token, p_nueva: 'recepcion-nueva-123' });
-ok(x.ok === true, 'con el código del dueño sí se puede cambiar la clave de recepción');
-ok((await llamar('recepcion_estado', { p_clave: rec2.token })).ok === false, 'y eso cierra las sesiones de recepción');
+ok(x.ok === false && x.error === 'usar_equipo', 'la clave de recepción ya no se cambia por la función vieja: ahora es una por persona (ver test-equipo)');
+ok((await llamar('recepcion_estado', { p_clave: rec2.token })).ok === true && (await llamar('recepcion_estado', { p_clave: f.token })).ok === true, 'y no se cerró ninguna sesión');
+const id = (await back.sql(`select id from private.usuarios where alias = 'Recepción'`))[0].id;
+x = await llamar('admin_equipo_guardar', { p_clave: f.token, p_id: id, p_alias: null, p_rol: null, p_clave_usuario: 'recepcion-nueva-123', p_activo: null });
+ok(x.ok === true, 'con el código del dueño sí se puede cambiar la clave de esa persona');
+ok((await llamar('recepcion_estado', { p_clave: rec2.token })).ok === false, 'y eso cierra sus sesiones');
 ok((await llamar('recepcion_estado', { p_clave: f.token })).ok === true, 'pero no la del dueño');
-ok((await llamar('sesion_entrar', { p_clave: 'recepcion-nueva-123' })).rol === 'recepcion', 'la clave de recepción nueva entra');
-await llamar('admin_checkin_clave_recepcion', { p_clave: f.token, p_nueva: CLAVE_RECEPCION });
+ok((await llamar('sesion_entrar', { p_clave: 'recepcion-nueva-123' })).rol === 'recepcion', 'la clave nueva entra');
+await llamar('admin_equipo_guardar', { p_clave: f.token, p_id: id, p_alias: null, p_rol: null, p_clave_usuario: CLAVE_RECEPCION, p_activo: null });
 
 // -- seguridad
 console.log('\n== 7. Seguridad');
