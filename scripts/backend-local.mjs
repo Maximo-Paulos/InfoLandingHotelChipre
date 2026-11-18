@@ -22,7 +22,7 @@ const CARPETA = 'CARPETA1234567890';
 export const SQL_RECEPCION = `insert into private.usuarios (alias, rol, hash_clave) values ('Recepción', 'recepcion', extensions.crypt($1, extensions.gen_salt('bf')))
   on conflict (lower(btrim(alias))) where activo do update set hash_clave = excluded.hash_clave`;
 
-async function crearBase() {
+async function crearBase(conEstadias) {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(`
     create role anon nologin; create role authenticated nologin;
@@ -32,6 +32,7 @@ async function crearBase() {
   await db.exec(fs.readFileSync(raiz('supabase/schema.sql'), 'utf8'));
   // CHECKIN_SQL=archivo.sql prueba la guía contra otra versión del check-in (por ejemplo, la de antes del medio de pago).
   await db.exec(fs.readFileSync(process.env.CHECKIN_SQL ? fileURLToPath(new URL(process.env.CHECKIN_SQL, `file://${process.cwd()}/`)) : raiz('supabase/checkin.sql'), 'utf8'));
+  if (conEstadias) await db.exec(fs.readFileSync(raiz('supabase/estadias.sql'), 'utf8')); // las reservas van después del check-in
   await db.query(`insert into private.admin (id, hash) values (1, extensions.crypt($1, extensions.gen_salt('bf')))`, [CLAVE_ADMIN]);
   // CONTENIDO_JSON=archivo.json arranca con el contenido de la guía real (sin los bloques nuevos), para probar con datos de verdad.
   const contenido = process.env.CONTENIDO_JSON ? JSON.parse(fs.readFileSync(process.env.CONTENIDO_JSON, 'utf8')) : hotel;
@@ -96,8 +97,8 @@ function crearScript(llamarBase) {
   };
 }
 
-export async function iniciarBackend({ puerto = 54321, silencioso = true } = {}) {
-  let db = await crearBase();
+export async function iniciarBackend({ puerto = 54321, silencioso = true, estadias = false } = {}) {
+  let db = await crearBase(estadias);
   const secretoDe = async () => (await db.query('select foto_secreto from private.checkin_config where id = 1')).rows[0].foto_secreto;
 
   // Llama a una función pública como lo haría PostgREST: con el rol "anon" y las cabeceras de la IP.
@@ -152,7 +153,7 @@ export async function iniciarBackend({ puerto = 54321, silencioso = true } = {})
       }
       if (url.pathname === '/__test/reiniciar' && req.method === 'POST') {
         await db.close();
-        db = await crearBase();
+        db = await crearBase(estadias);
         script = crearScript(async (n, a) => llamar(n, a));
         script.cargar(await secretoDe());
         return responder(res, 200, { ok: true });

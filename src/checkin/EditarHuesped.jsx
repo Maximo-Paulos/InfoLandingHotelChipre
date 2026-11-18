@@ -25,9 +25,11 @@ function NotaTiempo({ venceEn }) {
 export default function EditarHuesped({ fila, venceEn = null, medios = null, onGuardar, onCerrar }) {
   const [valores, setValores] = useState(() => valoresDesdeDatos(fila.datos, fila.habitacion, fila.medio_pago_id));
   // Opciones del selector: lo que se ofrece hoy + el medio que el huésped ya tiene, si después lo quitaron de la lista.
-  const opciones = medios && fila.medio_pago_id != null && !medios.some((m) => m.id === fila.medio_pago_id)
+  // Los huéspedes de una reserva toman la habitación y el medio de pago de ella: se corrigen en la reserva, no en cada persona.
+  const conReserva = fila.estadia_id != null;
+  const opciones = !conReserva && medios && fila.medio_pago_id != null && !medios.some((m) => m.id === fila.medio_pago_id)
     ? [...medios, { id: fila.medio_pago_id, nombre: `${fila.medio_pago ?? 'Otro'} (ya no se ofrece)` }]
-    : medios;
+    : conReserva ? null : medios;
   const [errores, setErrores] = useState({});
   const [aviso, setAviso] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -105,7 +107,7 @@ export default function EditarHuesped({ fila, venceEn = null, medios = null, onG
     <Modal titulo={`Editar a ${nombre}`} onCerrar={() => onCerrar(false)}>
       {venceEn != null && <NotaTiempo venceEn={venceEn} />}
       <form onSubmit={guardar} noValidate ref={formulario}>
-        <FormHuesped valores={valores} errores={errores} onCambio={cambia} conHabitacion sugerencias={false} medios={opciones} deshabilitado={guardando || vencido} />
+        <FormHuesped valores={valores} errores={errores} onCambio={cambia} conHabitacion={!conReserva} sugerencias={false} medios={opciones} deshabilitado={guardando || vencido} />
         {aviso && <p className="ed-error" role="alert">{aviso}</p>}
         <div className="btns modal-pie">
           <button type="submit" className="btn" disabled={guardando || vencido}>{guardando ? 'Guardando…' : 'Guardar cambios'}</button>

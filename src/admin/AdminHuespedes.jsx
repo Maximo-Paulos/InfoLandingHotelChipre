@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BarraPersonal from '../BarraPersonal.jsx';
 import Icon from '../components/Icon.jsx';
-import { adminAuditoria, adminHuespedEditar, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
+import { adminAuditoria, adminEstadiaEditar, adminHuespedEditar, adminHuespedEstadia, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
 import EditarHuesped from '../checkin/EditarHuesped.jsx';
+import Modal from '../checkin/Modal.jsx';
 import Planilla from '../checkin/Planilla.jsx';
+import ReservaForm from '../checkin/ReservaForm.jsx';
 import { fechaHora } from '../checkin/util.js';
 import FotosHuesped from './FotosHuesped.jsx';
 import { ConectarDrive, ConfigCheckin, useConfigCheckin } from './PanelCheckin.jsx';
@@ -31,6 +33,7 @@ function Contenido({ clave, salir }) {
   const [editando, setEditando] = useState(null);
   const [fotosDe, setFotosDe] = useState(null); // el huésped cuyas fotos se están viendo
   const [aviso, setAviso] = useState('');
+  const [editandoReserva, setEditandoReserva] = useState(null);
   const [medios, setMedios] = useState(null); // todos los medios de pago (también los quitados); null = todavía no cargaron
   const pedido = useRef(0);
   const filasRef = useRef([]); // lo que se ve ahora: de acá sale desde qué huésped seguir al tocar "Cargar más"
@@ -91,6 +94,26 @@ function Contenido({ clave, salir }) {
     return { ok: false, mensaje: textoCodigo(r.error), campos: r.campos };
   };
 
+  const guardarReserva = async (r) => {
+    const res = await adminEstadiaEditar(clave, editandoReserva.id, r);
+    if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
+    setEditandoReserva(null);
+    setAviso('Reserva guardada.');
+    cargar('refrescar');
+    return { ok: true };
+  };
+  const asignar = async (fila, estadia) => {
+    setAviso('');
+    try {
+      const res = await adminHuespedEstadia(clave, fila.id, estadia);
+      if (res.ok) { setAviso('Huésped asignado a la reserva.'); cargar('refrescar'); } else setError(textoCodigo(res.error));
+    } catch {
+      setError('No se pudo conectar. Revisá tu conexión.');
+    }
+  };
+  // Las reservas que se ven ahora (sin repetir), para asignarles huéspedes de antes.
+  const reservas = [...new Map(filas.filter((f) => f.estadia).map((f) => [f.estadia.id, f.estadia])).values()];
+
   return (
     <div className="page personal">
       <BarraPersonal titulo="Huéspedes" actual="huespedes" salir={salir} ancha />
@@ -112,7 +135,7 @@ function Contenido({ clave, salir }) {
         {aviso && <p className="ed-ok" role="status">{aviso}</p>}
         {error && <p className="ed-error" role="alert">{error}</p>}
         {cargando && !filas.length ? <p className="intro" role="status">Cargando…</p> : (
-          <Planilla filas={filas} onEditar={(f) => { setAviso(''); setEditando(f); }} onFotos={fotosListas ? (f) => { setAviso(''); setFotosDe(f); } : undefined} vacio={busqueda ? 'No hay huéspedes que coincidan con la búsqueda.' : 'Todavía no hay huéspedes cargados.'} />
+          <Planilla filas={filas} onEditarReserva={setEditandoReserva} reservas={reservas} onAsignar={asignar} onEditar={(f) => { setAviso(''); setEditando(f); }} onFotos={fotosListas ? (f) => { setAviso(''); setFotosDe(f); } : undefined} vacio={busqueda ? 'No hay huéspedes que coincidan con la búsqueda.' : 'Todavía no hay huéspedes cargados.'} />
         )}
         {filas.length > 0 && <p className="ayuda" role="status">Mostrando {filas.length} {filas.length === 1 ? 'huésped' : 'huéspedes'}{hayMas ? '. Tocá «Cargar más» para ver a los anteriores.' : '.'}</p>}
         {hayMas && <div className="btns"><button type="button" className="btn claro" onClick={() => cargar('mas')} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar más'}</button></div>}
@@ -133,13 +156,18 @@ function Contenido({ clave, salir }) {
           onCerrar={(guardado) => { setEditando(null); if (guardado) { setAviso('Cambios guardados.'); cargar('refrescar'); } }}
         />
       )}
+      {editandoReserva && (
+        <Modal titulo={`Corregir la reserva de la ${editandoReserva.habitacion}`} onCerrar={() => setEditandoReserva(null)}>
+          <ReservaForm inicial={editandoReserva} medios={medios ? medios.filter((m) => m.activo).map(({ id, nombre }) => ({ id, nombre })) : []} onGuardar={guardarReserva} texto="Guardar cambios" alCancelar={() => setEditandoReserva(null)} />
+        </Modal>
+      )}
       {fotosDe && <FotosHuesped clave={clave} fila={fotosDe} onCerrar={() => setFotosDe(null)} alCambiar={() => cargar('refrescar')} />}
     </div>
   );
 }
 
-const ACCIONES = { editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', usuario_creado: 'agregó a una persona al equipo', usuario_editado: 'cambió a una persona del equipo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', sesion_abierta: 'abrió sesión en un dispositivo', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
-const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación', medio_pago: 'medio de pago' };
+const ACCIONES = { reserva_nueva: 'abrió una reserva', estadia_editar: 'corrigió una reserva', huesped_estadia: 'asignó un huésped a una reserva', editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', usuario_creado: 'agregó a una persona al equipo', usuario_editado: 'cambió a una persona del equipo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', sesion_abierta: 'abrió sesión en un dispositivo', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
+const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación', medio_pago: 'medio de pago', anio_nac: 'año de nacimiento', monto: 'monto', moneda: 'moneda', fecha_cobro: 'fecha del cobro' };
 
 // Quién cambió qué y cuándo (no guarda los valores, solo los nombres de los campos).
 function Historial({ clave }) {
@@ -166,7 +194,7 @@ function Historial({ clave }) {
               <b>{fechaHora(r.en)}</b> · {r.detalle?.alias && r.accion !== 'usuario_creado' && r.accion !== 'usuario_editado' ? `${r.detalle.alias} (${r.quien === 'admin' ? 'dueño' : 'recepción'})` : r.quien === 'admin' ? 'Dueño' : 'Recepción'} {ACCIONES[r.accion] ?? r.accion}
               {r.checkin_id ? ` (huésped n.º ${r.checkin_id})` : ''}
               {r.detalle?.alias && (r.accion === 'usuario_creado' || r.accion === 'usuario_editado') ? `: ${r.detalle.antes && r.detalle.antes !== r.detalle.alias ? `${r.detalle.antes} → ` : ''}${r.detalle.alias}` : ''}
-              {r.detalle?.campos?.length && r.accion === 'editar' ? `: ${r.detalle.campos.map((c) => CAMPOS[c] ?? c).join(', ')}` : ''}
+              {r.detalle?.campos?.length && (r.accion === 'editar' || r.accion === 'estadia_editar') ? `: ${r.detalle.campos.map((c) => CAMPOS[c] ?? c).join(', ')}` : ''}
             </li>
           ))}
         </ul>

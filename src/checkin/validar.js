@@ -12,6 +12,7 @@ export const MENSAJES = {
   email: 'Escribí un email válido, por ejemplo nombre@correo.com.',
   telefono: 'Ese teléfono no parece válido. Elegí el país y escribí el número completo.',
   nacionalidad: 'Elegí tu nacionalidad.',
+  anio_nac: 'Escribí el año en que naciste, con 4 números. Por ejemplo, 1985.',
   localidad: 'Escribí tu localidad (entre 2 y 80 caracteres).',
   domicilio: 'Escribí tu domicilio: calle y número (entre 5 y 120 caracteres).',
   doc_tipo: 'Elegí si es DNI o pasaporte.',
@@ -45,6 +46,10 @@ export function validarHuesped(v, lib, { conHabitacion = false } = {}) {
   if (!tel.ok) errores.telefono = MENSAJES.telefono;
 
   if (!nac || !listaPaises().some((p) => p.nombre === nac)) errores.nacionalidad = MENSAJES.nacionalidad;
+  // El huésped lo tiene que poner; recepción puede dejarlo vacío al corregir un check-in viejo.
+  const anio = String(v.anio_nac ?? '').trim();
+  if (anio ? !/^[12][0-9]{3}$/.test(anio) || +anio < 1900 || +anio > new Date().getFullYear() : !conHabitacion) errores.anio_nac = MENSAJES.anio_nac;
+
   if (loc.length < 2 || loc.length > 80 || !SIN_CONTROL.test(loc)) errores.localidad = MENSAJES.localidad;
   if (dom.length < 5 || dom.length > 120 || !SIN_CONTROL.test(dom)) errores.domicilio = MENSAJES.domicilio;
 
@@ -71,7 +76,7 @@ export function validarHuesped(v, lib, { conHabitacion = false } = {}) {
   return {
     errores,
     habitacion,
-    datos: { nombre, apellido, email, telefono: tel.numero, nacionalidad: nac, localidad: loc, domicilio: dom, doc_tipo: tipo, doc_numero: num }
+    datos: { nombre, apellido, email, telefono: tel.numero, nacionalidad: nac, localidad: loc, domicilio: dom, doc_tipo: tipo, doc_numero: num, ...(anio ? { anio_nac: +anio } : {}) }
   };
 }
 
@@ -83,7 +88,7 @@ export function valoresDesdeDatos(d, habitacion = '', medioPago = '') {
   return {
     nombre: d.nombre ?? '', apellido: d.apellido ?? '', email: d.email ?? '',
     telefonoPais: 'AR', telefonoNumero: d.telefono ?? '',
-    nacionalidad: d.nacionalidad ?? '', localidad: d.localidad ?? '', domicilio: d.domicilio ?? '',
+    nacionalidad: d.nacionalidad ?? '', anio_nac: d.anio_nac == null ? '' : String(d.anio_nac), localidad: d.localidad ?? '', domicilio: d.domicilio ?? '',
     doc_tipo: d.doc_tipo ?? 'DNI', doc_numero: d.doc_numero ?? '', habitacion: habitacion ?? '',
     medio_pago: medioPago == null ? '' : String(medioPago)
   };

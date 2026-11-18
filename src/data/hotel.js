@@ -302,6 +302,7 @@ export default {
       email: "Email",
       telefono: "Teléfono",
       nacionalidad: "Nacionalidad",
+      anio: "Año de nacimiento",
       localidad: "Localidad",
       domicilio: "Domicilio",
       docTipo: "Tipo de documento",

@@ -4,10 +4,12 @@ import FotosHuesped from '../admin/FotosHuesped.jsx';
 import BarraPersonal from '../BarraPersonal.jsx';
 import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
-import { recepcionCodigoNuevo, recepcionEditar, recepcionEstado, textoCodigo } from './checkinApi.js';
+import { recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaEditar, recepcionEstado, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import EditarHuesped from './EditarHuesped.jsx';
+import Modal from './Modal.jsx';
 import Planilla from './Planilla.jsx';
-import { agruparCodigo, useAhora } from './util.js';
+import ReservaForm, { plata } from './ReservaForm.jsx';
+import { agruparCodigo, minSeg, useAhora } from './util.js';
 
 const CADA_MS = 3000;
 
@@ -61,6 +63,8 @@ function Panel({ clave, rol, vista, salir }) {
   const [error, setError] = useState('');
   const [editando, setEditando] = useState(null);
   const [nuevo, setNuevo] = useState(false);
+  const [otraReserva, setOtraReserva] = useState(false); // el formulario de reserva nueva, aunque haya una abierta
+  const [editandoReserva, setEditandoReserva] = useState(null);
   const [fotos, setFotos] = useState(null);
   const ahora = useAhora(250);
   const reloj = useRef(null);
@@ -117,6 +121,39 @@ function Panel({ clave, rol, vista, salir }) {
     }
   };
 
+  // Cuando la reserva se termina de contar, se vuelve a consultar: el código desaparece y vuelve el formulario.
+  const restanteReserva = estado?.reserva ? Math.max(0, estado.reserva.vence_seg - (ahora - estado.recibido) / 1000) : 0;
+  const reservaVencida = useRef(0);
+  useEffect(() => {
+    if (estado?.reserva && restanteReserva <= 0 && reservaVencida.current !== estado.recibido) {
+      reservaVencida.current = estado.recibido;
+      refrescar();
+    }
+  }, [estado, restanteReserva, refrescar]);
+
+  const abrirReserva = async (r) => {
+    const res = await recepcionReservaNueva(clave, r);
+    if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
+    setOtraReserva(false);
+    await refrescar();
+    return { ok: true };
+  };
+  const cerrarReserva = async (extender) => {
+    try {
+      const r = await recepcionReservaCerrar(clave, extender);
+      if (r.ok) await refrescar(); else setError(textoCodigo(r.error));
+    } catch {
+      setError('No se pudo conectar. Revisá tu conexión.');
+    }
+  };
+  const guardarReserva = async (r) => {
+    const res = await recepcionEstadiaEditar(clave, editandoReserva.id, r);
+    if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
+    setEditandoReserva(null);
+    await refrescar();
+    return { ok: true };
+  };
+
   const segundosEdicion = (f) => (estado?.config?.edicion_activa ? Math.max(0, f.editable_seg - (ahora - estado.recibido) / 1000) : 0);
 
   const guardar = async (datos, habitacion, medioPago) => {
@@ -142,24 +179,44 @@ function Panel({ clave, rol, vista, salir }) {
         {error && <p className="ed-error" role="alert">{error}</p>}
 
         {estado && vista === 'codigo' && (
-          <section className="codigo-panel" aria-label="Código para el huésped">
+          <section className={`codigo-panel${activo && (!estado.reserva || otraReserva) ? ' con-form' : ''}`} aria-label="Código para el huésped">
             {activo ? (
-              <>
-                <p className="etq">Dáselo al huésped</p>
-                {restanteCodigo > 0
-                  ? <p className="codigo-grande" aria-label={`Código ${estado.codigo.valor.split('').join(' ')}`}>{agruparCodigo(estado.codigo.valor)}</p>
-                  : <p className="codigo-grande generando" role="status">Generando…</p>}
-                <div className="barra" role="progressbar" aria-valuemin={0} aria-valuemax={duracion} aria-valuenow={Math.ceil(restanteCodigo)} aria-label="Tiempo que le queda al código">
-                  <span style={{ width: `${pct}%` }} />
+              estado.reserva && !otraReserva ? (
+                <>
+                  <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b> · {plata(estado.reserva.estadia.monto, estado.reserva.estadia.moneda)} · {estado.reserva.estadia.medio_pago}</p>
+                  <p className="etq">Dáselo al próximo huésped de esta habitación</p>
+                  {restanteCodigo > 0
+                    ? <p className="codigo-grande" aria-label={`Código ${estado.codigo.valor.split('').join(' ')}`}>{agruparCodigo(estado.codigo.valor)}</p>
+                    : <p className="codigo-grande generando" role="status">Generando…</p>}
+                  <div className="barra" role="progressbar" aria-valuemin={0} aria-valuemax={duracion} aria-valuenow={Math.ceil(restanteCodigo)} aria-label="Tiempo que le queda al código">
+                    <span style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="codigo-meta">
+                    Cambia en {Math.ceil(restanteCodigo)} s · Usado {estado.codigo.usos} de {estado.codigo.usos_max}
+                  </p>
+                  <p className="codigo-meta">La reserva se cierra en {minSeg(restanteReserva)}.</p>
+                  {estado.reserva.huespedes.length > 0 && (
+                    <>
+                      <p className="etq">Ya hicieron el check-in ({estado.reserva.huespedes.length})</p>
+                      <ul className="reserva-lista">{estado.reserva.huespedes.map((h) => <li key={h.id}>{h.nombre} {h.apellido}</li>)}</ul>
+                    </>
+                  )}
+                  <div className="btns reserva-btns">
+                    <button type="button" className="btn mini claro" onClick={codigoNuevo} disabled={nuevo}><Icon name="refrescar" size={18} sw={1.8} /> {nuevo ? 'Generando…' : 'Código nuevo ahora'}</button>
+                    <button type="button" className="btn mini claro" onClick={() => cerrarReserva(true)}>Dar {estado.config.reserva_min} min más</button>
+                    <button type="button" className="btn mini claro" onClick={() => setEditandoReserva(estado.reserva.estadia)}>Corregir reserva</button>
+                    <button type="button" className="btn mini claro" onClick={() => cerrarReserva(false)}>Terminar reserva</button>
+                    <button type="button" className="btn mini" onClick={() => setOtraReserva(true)}>Nueva reserva (otra habitación)</button>
+                  </div>
+                  {estado.quien && <p className="codigo-quien">Es tu código: los check-ins que se hagan con él quedan a nombre de <b>{estado.quien}</b>.</p>}
+                </>
+              ) : (
+                <div className="reserva-nueva">
+                  <h2>Nueva reserva</h2>
+                  <p className="aclara">Cargá la habitación y lo que se cobró. Recién ahí aparece el código para los huéspedes.</p>
+                  <ReservaForm medios={estado.medios_pago} onGuardar={abrirReserva} texto="Generar códigos" alCancelar={estado.reserva ? () => setOtraReserva(false) : null} />
                 </div>
-                <p className="codigo-meta">
-                  Cambia en {Math.ceil(restanteCodigo)} s · Usado {estado.codigo.usos} de {estado.codigo.usos_max}
-                </p>
-                <button type="button" className="btn mini claro" onClick={codigoNuevo} disabled={nuevo}>
-                  <Icon name="refrescar" size={18} sw={1.8} /> {nuevo ? 'Generando…' : 'Código nuevo ahora'}
-                </button>
-                {estado.quien && <p className="codigo-quien">Es tu código: los check-ins que se hagan con él quedan a nombre de <b>{estado.quien}</b>.</p>}
-              </>
+              )
             ) : (
               <p className="codigo-apagado" role="status">El check-in digital está apagado. Lo prende el administrador desde su panel.</p>
             )}
@@ -173,15 +230,21 @@ function Panel({ clave, rol, vista, salir }) {
             </div>
             <p className="aclara">
               {estado.config.edicion_activa
-                ? `Podés corregir los datos y cargar la habitación durante ${estado.config.edicion_min} minutos desde que el huésped envía el formulario.`
+                ? `Podés corregir los datos y la reserva durante ${estado.config.edicion_min} minutos desde que el huésped envía el formulario.`
                 : 'Por ahora recepción no puede editar los datos. Si hay que corregir algo, avisale al administrador.'}
             </p>
-            <Planilla filas={huespedes} restante={estado.config.edicion_activa ? segundosEdicion : () => 0} onEditar={(f) => setEditando({ ...f, venceEn: estado.recibido + f.editable_seg * 1000 })} onFotos={setFotos} vacio="Todavía no hay huéspedes cargados en estos días." />
+            <Planilla filas={huespedes} restante={estado.config.edicion_activa ? segundosEdicion : () => 0} onEditar={(f) => setEditando({ ...f, venceEn: estado.recibido + f.editable_seg * 1000 })} onEditarReserva={(e) => setEditandoReserva(e)} reservaEditable={(e) => (estado.config.edicion_activa ? Math.max(0, e.editable_seg - (ahora - estado.recibido) / 1000) : 0) > 0} onFotos={setFotos} vacio="Todavía no hay huéspedes cargados en estos días." />
           </>
         )}
       </main>
 
       {fotos && <FotosHuesped modo="recepcion" clave={clave} fila={fotos} onCerrar={() => setFotos(null)} alCambiar={refrescar} />}
+
+      {editandoReserva && (
+        <Modal titulo={`Corregir la reserva de la ${editandoReserva.habitacion}`} onCerrar={() => setEditandoReserva(null)}>
+          <ReservaForm inicial={editandoReserva} medios={estado?.medios_pago ?? []} onGuardar={guardarReserva} texto="Guardar cambios" alCancelar={() => setEditandoReserva(null)} />
+        </Modal>
+      )}
 
       {editando && (
         <EditarHuesped

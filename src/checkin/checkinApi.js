@@ -22,6 +22,15 @@ export const recepcionEditar = (clave, id, datos, habitacion, medioPago) =>
 export const recepcionFotos = (clave, id) => rpc('recepcion_fotos', { p_clave: clave, p_id: id });
 export const recepcionFotoPermiso = (clave, id) => rpc('recepcion_foto_permiso', { p_clave: clave, p_id: id });
 
+// Reservas: habitación + monto, antes de dar el código. `r` = { habitacion, monto, moneda, medioPago, fecha }.
+const deReserva = (r) => ({ p_habitacion: r.habitacion, p_monto: r.monto, p_moneda: r.moneda, p_medio_pago: r.medioPago, p_fecha: r.fecha });
+export const recepcionReservaNueva = (clave, r) => rpc('recepcion_reserva_nueva', { p_clave: clave, ...deReserva(r) });
+export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcion_reserva_cerrar', { p_clave: clave, p_extender: extender });
+export const recepcionEstadiaEditar = (clave, id, r) => rpc('recepcion_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
+export const adminEstadiaEditar = (clave, id, r) => rpc('admin_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
+export const adminHuespedEstadia = (clave, id, estadia) => rpc('admin_huesped_estadia', { p_clave: clave, p_id: id, p_estadia: estadia });
+export const adminReservaMin = (clave, minutos) => rpc('admin_reserva_min', { p_clave: clave, p_min: minutos });
+
 // Admin general
 export const adminConfig = (clave) => rpc('admin_checkin_config', { p_clave: clave });
 export const adminConfigGuardar = (clave, config) => rpc('admin_checkin_config_guardar', { p_clave: clave, p_config: config });

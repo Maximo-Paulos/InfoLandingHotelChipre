@@ -41,8 +41,8 @@ export const isoDeNombre = (nombre) => listaPaises().find((p) => p.nombre === no
 // Valores vacíos del formulario (los campos del huésped; la habitación solo la usa el personal).
 export const VACIO = {
   nombre: '', apellido: '', email: '', telefonoPais: 'AR', telefonoNumero: '',
-  nacionalidad: 'Argentina', localidad: '', domicilio: '', doc_tipo: 'DNI', doc_numero: '', habitacion: ''
+  nacionalidad: 'Argentina', anio_nac: '', localidad: '', domicilio: '', doc_tipo: 'DNI', doc_numero: '', habitacion: ''
 };
 
 // Orden en que aparecen los campos (para llevar el foco al primero con error).
-export const ORDEN = ['nombre', 'apellido', 'email', 'telefono', 'nacionalidad', 'localidad', 'domicilio', 'doc_tipo', 'doc_numero'];
+export const ORDEN = ['nombre', 'apellido', 'email', 'telefono', 'nacionalidad', 'anio_nac', 'localidad', 'domicilio', 'doc_tipo', 'doc_numero'];

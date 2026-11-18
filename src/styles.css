@@ -476,3 +476,20 @@ body:has(.tabs-personal) .toast{bottom:calc(84px + env(safe-area-inset-bottom));
   .planilla td.c-acciones .btn.mini,.planilla td.c-acciones .candado{width:100%;min-height:48px;justify-content:center}
 }
 
+
+/* reservas: habitación + monto antes del código */
+.codigo-panel.con-form{max-width:520px;padding:0;background:transparent;color:inherit;text-align:left}
+.reserva-nueva h2{margin:0 0 4px;font-size:22px}
+.fila-monto{display:grid;grid-template-columns:2fr 1fr;gap:10px}
+.reserva-cab{margin:0 0 14px;font-size:17px;line-height:1.35;color:var(--hueso)}
+.reserva-lista{margin:8px 0 0;padding:0;list-style:none;font-size:15px;line-height:1.7}
+.reserva-btns{justify-content:center;flex-wrap:wrap;gap:8px;margin-top:16px}
+.codigo-panel .reserva-btns .btn.mini:not(.claro){background:var(--mostaza);color:var(--verde-oscuro);border:0}
+.planilla tr.grupo>td{padding:12px;background:var(--salvia-claro);font-size:15px;white-space:normal}
+.planilla tr.grupo .btn.mini{margin-left:12px}
+.planilla .asignar{min-height:40px;max-width:100%;margin-right:8px;font-size:13px}
+@media (max-width:760px){
+  .planilla tbody tr.grupo{display:block;padding:12px 14px;background:var(--salvia-claro);border-color:transparent}
+  .planilla tr.grupo .btn.mini{display:flex;width:100%;margin:8px 0 0;justify-content:center}
+  .fila-monto{grid-template-columns:1fr}
+}

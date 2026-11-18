@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { SUPABASE_KEY, SUPABASE_URL } from '../config.js';
 import { leerContenido } from '../data/api.js';
-import { adminConfig, adminConfigGuardar, textoCodigo } from '../checkin/checkinApi.js';
+import { adminConfig, adminConfigGuardar, adminReservaMin, textoCodigo } from '../checkin/checkinApi.js';
 import { probarConexion } from '../checkin/foto.js';
 import codigoScript from '../../apps-script/Codigo.gs?raw';
 
 const NUMEROS = [
   ['codigo_seg', 'Cada cuántos segundos cambia el código', 5, 300],
   ['usos_max', 'Cuántas personas pueden usar el mismo código', 1, 20],
+  ['reserva_min', 'Minutos que sigue abierta una reserva (los códigos sirven mientras tanto)', 1, 120],
   ['edicion_min', 'Minutos que recepción puede editar un huésped', 1, 1440],
   ['dias_recepcion', 'Días de huéspedes que ve recepción', 1, 365]
 ];
@@ -50,12 +51,18 @@ export function ConfigCheckin({ clave, config, recargar }) {
   const guardar = async (e) => {
     e.preventDefault();
     for (const [k, etq, min, max] of NUMEROS) {
+      if (k === 'reserva_min' && config.reserva_min == null) continue;
       const n = Number(f[k]);
       if (!Number.isInteger(n) || n < min || n > max) { setMsg({ ok: false, texto: `"${etq}": poné un número entre ${min} y ${max}.` }); return; }
     }
     setGuardando(true);
     setMsg(null);
     try {
+      // La duración de la reserva se guarda aparte (solo existe si la base ya tiene las reservas).
+      if (config.reserva_min != null && Number(f.reserva_min) !== Number(config.reserva_min)) {
+        const m = await adminReservaMin(clave, Number(f.reserva_min));
+        if (!m.ok) { setMsg({ ok: false, texto: textoCodigo(m.error) }); setGuardando(false); return; }
+      }
       const r = await adminConfigGuardar(clave, {
         activo: !!f.activo, edicion_activa: !!f.edicion_activa, foto_modo: f.foto_modo,
         codigo_seg: Number(f.codigo_seg), usos_max: Number(f.usos_max), edicion_min: Number(f.edicion_min), dias_recepcion: Number(f.dias_recepcion)
@@ -80,7 +87,7 @@ export function ConfigCheckin({ clave, config, recargar }) {
             <option value="si">Encendido</option>
           </select>
         </div>
-        {NUMEROS.slice(0, 2).map(([k, etq, min, max]) => (
+        {NUMEROS.slice(0, 3).filter(([k]) => k !== 'reserva_min' || config.reserva_min != null).map(([k, etq, min, max]) => (
           <div className="campo" key={k}>
             <label htmlFor={`cfg-${k}`}>{etq}</label>
             <input id={`cfg-${k}`} type="number" inputMode="numeric" min={min} max={max} step="1" value={f[k]} onChange={(e) => cambia(k, e.target.value)} />
@@ -93,7 +100,7 @@ export function ConfigCheckin({ clave, config, recargar }) {
             <option value="no">No</option>
           </select>
         </div>
-        {NUMEROS.slice(2).map(([k, etq, min, max]) => (
+        {NUMEROS.slice(3).map(([k, etq, min, max]) => (
           <div className="campo" key={k}>
             <label htmlFor={`cfg-${k}`}>{etq}</label>
             <input id={`cfg-${k}`} type="number" inputMode="numeric" min={min} max={max} step="1" value={f[k]} onChange={(e) => cambia(k, e.target.value)} disabled={k === 'edicion_min' && !f.edicion_activa} />

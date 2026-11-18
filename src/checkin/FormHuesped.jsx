@@ -3,7 +3,7 @@ import { TIPOS_DOC, listaPaises } from './campos.js';
 import { cargarTelefono, codigoDe } from './telefono.js';
 
 export const ETIQUETAS = {
-  nombre: 'Nombre', apellido: 'Apellido', email: 'Email', telefono: 'Teléfono', nacionalidad: 'Nacionalidad',
+  nombre: 'Nombre', apellido: 'Apellido', email: 'Email', telefono: 'Teléfono', nacionalidad: 'Nacionalidad', anio: 'Año de nacimiento',
   localidad: 'Localidad', domicilio: 'Domicilio', docTipo: 'Tipo de documento', docNumero: 'Número de documento', habitacion: 'Habitación', medioPago: 'Medio de pago'
 };
 
@@ -65,6 +65,7 @@ export default function FormHuesped({ valores, errores = {}, onCambio, etiquetas
           {paises.map((p) => <option key={p.iso} value={p.nombre}>{p.nombre}</option>)}
         </select>
       ))}
+      {campo('anio_nac', etiquetas.anio ?? ETIQUETAS.anio, <input {...props('anio_nac', { inputMode: 'numeric', maxLength: 4, autoComplete: 'off', placeholder: 'Ej. 1985' })} />)}
       {campo('localidad', etiquetas.localidad, <input {...props('localidad', { maxLength: 80, autoComplete: 'address-level2' })} />, 'Por ejemplo: Buenos Aires, Capital Federal.')}
       {campo('domicilio', etiquetas.domicilio, <input {...props('domicilio', { maxLength: 120, autoComplete: 'street-address' })} />, 'Calle y número; si es departamento, piso y letra.')}
       {campo('doc_tipo', etiquetas.docTipo, (

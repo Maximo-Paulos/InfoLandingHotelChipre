@@ -49,7 +49,7 @@ const TEXTOS = [
   ['registro.errNoDisponible', 'Mensaje: check-in apagado'], ['registro.errRed', 'Mensaje: sin conexión'],
   ['registro.formTitulo', 'Paso 2: título del formulario'], ['registro.tiempo', 'Paso 2: texto de la cuenta regresiva ("Te quedan 29:10")'],
   ['registro.campos.nombre', 'Campo: nombre'], ['registro.campos.apellido', 'Campo: apellido'], ['registro.campos.email', 'Campo: email'],
-  ['registro.campos.telefono', 'Campo: teléfono'], ['registro.campos.nacionalidad', 'Campo: nacionalidad'], ['registro.campos.localidad', 'Campo: localidad'],
+  ['registro.campos.telefono', 'Campo: teléfono'], ['registro.campos.nacionalidad', 'Campo: nacionalidad'], ['registro.campos.anio', 'Campo: año de nacimiento'], ['registro.campos.localidad', 'Campo: localidad'],
   ['registro.campos.domicilio', 'Campo: domicilio'], ['registro.campos.docTipo', 'Campo: tipo de documento'], ['registro.campos.docNumero', 'Campo: número de documento'],
   ['registro.campos.foto', 'Campo: foto del documento'], ['registro.fotoAyuda', 'Foto: ayuda'], ['registro.btnSacarFoto', 'Foto: botón sacar'],
   ['registro.btnGaleria', 'Foto: botón galería'], ['registro.btnCambiarFoto', 'Foto: botón cambiar'], ['registro.btnQuitarFoto', 'Foto: botón quitar'],

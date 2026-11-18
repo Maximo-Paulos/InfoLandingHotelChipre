@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { cargarTelefono } from './telefono.js';
+import { plata } from './ReservaForm.jsx';
 import { fechaHora, minSeg, urlDrive } from './util.js';
 
 // Las fotos de una fila: la lista nueva, o la única foto de antes si la base todavía no tiene la lista.
@@ -9,8 +10,11 @@ const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_i
 // La planilla de huéspedes: una fila por persona, con la habitación fija a la izquierda y scroll hacia los costados.
 //   filas: [{ id, creado, habitacion, datos, foto_id, foto_nombre, fotos?, editable_seg? }]
 //   puedeEditar(fila) -> segundos que quedan para editar (null = sin límite, 0 = no se puede)
+//   Los huéspedes de una misma reserva (fila.estadia_id) se muestran juntos, bajo una cabecera con la habitación y lo cobrado.
+//   onEditarReserva(estadia): si viene, la cabecera tiene «Corregir reserva» · reservaEditable(estadia) -> false la deja cerrada (sin esta función, siempre se puede)
+//   reservas: [{ id, habitacion, ... }] y onAsignar(fila, estadiaId): si vienen, los huéspedes sin reserva se pueden asignar a una (solo el dueño)
 //   onFotos(fila): si viene, cada fila tiene un botón para ver y agregar sus fotos (el dueño también puede quitarlas; recepción no)
-export default function Planilla({ filas, onEditar, onFotos, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
+export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, reservaEditable, reservas, onAsignar, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
   const [lib, setLib] = useState(null);
   useEffect(() => {
     let vivo = true;
@@ -21,6 +25,18 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
     if (!n) return '';
     try { return lib?.parsePhoneNumberFromString(n)?.formatInternational() ?? n; } catch { return n; }
   };
+
+  // Una cabecera por reserva, en el orden en que aparece su primer huésped; los de antes de las reservas van al final.
+  const grupos = useMemo(() => {
+    const mapa = new Map();
+    for (const f of filas) {
+      const k = f.estadia_id ?? 0;
+      if (!mapa.has(k)) mapa.set(k, { estadia: f.estadia ?? null, filas: [] });
+      mapa.get(k).filas.push(f);
+    }
+    const todos = [...mapa.entries()];
+    return [...todos.filter(([k]) => k), ...todos.filter(([k]) => !k)].map(([, g]) => g);
+  }, [filas]);
 
   if (!filas.length) return <p className="planilla-vacia">{vacio}</p>;
   return (
@@ -37,6 +53,7 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
             <th scope="col" role="columnheader">Nombre</th>
             <th scope="col" role="columnheader">Documento</th>
             <th scope="col" role="columnheader">Nacionalidad</th>
+            <th scope="col" role="columnheader">Año nac.</th>
             <th scope="col" role="columnheader">Localidad</th>
             <th scope="col" role="columnheader">Domicilio</th>
             <th scope="col" role="columnheader">Email</th>
@@ -46,7 +63,22 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
           </tr>
         </thead>
         <tbody role="rowgroup">
-          {filas.map((f) => {
+          {grupos.map((g) => (
+            <Fragment key={g.estadia?.id ?? 'sin'}>
+              <tr role="row" className="grupo">
+                <td role="cell" colSpan={15}>
+                  {g.estadia ? (
+                    <>
+                      <b>Hab. {g.estadia.habitacion}</b> · {plata(g.estadia.monto, g.estadia.moneda)} · {g.estadia.medio_pago} · cobro {g.estadia.fecha_cobro.split('-').reverse().slice(0, 2).join('/')}
+                      <span className="muted"> · cargó {g.estadia.cargado_por} · {g.filas.length} {g.filas.length === 1 ? 'huésped' : 'huéspedes'}</span>
+                      {onEditarReserva && (!reservaEditable || reservaEditable(g.estadia)) && (
+                        <button type="button" className="btn mini claro" onClick={() => onEditarReserva(g.estadia)}><Icon name="lapiz" size={16} sw={1.8} /> Corregir reserva</button>
+                      )}
+                    </>
+                  ) : <span className="pendiente">Sin reserva (check-ins de antes)</span>}
+                </td>
+              </tr>
+              {g.filas.map((f) => {
             const d = f.datos ?? {};
             const fotos = fotosDe(f);
             const seg = restante ? restante(f) : null;
@@ -69,6 +101,7 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
                 <td role="cell" className="c-nom" data-label="Nombre">{d.nombre}</td>
                 <td role="cell" className="c-doc" data-label="Documento"><span className="doc-tipo">{d.doc_tipo}</span> {d.doc_numero}</td>
                 <td role="cell" className="c-nac" data-label="Nacionalidad">{d.nacionalidad}</td>
+                <td role="cell" className="c-anio" data-label="Año nac.">{d.anio_nac ?? ''}</td>
                 <td role="cell" className="c-loc" data-label="Localidad">{d.localidad}</td>
                 <td role="cell" className="dom c-dom" data-label="Domicilio">{d.domicilio}</td>
                 <td role="cell" className="c-email" data-label="Email">{d.email}</td>
@@ -87,6 +120,12 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
                   )}
                 </td>
                 <td role="cell" className="acciones c-acciones">
+                  {onAsignar && reservas?.length > 0 && !f.estadia_id && (
+                    <select className="asignar" aria-label={`Asignar a ${d.apellido ?? ''} ${d.nombre ?? ''} a una reserva`.trim()} value="" onChange={(e) => e.target.value && onAsignar(f, Number(e.target.value))}>
+                      <option value="">Asignar a reserva…</option>
+                      {reservas.map((r) => <option key={r.id} value={r.id}>Hab. {r.habitacion} · {plata(r.monto, r.moneda)}</option>)}
+                    </select>
+                  )}
                   {onEditar && (
                     puede
                       ? <button type="button" className="btn mini claro" onClick={() => onEditar(f)}>
@@ -97,7 +136,9 @@ export default function Planilla({ filas, onEditar, onFotos, restante, vacio = '
                 </td>
               </tr>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
     </div>

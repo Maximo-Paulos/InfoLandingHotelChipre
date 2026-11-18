@@ -9,7 +9,7 @@ import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './b
 const raiz = fileURLToPath(new URL('..', import.meta.url));
 const PUERTO = 54321;
 
-const back = await iniciarBackend({ puerto: PUERTO, silencioso: false });
+const back = await iniciarBackend({ puerto: PUERTO, silencioso: false, estadias: true });
 // El check-in arranca prendido, con la clave de recepción cargada y con un Drive simulado, para ahorrar pasos.
 await back.sql(`update private.checkin_config set activo = true, foto_url = $1 where id = 1`, [`${back.url}/apps-script/exec`]);
 await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);

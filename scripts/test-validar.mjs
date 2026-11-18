@@ -9,13 +9,17 @@ const ok = (c, m) => { console.log((c ? 'OK    ' : 'FALLA ') + m); if (!c) falla
 
 const base = {
   nombre: 'Ana María', apellido: 'Pérez-García', email: ' ANA@Correo.com ', telefonoPais: 'AR', telefonoNumero: '011 15 5555-1234',
-  nacionalidad: 'Argentina', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: '30.123.456'
+  nacionalidad: 'Argentina', anio_nac: '1985', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: '30.123.456'
 };
 const con = (cambios, opc) => validarHuesped({ ...base, ...cambios }, lib, opc);
 
 let r = con({});
 ok(Object.keys(r.errores).length === 0, 'datos completos y correctos');
 ok(r.datos?.telefono === '+5491155551234' && r.datos?.email === 'ana@correo.com' && r.datos?.doc_numero === '30123456', 'se normalizan teléfono, email y DNI');
+
+ok(r.datos?.anio_nac === 1985, 'el año de nacimiento se guarda como número');
+ok(con({ anio_nac: '' }).errores.anio_nac && !con({ anio_nac: '' }, { conHabitacion: true }).errores.anio_nac, 'el año es obligatorio para el huésped y opcional para recepción');
+ok(con({ anio_nac: '1850' }).errores.anio_nac && con({ anio_nac: '3000' }).errores.anio_nac && con({ anio_nac: '85' }).errores.anio_nac, 'años imposibles o de 2 cifras no valen');
 
 ok(con({ nombre: 'A' }).errores.nombre, 'nombre muy corto');
 ok(con({ nombre: 'Ana3' }).errores.nombre, 'nombre con número');
