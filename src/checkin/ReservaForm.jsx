@@ -8,7 +8,10 @@ const MENSAJES = {
   fecha_sena: 'La fecha de la seña no puede ser después del día del cobro en el hotel.',
   moneda: 'Elegí la moneda.',
   medio_pago: 'Elegí un medio de pago de la lista.',
-  fecha_cobro: 'La fecha del cobro tiene que ser de este último año.'
+  fecha_cobro: 'La fecha tiene que ser de este último año.',
+  noches: 'Escribí cuántas noches se queda, de 1 a 365.',
+  canal: 'Elegí el canal de venta.',
+  categoria: 'Elegí la categoría de la habitación.'
 };
 
 // Hoy en Argentina (YYYY-MM-DD), para la fecha del cobro.
@@ -31,31 +34,53 @@ export const cobroTexto = (e) => {
   const sena = Number(e.monto) - Number(e.pago_hotel ?? e.monto);
   return sena > 0 ? `${plata(e.monto, e.moneda)} (seña ${miles(sena)} + hotel ${miles(e.pago_hotel)})` : plata(e.monto, e.moneda);
 };
+// Cuánto y cómo se cobró, para los encabezados: una reserva de un canal sin cobro (obra social) no lleva monto, se factura aparte.
+export const cobroLinea = (e) => (e.canal_cobra === false ? 'Sin cobro: se factura aparte' : `${cobroTexto(e)} · ${e.medio_pago}`);
+export const nochesTexto = (n) => (n == null ? null : `${n} ${n === 1 ? 'noche' : 'noches'}`);
+// Qué es la reserva: «Doble · 4 noches · Directo» (lo que falte, no se muestra).
+export const detalleTexto = (e) => [e.categoria, nochesTexto(e.noches), e.canal].filter(Boolean).join(' · ');
 
-// Habitación, monto, moneda, medio de pago y fecha del cobro. Se usa para abrir una reserva y para corregirla.
-//   inicial: la reserva (o null para una nueva) · medios: [{ id, nombre }]
-//   onGuardar({ habitacion, monto, moneda, medioPago, fecha, pagoHotel, fechaSena }) -> { ok, mensaje?, campos? }
+// Habitación, categoría, noches, canal de venta y, si el canal cobra, monto, moneda, medio de pago y fecha. Se usa para abrir una reserva y para corregirla.
+//   inicial: la reserva (o null para una nueva) · medios: [{ id, nombre }] · canales: [{ id, nombre, cobra, base }] · categorias: [{ id, nombre }]
+//   onGuardar({ habitacion, monto, moneda, medioPago, fecha, pagoHotel, fechaSena, noches, canal, categoria }) -> { ok, mensaje?, campos? }
 //   monto = valor TOTAL de la habitación · pagoHotel = lo que pagó en el hotel (con seña es menos que el total; la seña es la diferencia)
-export default function ReservaForm({ inicial = null, medios, onGuardar, texto = 'Guardar', alCancelar = null }) {
+//   Un canal que no cobra (obra social) no pide monto: la reserva se guarda en 0 y se factura aparte.
+export default function ReservaForm({ inicial = null, medios, canales = [], categorias = [], onGuardar, texto = 'Guardar', alCancelar = null }) {
   const id = useId();
   const opciones = inicial && !medios.some((m) => m.id === inicial.medio_pago_id)
     ? [...medios, { id: inicial.medio_pago_id, nombre: `${inicial.medio_pago} (ya no se ofrece)` }]
     : medios;
+  // Lo que ya tenía la reserva se sigue mostrando aunque el dueño lo haya quitado de la lista.
+  const opcionesCanal = inicial?.canal_id != null && !canales.some((c) => c.id === inicial.canal_id)
+    ? [...canales, { id: inicial.canal_id, nombre: `${inicial.canal} (ya no se ofrece)`, cobra: inicial.canal_cobra !== false }]
+    : canales;
+  const opcionesCat = inicial?.categoria_id != null && !categorias.some((c) => c.id === inicial.categoria_id)
+    ? [...categorias, { id: inicial.categoria_id, nombre: `${inicial.categoria} (ya no se ofrece)` }]
+    : categorias;
   const conSenaInicial = inicial != null && Number(inicial.pago_hotel ?? inicial.monto) < Number(inicial.monto);
   const [v, setV] = useState(() => ({
-    habitacion: inicial?.habitacion ?? '', monto: inicial ? String(Number(inicial.monto)).replace('.', ',') : '', moneda: inicial?.moneda ?? 'ARS',
+    habitacion: inicial?.habitacion ?? '', monto: inicial && inicial.canal_cobra !== false ? String(Number(inicial.monto)).replace('.', ',') : '', moneda: inicial?.moneda ?? 'ARS',
     medio_pago: String(inicial?.medio_pago_id ?? medios[0]?.id ?? ''), fecha: inicial?.fecha_cobro ?? hoyAR(),
-    sena: conSenaInicial, pago: conSenaInicial ? String(Number(inicial.pago_hotel)).replace('.', ',') : '', fecha_sena: inicial?.fecha_sena ?? ''
+    sena: conSenaInicial, pago: conSenaInicial ? String(Number(inicial.pago_hotel)).replace('.', ',') : '', fecha_sena: inicial?.fecha_sena ?? '',
+    noches: inicial?.noches != null ? String(inicial.noches) : '', categoria: inicial?.categoria_id != null ? String(inicial.categoria_id) : '',
+    canal: String(inicial?.canal_id ?? (canales.find((c) => c.base) ?? canales[0])?.id ?? '')
   }));
+  const canalElegido = opcionesCanal.find((c) => String(c.id) === v.canal);
+  const cobra = canalElegido ? canalElegido.cobra !== false : true;
+  // La categoría es obligatoria (mientras haya alguna en la lista), salvo al corregir una reserva vieja que nunca la tuvo.
+  const pideCategoria = opcionesCat.length > 0 && !(inicial && inicial.categoria_id == null);
   // Con seña: lo que falta para llegar al total (ya se cobró antes).
   const totalLeido = leerMonto(v.monto);
   const pagoLeido = leerMonto(v.pago);
   const senaCalculada = v.sena && totalLeido != null && pagoLeido != null && pagoLeido < totalLeido ? totalLeido - pagoLeido : null;
+  const nochesLeidas = /^[0-9]{1,3}$/.test(v.noches.trim()) && Number(v.noches) >= 1 && Number(v.noches) <= 365 ? Number(v.noches) : null;
+  const porNoche = cobra && totalLeido != null && totalLeido > 0 && nochesLeidas ? totalLeido / nochesLeidas : null;
   const [errores, setErrores] = useState({});
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
   const form = useRef(null);
   const cambia = (k) => (e) => { setV((x) => ({ ...x, [k]: e.target.value })); setErrores((x) => ({ ...x, [k]: undefined })); };
+  const elegir = (k, valor) => { setV((x) => ({ ...x, [k]: valor })); setErrores((x) => ({ ...x, [k]: undefined })); };
   const campo = (k, etq, control, ayuda) => (
     <div className={`campo${errores[k] ? ' error' : ''}`}>
       <label htmlFor={`${id}-${k}`}>{etq}</label>
@@ -65,25 +90,45 @@ export default function ReservaForm({ inicial = null, medios, onGuardar, texto =
     </div>
   );
   const p = (k, extra = {}) => ({ id: `${id}-${k}`, value: v[k], onChange: cambia(k), disabled: enviando, 'aria-invalid': errores[k] ? 'true' : undefined, autoComplete: 'off', ...extra });
+  // Una fila de fichas para elegir una opción (categoría, canal, medio de pago).
+  const fichas = (k, etq, lista, error, extra = null) => (
+    <div className={`campo${error ? ' error' : ''}`}>
+      <span className="etq" id={`${id}-${k}-etq`}>{etq}</span>
+      <div className="fichas" role="radiogroup" aria-labelledby={`${id}-${k}-etq`}>
+        {lista.map((m) => (
+          <button key={m.id} type="button" role="radio" aria-checked={v[k] === String(m.id)} className={v[k] === String(m.id) ? 'activa' : ''} disabled={enviando} onClick={() => elegir(k, String(m.id))}>{m.nombre}</button>
+        ))}
+      </div>
+      {extra}
+      {error && <p className="msg" role="alert">{error}</p>}
+    </div>
+  );
 
   const enviar = async (e) => {
     e.preventDefault();
     if (enviando) return;
     const err = {};
     const hab = v.habitacion.replace(/\s+/g, ' ').trim();
-    const monto = leerMonto(v.monto);
+    const monto = cobra ? leerMonto(v.monto) : 0;
     if (!/^[\p{L}\p{N}][\p{L}\p{N} ._/-]{0,11}$/u.test(hab)) err.habitacion = MENSAJES.habitacion;
+    if (pideCategoria && !opcionesCat.some((c) => String(c.id) === v.categoria)) err.categoria = MENSAJES.categoria;
+    if (nochesLeidas === null) err.noches = MENSAJES.noches;
+    if (!canalElegido) err.canal = MENSAJES.canal;
     if (monto === null) err.monto = MENSAJES.monto;
-    const pago = v.sena ? leerMonto(v.pago) : monto;
-    if (v.sena && (pago === null || (monto !== null && pago > monto))) err.pago_hotel = MENSAJES.pago_hotel;
-    if (v.sena && v.fecha_sena && v.fecha && v.fecha_sena > v.fecha) err.fecha_sena = MENSAJES.fecha_sena;
+    const pago = cobra ? (v.sena ? leerMonto(v.pago) : monto) : 0;
+    if (cobra && v.sena && (pago === null || (monto !== null && pago > monto))) err.pago_hotel = MENSAJES.pago_hotel;
+    if (cobra && v.sena && v.fecha_sena && v.fecha && v.fecha_sena > v.fecha) err.fecha_sena = MENSAJES.fecha_sena;
     if (!v.fecha) err.fecha_cobro = MENSAJES.fecha_cobro;
-    if (!opciones.some((m) => String(m.id) === v.medio_pago)) err.medio_pago = MENSAJES.medio_pago;
+    if (cobra && !opciones.some((m) => String(m.id) === v.medio_pago)) err.medio_pago = MENSAJES.medio_pago;
     if (Object.keys(err).length) { setErrores(err); setAviso('Revisá los campos marcados en rojo.'); enfocarPrimerError(form.current); return; }
     setEnviando(true);
     setAviso('');
     try {
-      const r = await onGuardar({ habitacion: hab, monto, moneda: v.moneda, medioPago: Number(v.medio_pago), fecha: v.fecha, pagoHotel: pago, fechaSena: v.sena && pago < monto && v.fecha_sena ? v.fecha_sena : null });
+      const r = await onGuardar({
+        habitacion: hab, monto, moneda: cobra ? v.moneda : 'ARS', medioPago: v.medio_pago ? Number(v.medio_pago) : null, fecha: v.fecha, pagoHotel: pago,
+        fechaSena: cobra && v.sena && pago < monto && v.fecha_sena ? v.fecha_sena : null,
+        noches: nochesLeidas, canal: Number(v.canal), categoria: v.categoria ? Number(v.categoria) : null
+      });
       if (r.ok) return;
       if (r.campos?.length) setErrores(Object.fromEntries(r.campos.map((c) => [c, MENSAJES[c] ?? 'Revisalo.'])));
       setAviso(r.mensaje || 'No se pudo guardar.');
@@ -98,43 +143,47 @@ export default function ReservaForm({ inicial = null, medios, onGuardar, texto =
   return (
     <form onSubmit={enviar} noValidate ref={form} className="reserva-form">
       {campo('habitacion', 'Habitación', <input {...p('habitacion', { maxLength: 12, placeholder: 'Ej. 107', autoFocus: !inicial, enterKeyHint: 'next' })} />)}
-      <div className="fila-monto">
-        {campo('monto', 'Valor total de la habitación', <input {...p('monto', { inputMode: 'decimal', maxLength: 16, placeholder: 'Ej. 100000' })} />, 'Lo que sale la habitación en total, no por persona.')}
-        <div className="campo">
-          <span className="etq" id={`${id}-moneda`}>Moneda</span>
-          <div className="seg" role="radiogroup" aria-labelledby={`${id}-moneda`}>
-            {[['ARS', 'Pesos'], ['USD', 'Dólares']].map(([k, t]) => (
-              <button key={k} type="button" role="radio" aria-checked={v.moneda === k} className={v.moneda === k ? 'activa' : ''} disabled={enviando} onClick={() => setV((x) => ({ ...x, moneda: k }))}>{t}</button>
-            ))}
+      {opcionesCat.length > 0 && fichas('categoria', 'Categoría de la habitación', opcionesCat, errores.categoria)}
+      {campo('noches', 'Cantidad de noches', <input {...p('noches', { inputMode: 'numeric', maxLength: 3, placeholder: 'Ej. 4' })} />, 'Cuántas noches se queda. Con eso se calcula lo que sale cada noche.')}
+      {opcionesCanal.length > 1 && fichas('canal', 'Canal de venta', opcionesCanal, errores.canal)}
+      {cobra ? (
+        <>
+          <div className="fila-monto">
+            {campo('monto', 'Valor total de la habitación', <input {...p('monto', { inputMode: 'decimal', maxLength: 16, placeholder: 'Ej. 100000' })} />,
+              porNoche ? `Son ${plata(porNoche, v.moneda)} por noche (${miles(totalLeido)} ÷ ${nochesLeidas} ${nochesLeidas === 1 ? 'noche' : 'noches'}). Si no te cierra, revisá el valor o las noches.` : 'Lo que sale la habitación en total (todas las noches), no por persona.')}
+            <div className="campo">
+              <span className="etq" id={`${id}-moneda`}>Moneda</span>
+              <div className="seg" role="radiogroup" aria-labelledby={`${id}-moneda`}>
+                {[['ARS', 'Pesos'], ['USD', 'Dólares']].map(([k, t]) => (
+                  <button key={k} type="button" role="radio" aria-checked={v.moneda === k} className={v.moneda === k ? 'activa' : ''} disabled={enviando} onClick={() => setV((x) => ({ ...x, moneda: k }))}>{t}</button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-      <div className="campo">
-        <span className="etq" id={`${id}-sena`}>¿Dejó una seña antes?</span>
-        <div className="seg" role="radiogroup" aria-labelledby={`${id}-sena`}>
-          {[[false, 'No, pagó todo en el hotel'], [true, 'Sí, dejó seña']].map(([k, t]) => (
-            <button key={String(k)} type="button" role="radio" aria-checked={v.sena === k} className={v.sena === k ? 'activa' : ''} disabled={enviando} onClick={() => setV((x) => ({ ...x, sena: k }))}>{t}</button>
-          ))}
-        </div>
-      </div>
-      {v.sena && (
-        <div className="sena-datos">
-          {campo('pago_hotel', 'Pagó en el hotel', <input {...p('pago', { id: `${id}-pago_hotel`, inputMode: 'decimal', maxLength: 16, placeholder: 'Ej. 70000', 'aria-invalid': errores.pago_hotel ? 'true' : undefined, onChange: (e) => { setV((x) => ({ ...x, pago: e.target.value })); setErrores((x) => ({ ...x, pago_hotel: undefined })); } })} />,
-            senaCalculada != null ? `La seña ya cobrada es ${plata(senaCalculada, v.moneda)} (el total menos lo que pagó en el hotel).` : 'Lo que pagó en el hotel, sin la seña. La seña es lo que falta para llegar al total.')}
-          {campo('fecha_sena', 'Fecha de la seña (si la sabés)', <input {...p('fecha_sena', { type: 'date', 'aria-invalid': errores.fecha_sena ? 'true' : undefined })} />, 'Sirve para pasar la seña a dólares con la cotización de ese día. Si no la sabés, dejala vacía: se usa el día del cobro.')}
-        </div>
+          <div className="campo">
+            <span className="etq" id={`${id}-sena`}>¿Dejó una seña antes?</span>
+            <div className="seg" role="radiogroup" aria-labelledby={`${id}-sena`}>
+              {[[false, 'No, pagó todo en el hotel'], [true, 'Sí, dejó seña']].map(([k, t]) => (
+                <button key={String(k)} type="button" role="radio" aria-checked={v.sena === k} className={v.sena === k ? 'activa' : ''} disabled={enviando} onClick={() => setV((x) => ({ ...x, sena: k }))}>{t}</button>
+              ))}
+            </div>
+          </div>
+          {v.sena && (
+            <div className="sena-datos">
+              {campo('pago_hotel', 'Pagó en el hotel', <input {...p('pago', { id: `${id}-pago_hotel`, inputMode: 'decimal', maxLength: 16, placeholder: 'Ej. 70000', 'aria-invalid': errores.pago_hotel ? 'true' : undefined, onChange: (e) => { setV((x) => ({ ...x, pago: e.target.value })); setErrores((x) => ({ ...x, pago_hotel: undefined })); } })} />,
+                senaCalculada != null ? `La seña ya cobrada es ${plata(senaCalculada, v.moneda)} (el total menos lo que pagó en el hotel).` : 'Lo que pagó en el hotel, sin la seña. La seña es lo que falta para llegar al total.')}
+              {campo('fecha_sena', 'Fecha de la seña (si la sabés)', <input {...p('fecha_sena', { type: 'date', 'aria-invalid': errores.fecha_sena ? 'true' : undefined })} />, 'Sirve para pasar la seña a dólares con la cotización de ese día. Si no la sabés, dejala vacía: se usa el día del cobro.')}
+            </div>
+          )}
+          {fichas('medio_pago', v.sena ? 'Medio de pago en el hotel' : 'Medio de pago', opciones, errores.medio_pago)}
+          {campo('fecha_cobro', v.sena ? 'Fecha del cobro en el hotel' : 'Fecha del cobro', <input {...p('fecha', { type: 'date' })} />, 'El día que pagó en el hotel. Sirve para pasar el monto a dólares con la cotización de ese día.')}
+        </>
+      ) : (
+        <>
+          <p className="sin-cobro" role="note"><b>Sin cobro.</b> Esta reserva se factura aparte, así que no se carga monto ni medio de pago. Cuenta en habitaciones, noches, edades y países, pero no en cobros ni tarifas.</p>
+          {campo('fecha_cobro', 'Fecha de la estadía', <input {...p('fecha', { type: 'date' })} />, 'El día que llegó. Ubica la reserva en el mes y la semana que corresponden.')}
+        </>
       )}
-      <div className={`campo${errores.medio_pago ? ' error' : ''}`}>
-        <span className="etq" id={`${id}-medio`}>{v.sena ? 'Medio de pago en el hotel' : 'Medio de pago'}</span>
-        <div className="fichas" role="radiogroup" aria-labelledby={`${id}-medio`}>
-          {opciones.map((m) => (
-            <button key={m.id} type="button" role="radio" aria-checked={v.medio_pago === String(m.id)} className={v.medio_pago === String(m.id) ? 'activa' : ''} disabled={enviando}
-              onClick={() => { setV((x) => ({ ...x, medio_pago: String(m.id) })); setErrores((x) => ({ ...x, medio_pago: undefined })); }}>{m.nombre}</button>
-          ))}
-        </div>
-        {errores.medio_pago && <p className="msg" role="alert">{errores.medio_pago}</p>}
-      </div>
-      {campo('fecha_cobro', v.sena ? 'Fecha del cobro en el hotel' : 'Fecha del cobro', <input {...p('fecha', { type: 'date' })} />, 'El día que pagó en el hotel. Sirve para pasar el monto a dólares con la cotización de ese día.')}
       {aviso && <p className="ed-error" role="alert">{aviso}</p>}
       <div className="btns modal-pie">
         <button type="submit" className="btn" disabled={enviando}>{enviando ? 'Guardando…' : texto}</button>

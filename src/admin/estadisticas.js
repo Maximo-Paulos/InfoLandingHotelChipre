@@ -130,31 +130,68 @@ function serieVacia(desde, hasta, corte) {
   return claves;
 }
 
+// Una reserva con sus montos en dólares. Un canal que no cobra (obra social) no lleva monto: no suma ingresos ni tarifas (sinCobro), pero sí cuenta como habitación y noches.
+const conMontos = (r, cotizaciones) => {
+  if (r.canal_cobra === false) return { ...r, sinCobro: true, usd: null, usdHotel: null, usdSena: null };
+  const p = partesUsd(r, cotizaciones);
+  return { ...r, sinCobro: false, usd: p?.total ?? null, usdHotel: p?.hotel ?? null, usdSena: p?.sena ?? null };
+};
+
+// Agrupa reservas (ya con sus montos) por habitación, categoría o canal. n = todas las reservas; la tarifa y el ingreso salen solo de las que cobran.
+function resumenGrupos(items, clave, vacio = null) {
+  const mapa = new Map();
+  for (const r of items) {
+    const k = clave(r) ?? vacio;
+    if (k == null || k === '') continue;
+    const id = sinTildes(k);
+    if (!mapa.has(id)) mapa.set(id, { texto: String(k).trim(), n: 0, noches: 0, nochesPagas: 0, ncob: 0, sinCobro: 0, usd: 0, usdConNoches: 0 });
+    const g = mapa.get(id);
+    g.n += 1;
+    g.noches += r.noches ?? 0;
+    if (r.sinCobro) g.sinCobro += 1;
+    else if (r.usd != null) {
+      g.ncob += 1;
+      g.usd += r.usd;
+      if (r.noches) { g.nochesPagas += r.noches; g.usdConNoches += r.usd; }
+    }
+  }
+  return [...mapa.values()]
+    .map((g) => ({ ...g, tarifa: g.ncob ? g.usd / g.ncob : null, tarifaNoche: g.nochesPagas ? g.usdConNoches / g.nochesPagas : null }))
+    .sort((x, y) => y.n - x.n || y.usd - x.usd || x.texto.localeCompare(y.texto, 'es'));
+}
+
 // Todo lo que se dibuja, para un período.
 //   datos: { reservas, huespedes } de la base · cotizaciones: lista de dólares (o null si no se pudo bajar) · rango: { desde, hasta } · anterior: rango o null
 export function calcular(datos, cotizaciones, rango, anterior = null) {
   const { reservas, huespedes } = recortar(datos, rango);
-  const conUsd = reservas.map((r) => { const p = partesUsd(r, cotizaciones); return { ...r, usd: p?.total ?? null, usdHotel: p?.hotel ?? null, usdSena: p?.sena ?? null }; });
-  const cobradas = conUsd.filter((r) => r.usd != null);
-  const ingresosUsd = suma(cobradas.map((r) => r.usd));
+  const conUsd = reservas.map((r) => conMontos(r, cotizaciones));
+  const cobrables = conUsd.filter((r) => !r.sinCobro);
+  const cobradas = cobrables.filter((r) => r.usd != null);
   const resumen = (rs, hs) => {
-    const ok = rs.filter((r) => r.usd != null);
+    const ok = rs.filter((r) => !r.sinCobro && r.usd != null);
     const ing = suma(ok.map((r) => r.usd));
+    const conNoches = ok.filter((r) => r.noches);
+    const nochesPagas = suma(conNoches.map((r) => r.noches));
+    const todasConNoches = rs.filter((r) => r.noches);
     return {
       reservas: rs.length,
       huespedes: hs.length,
       ingresosUsd: ing,
       hotelUsd: suma(ok.map((r) => r.usdHotel ?? 0)),
       senasUsd: suma(ok.map((r) => r.usdSena ?? 0)),
-      tarifaUsd: ok.length ? ing / ok.length : null,
-      porHuesped: suma(ok.map((r) => r.huespedes)) ? ing / suma(ok.map((r) => r.huespedes)) : null
+      tarifaUsd: ok.length ? ing / ok.length : null, // el ticket promedio: lo que deja una reserva que cobra
+      porHuesped: suma(ok.map((r) => r.huespedes)) ? ing / suma(ok.map((r) => r.huespedes)) : null,
+      noches: suma(todasConNoches.map((r) => r.noches)),
+      nochesProm: todasConNoches.length ? suma(todasConNoches.map((r) => r.noches)) / todasConNoches.length : null,
+      tarifaNocheUsd: nochesPagas ? suma(conNoches.map((r) => r.usd)) / nochesPagas : null,
+      sinCobro: rs.filter((r) => r.sinCobro).length
     };
   };
   const actual = resumen(conUsd, huespedes);
   let previo = null;
   if (anterior) {
     const p = recortar(datos, anterior);
-    previo = resumen(p.reservas.map((r) => ({ ...r, usd: aDolares(r, cotizaciones) })), p.huespedes);
+    previo = resumen(p.reservas.map((r) => conMontos(r, cotizaciones)), p.huespedes);
   }
 
   // Edad en el año del check-in (no se pregunta el día: es aproximada, ±1 año).
@@ -165,9 +202,8 @@ export function calcular(datos, cotizaciones, rango, anterior = null) {
   const claves = serieVacia(rango.desde, rango.hasta, corte);
   const serie = claves.map((k) => {
     const rs = conUsd.filter((r) => claveDe(r.fecha_cobro, corte) === k);
-    const ok = rs.filter((r) => r.usd != null);
-    const ing = suma(ok.map((r) => r.usd));
-    return { clave: k, etiqueta: etiquetaDe(k, corte), reservas: rs.length, ingresosUsd: ing, tarifaUsd: ok.length ? ing / ok.length : null };
+    const s = resumen(rs, []);
+    return { clave: k, etiqueta: etiquetaDe(k, corte), reservas: rs.length, noches: s.noches, ingresosUsd: s.ingresosUsd, tarifaUsd: s.tarifaUsd, tarifaNocheUsd: s.tarifaNocheUsd };
   });
 
   const paises = topConOtros(agrupar(huespedes, (h) => h.nacionalidad ?? 'Sin dato'), 5);
@@ -177,29 +213,40 @@ export function calcular(datos, cotizaciones, rango, anterior = null) {
 
   const porEdad = EDADES.map((e) => ({ texto: e.texto, n: edades.filter((x) => x >= e.desde && x <= e.hasta).length }));
 
-  const porHabitacion = agrupar(conUsd, (r) => r.habitacion, (r) => r.usd).map((g) => ({ ...g, tarifa: g.usd / g.n }));
-  // Medios de pago y equipo: lo que se pagó / cobró EN EL HOTEL (las señas se cobraron antes, por otro lado).
-  const medios = agrupar(conUsd, (r) => r.medio_pago, (r) => r.usdHotel).sort((a, b) => b.usd - a.usd || b.n - a.n);
-  const equipo = agrupar(conUsd, (r) => r.cargado_por, (r) => r.usdHotel).sort((a, b) => b.usd - a.usd || b.n - a.n);
-  const conSena = conUsd.filter((r) => Number(r.pago_hotel ?? r.monto) < Number(r.monto));
+  const porHabitacion = resumenGrupos(conUsd, (r) => r.habitacion);
+  const porCategoria = resumenGrupos(conUsd, (r) => r.categoria, 'Sin categoría');
+  const porCanal = resumenGrupos(conUsd, (r) => r.canal, 'Sin canal');
+  // Medios de pago y equipo: lo que se pagó / cobró EN EL HOTEL (las señas se cobraron antes, por otro lado). Lo sin cobro (obra social) no entra.
+  const medios = agrupar(cobrables, (r) => r.medio_pago, (r) => r.usdHotel).sort((a, b) => b.usd - a.usd || b.n - a.n);
+  const equipo = agrupar(cobrables, (r) => r.cargado_por, (r) => r.usdHotel).sort((a, b) => b.usd - a.usd || b.n - a.n);
+  const conSena = cobrables.filter((r) => Number(r.pago_hotel ?? r.monto) < Number(r.monto));
   const conSenaOk = conSena.filter((r) => r.usd != null);
+
+  // Cuántas noches se quedan (solo las reservas que tienen las noches cargadas: las de antes no).
+  const CORTES_NOCHES = [['1', (n) => n === 1], ['2', (n) => n === 2], ['3', (n) => n === 3], ['4', (n) => n === 4], ['5', (n) => n === 5], ['6-7', (n) => n === 6 || n === 7], ['8 o más', (n) => n >= 8]];
+  const conNoches = conUsd.filter((r) => r.noches);
+  const porNoches = CORTES_NOCHES.map(([texto, f]) => ({ texto, n: conNoches.filter((r) => f(r.noches)).length }));
 
   const porDia = DIAS.map((texto, i) => ({ texto, n: conUsd.filter((r) => diaSemana(r.fecha_cobro) === i).length }));
   const porHora = Array.from({ length: 24 }, (_, h) => ({ texto: String(h), n: huespedes.filter((x) => x.hora === h).length }));
   const tamanos = [1, 2, 3, 4, 5].map((t) => ({ texto: t === 5 ? '5 o más' : String(t), n: conUsd.filter((r) => (t === 5 ? r.huespedes >= 5 : r.huespedes === t)).length }));
 
-  const pesos = conUsd.filter((r) => r.moneda === 'ARS');
-  const dolares = conUsd.filter((r) => r.moneda === 'USD');
+  const pesos = cobrables.filter((r) => r.moneda === 'ARS');
+  const dolares = cobrables.filter((r) => r.moneda === 'USD');
   const totalConSena = suma(conSenaOk.map((r) => r.usd));
   const pct = (a, b) => (b ? (a / b) * 100 : null);
+  const obra = conUsd.filter((r) => r.sinCobro);
   return {
     vacio: reservas.length === 0 && huespedes.length === 0,
     corte, serie, actual, previo,
-    sinCotizacion: conUsd.length - cobradas.length,
+    sinCotizacion: cobrables.length - cobradas.length,
     reservasConSena: conSena.length,
-    pctConSena: pct(conSena.length, reservas.length),
+    pctConSena: pct(conSena.length, cobrables.length),
     senaPromedioPct: pct(suma(conSenaOk.map((r) => r.usdSena)), totalConSena), // de lo que sale una habitación con seña, qué parte se deja de seña
     reservasEnPesos: pesos.length, reservasEnDolares: dolares.length,
+    sinCobro: { reservas: obra.length, noches: suma(obra.map((r) => r.noches ?? 0)), pct: pct(obra.length, reservas.length) },
+    sinNoches: reservas.filter((r) => !r.noches).length,
+    porNoches, porCategoria, porCanal,
     edadProm, edadesN: edades.length, porEdad, paises, localidades,
     pctExtranjeros: pct(extranjeros, conNacionalidad),
     pctMenores: pct(porEdad[0].n, edades.length),
@@ -210,6 +257,46 @@ export function calcular(datos, cotizaciones, rango, anterior = null) {
     porHabitacion, medios, equipo, porDia, porHora, tamanos,
     huespedesPorHab: reservas.length ? suma(reservas.map((r) => r.huespedes)) / reservas.length : null,
     sinReserva: huespedes.filter((h) => h.estadia_id == null).length
+  };
+}
+
+// La caja de un período, con plata de verdad (sin pasar a dólares): qué se facturó, cuánto entró en el hotel, cuánto fue seña, y cada reserva con su fecha.
+// Una moneda por renglón (pesos y dólares no se mezclan). Las reservas sin cobro (obra social) van aparte, con sus noches, para facturarlas.
+//   datos: { reservas } de la base · rango: { desde, hasta } (por la fecha del cobro en el hotel)
+export function caja(datos, rango) {
+  const { reservas } = recortar({ reservas: datos.reservas, huespedes: [] }, rango);
+  const orden = [...reservas].sort((a, b) => (a.fecha_cobro < b.fecha_cobro ? 1 : a.fecha_cobro > b.fecha_cobro ? -1 : b.id - a.id));
+  const monedas = new Map();
+  const medios = new Map();
+  const dias = [];
+  const aFacturar = [];
+  for (const r of orden) {
+    const sinCobro = r.canal_cobra === false;
+    const total = Number(r.monto);
+    const hotel = Number(r.pago_hotel ?? r.monto);
+    const fila = { ...r, sinCobro, total, hotel, sena: Math.max(0, total - hotel) };
+    if (sinCobro) aFacturar.push(fila);
+    else {
+      const m = monedas.get(r.moneda) ?? { moneda: r.moneda, facturado: 0, hotel: 0, sena: 0, reservas: 0 };
+      m.facturado += total; m.hotel += hotel; m.sena += fila.sena; m.reservas += 1;
+      monedas.set(r.moneda, m);
+      const claveMedio = `${r.moneda}|${r.medio_pago}`;
+      const md = medios.get(claveMedio) ?? { moneda: r.moneda, medio: r.medio_pago, monto: 0, n: 0 };
+      md.monto += hotel; md.n += 1;
+      medios.set(claveMedio, md);
+    }
+    let dia = dias[dias.length - 1];
+    if (!dia || dia.fecha !== r.fecha_cobro) { dia = { fecha: r.fecha_cobro, filas: [], hotel: {} }; dias.push(dia); }
+    dia.filas.push(fila);
+    if (!sinCobro) dia.hotel[r.moneda] = (dia.hotel[r.moneda] ?? 0) + hotel;
+  }
+  const porMoneda = (x, y) => (x.moneda === y.moneda ? 0 : x.moneda === 'ARS' ? -1 : 1);
+  return {
+    monedas: [...monedas.values()].sort(porMoneda),
+    medios: [...medios.values()].sort((x, y) => porMoneda(x, y) || y.monto - x.monto),
+    dias,
+    reservas: reservas.length,
+    sinCobro: { reservas: aFacturar.length, noches: suma(aFacturar.map((f) => f.noches ?? 0)), filas: aFacturar }
   };
 }
 

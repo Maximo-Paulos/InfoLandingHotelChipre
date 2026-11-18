@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BarraPersonal from '../BarraPersonal.jsx';
 import Icon from '../components/Icon.jsx';
-import { adminEstadiaEditar, adminHuespedEditar, adminHuespedEstadia, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
+import { adminCatalogos, adminEstadiaEditar, adminHuespedEditar, adminHuespedEstadia, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
 import EditarHuesped from '../checkin/EditarHuesped.jsx';
 import Modal from '../checkin/Modal.jsx';
 import Planilla from '../checkin/Planilla.jsx';
@@ -31,6 +31,7 @@ function Contenido({ clave, salir }) {
   const [aviso, setAviso] = useState('');
   const [editandoReserva, setEditandoReserva] = useState(null);
   const [medios, setMedios] = useState(null); // todos los medios de pago (también los quitados); null = todavía no cargaron
+  const [catalogos, setCatalogos] = useState({ categorias: [], canales: [] }); // lo que se puede elegir al corregir una reserva
   const pedido = useRef(0);
   const filasRef = useRef([]); // lo que se ve ahora: de acá sale desde qué huésped seguir al tocar "Cargar más"
 
@@ -38,6 +39,7 @@ function Contenido({ clave, salir }) {
   useEffect(() => {
     let vivo = true;
     adminMediosPago(clave).then((r) => { if (vivo && r?.ok) setMedios(r.medios); }).catch(() => {});
+    adminCatalogos(clave).then((r) => { if (vivo && r?.ok) setCatalogos({ categorias: r.categorias.filter((c) => c.activo), canales: r.canales.filter((c) => c.activo) }); }).catch(() => {});
     return () => { vivo = false; };
   }, [clave]);
 
@@ -147,7 +149,7 @@ function Contenido({ clave, salir }) {
       )}
       {editandoReserva && (
         <Modal titulo={`Corregir la reserva de la ${editandoReserva.habitacion}`} onCerrar={() => setEditandoReserva(null)}>
-          <ReservaForm inicial={editandoReserva} medios={medios ? medios.filter((m) => m.activo).map(({ id, nombre }) => ({ id, nombre })) : []} onGuardar={guardarReserva} texto="Guardar cambios" alCancelar={() => setEditandoReserva(null)} />
+          <ReservaForm inicial={editandoReserva} medios={medios ? medios.filter((m) => m.activo).map(({ id, nombre }) => ({ id, nombre })) : []} canales={catalogos.canales} categorias={catalogos.categorias} onGuardar={guardarReserva} texto="Guardar cambios" alCancelar={() => setEditandoReserva(null)} />
         </Modal>
       )}
       {fotosDe && <FotosHuesped clave={clave} fila={fotosDe} onCerrar={() => setFotosDe(null)} alCambiar={() => cargar('refrescar')} />}

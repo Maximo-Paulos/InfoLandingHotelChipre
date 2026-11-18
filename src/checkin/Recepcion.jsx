@@ -8,7 +8,7 @@ import { recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaEditar, recepcio
 import EditarHuesped from './EditarHuesped.jsx';
 import Modal from './Modal.jsx';
 import Planilla from './Planilla.jsx';
-import ReservaForm, { cobroTexto } from './ReservaForm.jsx';
+import ReservaForm, { cobroLinea, detalleTexto } from './ReservaForm.jsx';
 import { agruparCodigo, minSeg, useAhora } from './util.js';
 
 const CADA_MS = 3000;
@@ -183,7 +183,7 @@ function Panel({ clave, rol, vista, salir }) {
             {activo ? (
               estado.reserva && !otraReserva ? (
                 <>
-                  <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b> · {cobroTexto(estado.reserva.estadia)} · {estado.reserva.estadia.medio_pago}</p>
+                  <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b> · {detalleTexto(estado.reserva.estadia)}<br />{cobroLinea(estado.reserva.estadia)}</p>
                   <p className="etq">Dáselo al próximo huésped de esta habitación</p>
                   {restanteCodigo > 0
                     ? <p className="codigo-grande" aria-label={`Código ${estado.codigo.valor.split('').join(' ')}`}>{agruparCodigo(estado.codigo.valor)}</p>
@@ -213,8 +213,8 @@ function Panel({ clave, rol, vista, salir }) {
               ) : (
                 <div className="reserva-nueva">
                   <h2>Nueva reserva</h2>
-                  <p className="aclara">Cargá la habitación y lo que se cobró. Recién ahí aparece el código para los huéspedes.</p>
-                  <ReservaForm medios={estado.medios_pago} onGuardar={abrirReserva} texto="Generar códigos" alCancelar={estado.reserva ? () => setOtraReserva(false) : null} />
+                  <p className="aclara">Cargá la habitación, las noches y lo que se cobró. Recién ahí aparece el código para los huéspedes.</p>
+                  <ReservaForm medios={estado.medios_pago} canales={estado.canales ?? []} categorias={estado.categorias ?? []} onGuardar={abrirReserva} texto="Generar códigos" alCancelar={estado.reserva ? () => setOtraReserva(false) : null} />
                 </div>
               )
             ) : (
@@ -242,7 +242,7 @@ function Panel({ clave, rol, vista, salir }) {
 
       {editandoReserva && (
         <Modal titulo={`Corregir la reserva de la ${editandoReserva.habitacion}`} onCerrar={() => setEditandoReserva(null)}>
-          <ReservaForm inicial={editandoReserva} medios={estado?.medios_pago ?? []} onGuardar={guardarReserva} texto="Guardar cambios" alCancelar={() => setEditandoReserva(null)} />
+          <ReservaForm inicial={editandoReserva} medios={estado?.medios_pago ?? []} canales={estado?.canales ?? []} categorias={estado?.categorias ?? []} onGuardar={guardarReserva} texto="Guardar cambios" alCancelar={() => setEditandoReserva(null)} />
         </Modal>
       )}
 

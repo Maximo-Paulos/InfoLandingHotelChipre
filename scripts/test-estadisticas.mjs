@@ -2,7 +2,7 @@
 //   node scripts/test-estadisticas.mjs
 import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 import { cargarDemo } from './datos-demo.mjs';
-import { aDolares, calcular, partesUsd, cortes, diasEntre, rangoAnterior, rangoDe, recortar, sumarDias, variacion, ventaEn } from '../src/admin/estadisticas.js';
+import { aDolares, caja, calcular, partesUsd, cortes, diasEntre, rangoAnterior, rangoDe, recortar, sumarDias, variacion, ventaEn } from '../src/admin/estadisticas.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -53,7 +53,7 @@ ok(e.ok === true && e.reservas.length === demo.reservas && e.huespedes.length ==
 const claves = new Set(e.huespedes.flatMap((h) => Object.keys(h)));
 ok(!['nombre', 'apellido', 'email', 'telefono', 'doc_numero', 'domicilio', 'datos'].some((k) => claves.has(k)), 'ningún huésped trae nombre, documento, email, teléfono ni domicilio');
 ok([...claves].sort().join() === 'anio_nac,con_email,con_telefono,doc_tipo,estadia_id,fecha,habilito,hora,id,localidad,nacionalidad,visitas', 'solo las columnas pensadas para estadísticas');
-ok(e.reservas.every((r) => ['id', 'habitacion', 'monto', 'moneda', 'medio_pago', 'fecha_cobro', 'cargado_por', 'huespedes'].every((k) => k in r)), 'cada reserva trae habitación, monto, moneda, medio, fecha, quién y cuántos huéspedes');
+ok(e.reservas.every((r) => ['id', 'habitacion', 'monto', 'moneda', 'medio_pago', 'fecha_cobro', 'cargado_por', 'huespedes', 'noches', 'canal', 'canal_cobra', 'categoria'].every((k) => k in r)), 'cada reserva trae habitación, monto, moneda, medio, fecha, quién, huéspedes, noches, canal y categoría');
 const corto = await llamar('admin_estadisticas', { p_clave: dueno, p_desde: sumarDias(e.hoy, -6), p_hasta: e.hoy });
 ok(corto.ok && corto.reservas.length > 0 && corto.reservas.length < e.reservas.length && corto.reservas.every((r) => r.fecha_cobro >= sumarDias(e.hoy, -6)), 'se puede pedir solo una semana');
 ok((await llamar('admin_estadisticas', { p_clave: dueno, p_desde: '2026-12-31', p_hasta: '2026-01-01' })).ok === false, 'fechas al revés se rechazan');
@@ -66,6 +66,7 @@ const dolar = Array.from({ length: 500 }, (_, i) => ({ fecha: sumarDias(sumarDia
 const rango = rangoDe('365', e.hoy);
 const r = calcular(e, dolar, rango, rangoAnterior(rango, '365'));
 const { reservas, huespedes } = recortar(e, rango);
+const suma = (xs) => xs.reduce((a, b) => a + b, 0);
 const aMano = reservas.reduce((s, x) => s + (x.moneda === 'USD' ? Number(x.monto) : Number(x.monto) / 1500), 0); // con un dólar parejo, seña y hotel dan lo mismo que el total
 ok(r.actual.ingresosUsd > 0 && Math.abs(r.actual.ingresosUsd - aMano) < 0.01, `ingresos del año: US$ ${Math.round(r.actual.ingresosUsd)}`);
 ok(r.actual.reservas === reservas.length && r.actual.huespedes === huespedes.length, 'habitaciones y huéspedes del período');
@@ -75,7 +76,8 @@ ok(r.paises.reduce((s, p) => s + p.n, 0) === huespedes.length && r.paises.length
 ok(r.porEdad.reduce((s, x) => s + x.n, 0) === r.edadesN && r.edadProm > 25 && r.edadProm < 55, `edad promedio razonable: ${r.edadProm?.toFixed(1)}`);
 ok(r.porDia.reduce((s, x) => s + x.n, 0) === reservas.length && r.porHora.reduce((s, x) => s + x.n, 0) === huespedes.length, 'día de la semana y hora suman todo');
 ok(r.tamanos.reduce((s, x) => s + x.n, 0) === reservas.filter((x) => x.huespedes >= 1).length, 'tamaño de grupo');
-ok(r.porHabitacion.reduce((s, x) => s + x.n, 0) === reservas.length && r.medios.reduce((s, x) => s + x.n, 0) === reservas.length && r.equipo.reduce((s, x) => s + x.n, 0) === reservas.length, 'habitaciones, medios de pago y equipo suman todas las reservas');
+const cobr = reservas.filter((x) => x.canal_cobra !== false);
+ok(r.porHabitacion.reduce((s, x) => s + x.n, 0) === reservas.length && r.medios.reduce((s, x) => s + x.n, 0) === cobr.length && r.equipo.reduce((s, x) => s + x.n, 0) === cobr.length, 'las habitaciones suman todas las reservas; medios de pago y equipo, solo las que cobran (la obra social no)');
 ok(r.pctRecurrentes > 0 && r.pctRecurrentes < 40 && r.pctEmail > 80 && r.pctExtranjeros > 20 && r.pctExtranjeros < 70, `recurrentes ${r.pctRecurrentes?.toFixed(1)}% · con email ${r.pctEmail?.toFixed(0)}% · extranjeros ${r.pctExtranjeros?.toFixed(0)}%`);
 ok(cerca(r.actual.hotelUsd + r.actual.senasUsd, r.actual.ingresosUsd), `el total se reparte en hotel + seña: US$ ${Math.round(r.actual.hotelUsd)} + US$ ${Math.round(r.actual.senasUsd)}`);
 ok(r.pctConSena > 25 && r.pctConSena < 55 && r.senaPromedioPct > 15 && r.senaPromedioPct < 55, `reservas con seña ${r.pctConSena?.toFixed(0)}% · dejan ${r.senaPromedioPct?.toFixed(0)}% del total`);
@@ -85,13 +87,52 @@ ok(r.previo && r.previo.reservas === 0, 'los datos de demostración no llegan a 
 const r90 = calcular(e, dolar, rangoDe('90', e.hoy), rangoAnterior(rangoDe('90', e.hoy), '90'));
 ok(r90.previo.reservas > 0 && variacion(r90.actual.reservas, r90.previo.reservas) !== null, 'tres meses sí se pueden comparar con los tres anteriores');
 const sinDolar = calcular(e, null, rango, null);
-ok(sinDolar.sinCotizacion === reservas.filter((x) => x.moneda === 'ARS').length && sinDolar.actual.ingresosUsd < r.actual.ingresosUsd, 'sin cotización los cobros en pesos no suman (y se cuentan aparte)');
+ok(sinDolar.sinCotizacion === cobr.filter((x) => x.moneda === 'ARS').length && sinDolar.actual.ingresosUsd < r.actual.ingresosUsd, 'sin cotización los cobros en pesos no suman (y se cuentan aparte)');
 const semana = calcular(e, dolar, rangoDe('90', e.hoy), null);
 ok(semana.corte === 'semana' && semana.serie.length >= 13 && semana.serie.length <= 14, `3 meses = ${semana.serie.length} semanas`);
 const mes = calcular(e, dolar, rangoDe('mes', e.hoy), null);
 ok(mes.corte === 'dia' && mes.serie.length === Number(e.hoy.slice(8)), 'este mes = un punto por día');
 const vacio = calcular({ reservas: [], huespedes: [] }, dolar, rango, null);
 ok(vacio.vacio && vacio.actual.tarifaUsd === null && vacio.edadProm === null, 'sin datos no se rompe nada');
+
+console.log('\n== 4. Noches, canal, categoría y obra social');
+const obra = reservas.filter((x) => x.canal_cobra === false);
+ok(obra.length > 0 && obra.every((x) => Number(x.monto) === 0 && x.canal === 'Obra social'), `hay ${obra.length} reservas de obra social, sin monto`);
+ok(r.sinCobro.reservas === obra.length && r.sinCobro.noches === suma(obra.map((x) => x.noches)), 'se cuentan aparte, con sus noches (para facturarlas)');
+ok(cerca(r.actual.tarifaUsd, r.actual.ingresosUsd / cobr.length) && r.actual.tarifaUsd > r.actual.ingresosUsd / reservas.length, 'la tarifa promedio es de las reservas que cobran: la obra social no la baja');
+const nochesTodas = suma(reservas.map((x) => x.noches ?? 0));
+ok(r.actual.noches === nochesTodas && cerca(r.actual.nochesProm, nochesTodas / reservas.length), `noches: ${nochesTodas} en total, ${r.actual.nochesProm?.toFixed(1)} por reserva (la obra social también cuenta)`);
+const usdDe = (x) => (x.moneda === 'USD' ? Number(x.monto) : Number(x.monto) / 1500);
+ok(cerca(r.actual.tarifaNocheUsd, suma(cobr.map(usdDe)) / suma(cobr.map((x) => x.noches))) && r.actual.tarifaNocheUsd > 20 && r.actual.tarifaNocheUsd < 120, `tarifa por noche: US$ ${r.actual.tarifaNocheUsd?.toFixed(0)}`);
+ok(cerca(r.actual.tarifaUsd, r.actual.tarifaNocheUsd * suma(cobr.map((x) => x.noches)) / cobr.length), 'el ticket promedio es la tarifa por noche por las noches de cada reserva');
+ok(r.porNoches.reduce((s, x) => s + x.n, 0) === reservas.filter((x) => x.noches).length && r.porNoches[0].texto === '1', 'cuántas noches se quedan: todas las reservas con noches');
+ok(r.porCategoria.reduce((s, x) => s + x.n, 0) === reservas.length && ['Single', 'Doble', 'Triple', 'Cuádruple'].every((c) => r.porCategoria.some((x) => x.texto === c)), 'las categorías suman todas las reservas');
+const cs = r.porCategoria.find((x) => x.texto === 'Single');
+const cc = r.porCategoria.find((x) => x.texto === 'Cuádruple');
+ok(cc.tarifaNoche > cs.tarifaNoche && cs.tarifaNoche > 15, `una cuádruple sale más por noche que una single (US$ ${cc.tarifaNoche?.toFixed(0)} y US$ ${cs.tarifaNoche?.toFixed(0)})`);
+const co = r.porCanal.find((x) => x.texto === 'Obra social');
+ok(r.porCanal.reduce((s, x) => s + x.n, 0) === reservas.length && co.n === obra.length && co.usd === 0 && co.tarifa === null && co.sinCobro === co.n, 'los canales suman todas las reservas; la obra social no tiene ingresos ni tarifa');
+const idsObra = new Set(obra.map((x) => x.id));
+const edadDe = (h) => Number(h.fecha.slice(0, 4)) - h.anio_nac;
+const eObra = huespedes.filter((h) => idsObra.has(h.estadia_id) && h.anio_nac).map(edadDe);
+const eResto = huespedes.filter((h) => !idsObra.has(h.estadia_id) && h.anio_nac).map(edadDe);
+ok(eObra.length > 50 && suma(eObra) / eObra.length > suma(eResto) / eResto.length + 10, 'los huéspedes de obra social SÍ cuentan en edades y países (en la demo son más grandes)');
+ok(cerca(r.paises.reduce((x, p) => x + p.n, 0), huespedes.length), 'y están dentro de la torta de países');
+const vacioNoches = calcular({ reservas: [{ id: 1, habitacion: '1', monto: '1000', moneda: 'ARS', pago_hotel: '1000', fecha_sena: null, medio_pago: 'Efectivo', fecha_cobro: e.hoy, cargado_por: 'X', huespedes: 1, noches: null, canal: 'Directo', canal_cobra: true, categoria: null }], huespedes: [] }, [{ fecha: '2020-01-01', venta: 1000 }], { desde: e.hoy, hasta: e.hoy }, null);
+ok(vacioNoches.actual.tarifaNocheUsd === null && vacioNoches.actual.tarifaUsd === 1 && vacioNoches.sinNoches === 1 && vacioNoches.porCategoria[0].texto === 'Sin categoría', 'una reserva de antes (sin noches ni categoría) no rompe nada: cuenta para el ticket pero no para la tarifa por noche');
+
+console.log('\n== 5. La caja');
+const c = caja(e, rango);
+const pesos = c.monedas.find((m) => m.moneda === 'ARS');
+const dolares = c.monedas.find((m) => m.moneda === 'USD');
+ok(c.reservas === reservas.length && c.sinCobro.reservas === obra.length && c.monedas[0].moneda === 'ARS', 'la caja tiene todas las reservas del período; pesos primero');
+ok(cerca(pesos.facturado, suma(cobr.filter((x) => x.moneda === 'ARS').map((x) => Number(x.monto)))) && cerca(pesos.hotel + pesos.sena, pesos.facturado) && pesos.sena > 0, 'facturado = lo que entró en el hotel + las señas, en pesos reales (sin pasar a dólares)');
+ok(cerca(dolares.facturado, suma(cobr.filter((x) => x.moneda === 'USD').map((x) => Number(x.monto)))) && cerca(dolares.hotel + dolares.sena, dolares.facturado), 'y los dólares aparte');
+ok(cerca(c.medios.filter((m) => m.moneda === 'ARS').reduce((x, m) => x + m.monto, 0), pesos.hotel) && c.medios.every((m, i, a) => i === 0 || a[i - 1].moneda !== m.moneda || a[i - 1].monto >= m.monto), 'por medio de pago suma lo que entró en el hotel, de mayor a menor');
+ok(c.dias.reduce((x, d) => x + d.filas.length, 0) === reservas.length && c.dias.every((d, i) => i === 0 || c.dias[i - 1].fecha > d.fecha) && c.dias.every((d) => d.filas.every((f) => f.fecha_cobro === d.fecha)), 'por día, del más nuevo al más viejo, sin perder ninguna reserva');
+const conSenaFila = c.dias.flatMap((d) => d.filas).find((f) => f.sena > 0);
+ok(conSenaFila && cerca(conSenaFila.total, conSenaFila.hotel + conSenaFila.sena) && conSenaFila.habitacion, 'cada fila trae habitación, total, lo pagado en el hotel y la seña');
+ok(caja(e, rangoDe('30', e.hoy)).reservas < c.reservas && caja({ reservas: [], huespedes: [] }, rango).monedas.length === 0, 'un período más corto trae menos, y sin datos no se rompe');
 
 await back.cerrar();
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');

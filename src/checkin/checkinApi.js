@@ -22,9 +22,13 @@ export const recepcionEditar = (clave, id, datos, habitacion, medioPago) =>
 export const recepcionFotos = (clave, id) => rpc('recepcion_fotos', { p_clave: clave, p_id: id });
 export const recepcionFotoPermiso = (clave, id) => rpc('recepcion_foto_permiso', { p_clave: clave, p_id: id });
 
-// Reservas: habitación + valor total + lo pagado en el hotel, antes de dar el código.
-// `r` = { habitacion, monto (total), moneda, medioPago, fecha, pagoHotel, fechaSena } (sin pagoHotel se toma como cobrado todo en el hotel).
-const deReserva = (r) => ({ p_habitacion: r.habitacion, p_monto: r.monto, p_moneda: r.moneda, p_medio_pago: r.medioPago, p_fecha: r.fecha, p_pago_hotel: r.pagoHotel ?? null, p_fecha_sena: r.fechaSena ?? null });
+// Reservas: habitación, categoría, noches, canal de venta + valor total + lo pagado en el hotel, antes de dar el código.
+// `r` = { habitacion, monto (total), moneda, medioPago, fecha, pagoHotel, fechaSena, noches, canal, categoria } (sin pagoHotel se toma como cobrado todo en el hotel;
+// con un canal que no cobra, como la obra social, la base ignora el monto y lo deja en 0).
+const deReserva = (r) => ({
+  p_habitacion: r.habitacion, p_monto: r.monto, p_moneda: r.moneda, p_medio_pago: r.medioPago, p_fecha: r.fecha, p_pago_hotel: r.pagoHotel ?? null, p_fecha_sena: r.fechaSena ?? null,
+  p_noches: r.noches ?? null, p_canal: r.canal ?? null, p_categoria: r.categoria ?? null
+});
 export const recepcionReservaNueva = (clave, r) => rpc('recepcion_reserva_nueva', { p_clave: clave, ...deReserva(r) });
 export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcion_reserva_cerrar', { p_clave: clave, p_extender: extender });
 export const recepcionEstadiaEditar = (clave, id, r) => rpc('recepcion_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
@@ -44,6 +48,9 @@ export const adminHuespedEditar = (clave, id, datos, habitacion, medioPago) =>
 // Medios de pago que elige recepción: el dueño los ve todos (también los quitados) y guarda la lista completa.
 export const adminMediosPago = (clave) => rpc('admin_medios_pago', { p_clave: clave });
 export const adminMediosPagoGuardar = (clave, lista) => rpc('admin_medios_pago_guardar', { p_clave: clave, p_lista: lista });
+// Categorías de habitación y canales de venta: el dueño ve las dos listas (también lo quitado) y guarda una lista completa (tipo = 'categoria' o 'canal').
+export const adminCatalogos = (clave) => rpc('admin_catalogos', { p_clave: clave });
+export const adminCatalogoGuardar = (clave, tipo, lista) => rpc('admin_catalogo_guardar', { p_clave: clave, p_tipo: tipo, p_lista: lista });
 // Equipo (solo el dueño): cada persona tiene un alias y su propia clave. Con id se cambia lo que se mande (alias, rol, clave nueva, activo);
 // sin id se crea. Nada se borra: dar de baja deja a la persona inactiva.
 export const adminEquipo = (clave) => rpc('admin_equipo', { p_clave: clave });
@@ -76,7 +83,12 @@ export const MENSAJES = {
   rol_invalido: 'Elegí qué puede hacer esta persona.',
   sin_permiso: 'Esto lo puede hacer solamente el dueño.',
   usar_equipo: 'Las claves ahora se manejan desde «Equipo».',
-  limite_fotos: 'Este huésped ya tiene 10 fotos. Quitá alguna para poder agregar otra.'
+  limite_fotos: 'Este huésped ya tiene 10 fotos. Quitá alguna para poder agregar otra.',
+  base_obligatoria: 'Ese canal no se puede quitar ni dejar sin cobro: lo usan las reservas de antes.',
+  canal_en_uso: 'Ese canal ya tiene reservas: no se puede cambiar si cobra o no. Creá otro canal si hace falta.',
+  nombre_repetido: 'Hay dos opciones con el mismo nombre.',
+  nombre_invalido: 'Algún nombre no es válido: hasta 40 letras o números, sin símbolos raros.',
+  lista_invalida: 'La lista no es válida. Actualizá la pantalla y probá de nuevo.'
 };
 
 export const textoError = (e) => (e?.codigo ? MENSAJES[e.codigo] ?? e.codigo : 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.');

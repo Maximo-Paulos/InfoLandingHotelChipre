@@ -1,14 +1,22 @@
-// Datos ficticios para probar la guía en tu compu: casi un año de reservas, huéspedes de varios países, pagos en pesos y dólares.
+// Datos ficticios para probar la guía en tu compu: casi un año de reservas (con noches, categoría y canal de venta, incluida la obra social), huéspedes de varios países, pagos en pesos y dólares.
 //   npm run local            (con estos datos)      ·      npm run local -- --vacio     (sin nada, para probar desde cero)
 // Todo es inventado (nombres, documentos, emails y teléfonos no existen). Siempre da lo mismo: usa un generador de números fijo.
 // Las fechas son relativas a hoy, así las estadísticas siempre tienen un año «reciente» para mirar.
 
 const DIAS = 330;
+// cat: categoría (la del arranque de supabase/estadias.sql) · base: tarifa por noche en dólares · cap: huéspedes que entran en la habitación
+const CATEGORIAS = { Single: 2, Doble: 3, Triple: 4, Cuádruple: 5 };
 const HABITACIONES = [
-  ...['101', '102', '103', '104', '105', '106', '107', '108'].map((n) => ({ n, base: 38, peso: n === '108' ? 0.25 : n === '105' ? 1.5 : 1 })),
-  ...['201', '202', '203', '204', '205', '206', '207', '208'].map((n) => ({ n, base: 48, peso: n === '204' || n === '205' ? 1.7 : 1.2 })),
-  ...['301', '302', '303', '304', '305', '306'].map((n) => ({ n, base: 62, peso: n === '306' ? 0.2 : 0.8 }))
+  ...['101', '102', '103', '104'].map((n) => ({ n, cat: 'Single', base: 34, peso: 1 })),
+  ...['105', '106', '107', '108'].map((n) => ({ n, cat: 'Doble', base: 44, peso: n === '108' ? 0.25 : n === '105' ? 1.5 : 1 })),
+  ...['201', '202', '203', '204'].map((n) => ({ n, cat: 'Doble', base: 48, peso: n === '204' ? 1.7 : 1.2 })),
+  ...['205', '206', '207', '208'].map((n) => ({ n, cat: 'Triple', base: 60, peso: n === '205' ? 1.7 : 1.2 })),
+  ...['301', '302', '303', '304'].map((n) => ({ n, cat: 'Triple', base: 62, peso: 0.8 })),
+  ...['305', '306'].map((n) => ({ n, cat: 'Cuádruple', base: 76, peso: n === '306' ? 0.2 : 0.8 }))
 ];
+// canal de venta: [nombre, peso]. La obra social no lleva monto: se factura aparte (y viene gente más grande, casi toda de Argentina).
+const CANALES = [['Directo', 62], ['Online', 13], ['Agencia', 8], ['Obra social', 17]];
+const NOCHES = [[1, 26], [2, 31], [3, 19], [4, 10], [5, 6], [6, 3], [7, 3], [10, 2]];
 // país: [peso, idioma, prefijo de teléfono, localidades, nombres de pila, apellidos]
 const PAISES = {
   Argentina: [52, 'es', '+54911', ['Capital Federal', 'Córdoba', 'Rosario', 'Mendoza', 'La Plata', 'Mar del Plata', 'San Miguel de Tucumán', 'Salta', 'Neuquén', 'Bahía Blanca', 'San Isidro', 'Quilmes'],
@@ -102,19 +110,23 @@ export async function cargarDemo(back, { log = console.log } = {}) {
       const sel = ponderado(libres.map((h) => [h, h.peso]));
       libres.splice(libres.indexOf(sel[0]), 1);
       const hab = sel[0];
-      const pais = ponderado(Object.entries(PAISES).map(([nombre, d]) => [nombre, d[0]]))[0];
+      const canal = ponderado(CANALES)[0];
+      const obraSocial = canal === 'Obra social';
+      const pais = obraSocial && r() < 0.93 ? 'Argentina' : ponderado(Object.entries(PAISES).map(([nombre, d]) => [nombre, d[0] * (canal === 'Online' && nombre !== 'Argentina' ? 1.8 : 1)]))[0];
       const dp = PAISES[pais];
       const extranjero = pais !== 'Argentina';
-      const medio = ponderado(extranjero ? MEDIOS_EXT : MEDIOS_ARG);
+      const noches = ponderado(NOCHES.map(([n, w]) => [n, w * (n >= 4 && temporada >= 1.3 ? 1.4 : 1)]))[0];
+      const medio = obraSocial ? [6, 0, 'ARS'] : ponderado(extranjero ? MEDIOS_EXT : MEDIOS_ARG);
       const alta = temporada >= 1.3 ? 1.22 : temporada <= 0.7 ? 0.88 : 1;
-      const usdTarifa = hab.base * alta * (extranjero ? 1.08 : 1) * entre(0.93, 1.1);
+      // Tarifa por noche en dólares (más barata cuanto más noches se queda) × las noches = el valor total de la habitación.
+      const usdTarifa = hab.base * alta * (extranjero ? 1.08 : 1) * (noches >= 5 ? 0.93 : 1) * entre(0.93, 1.1) * noches;
       // El hotel cobra el día de la llegada (fecha_cobro). Cerca de 4 de cada 10 reservas dejaron antes una seña (20 a 50 % del total).
       const fechaCobro = fecha;
       const paso = medio[2] === 'USD' ? 5 : 1000;
-      const monto = medio[2] === 'USD' ? Math.round(usdTarifa / 5) * 5 : Math.round((usdTarifa * dolar[fechaCobro]) / 1000) * 1000;
+      const monto = obraSocial ? 0 : medio[2] === 'USD' ? Math.round(usdTarifa / 5) * 5 : Math.round((usdTarifa * dolar[fechaCobro]) / 1000) * 1000;
       let pagoHotel = monto;
       let fechaSena = null;
-      if (r() < 0.38) {
+      if (!obraSocial && r() < 0.38) {
         const sena = Math.max(paso, Math.round((monto * elegir([0.2, 0.25, 0.3, 0.4, 0.5])) / paso) * paso);
         pagoHotel = Math.max(0, monto - sena);
         fechaSena = iso(sumar(dia, -Math.floor(entre(3, 28))));
@@ -124,10 +136,10 @@ export async function cargarDemo(back, { log = console.log } = {}) {
       const hora = Math.min(i === 0 ? horaAhora : 23, Math.max(i === 0 ? 0 : 9, Math.round(normal(16, 3.2))));
       const minuto = Math.floor(r() * 60);
       idEst += 1;
-      estadias.push({ id: idEst, creado: AR(fecha, hora, minuto), habitacion: hab.n, monto, moneda: medio[2], medio_pago_id: medio[0], fecha_cobro: fechaCobro, cargado_por: quien, pago_hotel: pagoHotel, fecha_sena: fechaSena });
+      estadias.push({ id: idEst, creado: AR(fecha, hora, minuto), habitacion: hab.n, monto, moneda: medio[2], medio_pago_id: medio[0], fecha_cobro: fechaCobro, cargado_por: quien, pago_hotel: pagoHotel, fecha_sena: fechaSena, noches, canal, categoria: hab.cat });
 
-      const n = ponderado([[1, 30], [2, 46], [3, 14], [4, 8], [5, 2]])[0];
-      const edadBase = Math.max(19, Math.round(normal(38, 12)));
+      const n = Math.min(CATEGORIAS[hab.cat], ponderado([[1, 30], [2, 46], [3, 14], [4, 8], [5, 2]])[0]);
+      const edadBase = obraSocial ? Math.max(45, Math.round(normal(61, 8))) : Math.max(19, Math.round(normal(38, 12)));
       for (let g = 0; g < n; g += 1) {
         // Algunos ya se habían alojado: vuelven con los mismos datos.
         const vuelve = pool.length > 20 && r() < 0.09;
@@ -165,10 +177,11 @@ export async function cargarDemo(back, { log = console.log } = {}) {
     }
   }
 
-  await back.sql(`insert into private.estadias (id, creado, habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena)
+  await back.sql(`insert into private.estadias (id, creado, habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena, noches, canal_id, categoria_id)
     overriding system value
     select (x->>'id')::bigint, (x->>'creado')::timestamptz, x->>'habitacion', (x->>'monto')::numeric, x->>'moneda', (x->>'medio_pago_id')::int, (x->>'fecha_cobro')::date, x->>'cargado_por',
-           (x->>'pago_hotel')::numeric, (x->>'fecha_sena')::date
+           (x->>'pago_hotel')::numeric, (x->>'fecha_sena')::date, (x->>'noches')::int,
+           (select id from private.catalogo where tipo = 'canal' and nombre = x->>'canal'), (select id from private.catalogo where tipo = 'categoria' and nombre = x->>'categoria')
     from jsonb_array_elements($1::jsonb) x`, [JSON.stringify(estadias)]);
   await back.sql(`insert into private.checkins (id, creado, grupo, idioma, datos, consentimiento, habitacion, medio_pago_id, habilitado_por, estadia_id)
     overriding system value
