@@ -8,7 +8,7 @@ import { recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaEditar, recepcio
 import EditarHuesped from './EditarHuesped.jsx';
 import Modal from './Modal.jsx';
 import Planilla from './Planilla.jsx';
-import ReservaForm, { plata } from './ReservaForm.jsx';
+import ReservaForm, { cobroTexto } from './ReservaForm.jsx';
 import { agruparCodigo, minSeg, useAhora } from './util.js';
 
 const CADA_MS = 3000;
@@ -183,7 +183,7 @@ function Panel({ clave, rol, vista, salir }) {
             {activo ? (
               estado.reserva && !otraReserva ? (
                 <>
-                  <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b> · {plata(estado.reserva.estadia.monto, estado.reserva.estadia.moneda)} · {estado.reserva.estadia.medio_pago}</p>
+                  <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b> · {cobroTexto(estado.reserva.estadia)} · {estado.reserva.estadia.medio_pago}</p>
                   <p className="etq">Dáselo al próximo huésped de esta habitación</p>
                   {restanteCodigo > 0
                     ? <p className="codigo-grande" aria-label={`Código ${estado.codigo.valor.split('').join(' ')}`}>{agruparCodigo(estado.codigo.valor)}</p>

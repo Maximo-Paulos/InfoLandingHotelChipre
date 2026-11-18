@@ -111,23 +111,29 @@ function Pantalla({ clave, salir }) {
           {res && !res.vacio && seccion === 'resumen' && (
             <>
               <div className="gr-cifras">
-                <Cifra etiqueta="Ingresos" valor={usd(res.actual.ingresosUsd)} cambio={cambio('ingresosUsd')} sub={`${ars(res.pesosCobrados)} en pesos · US$ ${num(res.dolaresCobrados)} en dólares`} />
+                <Cifra etiqueta="Ingresos" valor={usd(res.actual.ingresosUsd)} cambio={cambio('ingresosUsd')} sub={`valor total de las reservas: ${usd(res.actual.hotelUsd)} en el hotel + ${usd(res.actual.senasUsd)} en señas`} />
                 <Cifra etiqueta="Habitaciones vendidas" valor={num(res.actual.reservas)} cambio={cambio('reservas')} sub={res.huespedesPorHab ? `${num(res.huespedesPorHab, 1)} huéspedes por habitación` : null} />
-                <Cifra etiqueta="Tarifa promedio" valor={usd(res.actual.tarifaUsd)} cambio={cambio('tarifaUsd')} sub="por habitación, en dólares" />
+                <Cifra etiqueta="Tarifa promedio" valor={usd(res.actual.tarifaUsd)} cambio={cambio('tarifaUsd')} sub="valor total por habitación, con la seña incluida" />
                 <Cifra etiqueta="Huéspedes" valor={num(res.actual.huespedes)} cambio={cambio('huespedes')} sub={res.sinReserva ? `${res.sinReserva} de antes de las reservas` : null} />
                 <Cifra etiqueta="Ingreso por huésped" valor={usd(res.actual.porHuesped)} cambio={cambio('porHuesped')} sub="lo cobrado dividido los huéspedes" />
               </div>
-              <Tarjeta titulo="Ingresos" ayuda="Dólares cobrados por habitaciones en cada tramo del período." tabla={tablaDe([unidad, 'Habitaciones', 'Ingresos'], res.serie.map((s) => [s.etiqueta, String(s.reservas), usd(s.ingresosUsd)]))}>
+              <Tarjeta titulo="Ingresos" ayuda="Valor total de las habitaciones (lo cobrado en el hotel más las señas), en dólares, en cada tramo del período." tabla={tablaDe([unidad, 'Habitaciones', 'Ingresos'], res.serie.map((s) => [s.etiqueta, String(s.reservas), usd(s.ingresosUsd)]))}>
                 <Columnas nombre="Ingresos en dólares" datos={res.serie.map((s) => ({ texto: s.etiqueta, valor: Math.round(s.ingresosUsd) }))} formato={usd} />
               </Tarjeta>
               <p className="ayuda">
-                Los pesos se pasan a dólares con el dólar oficial (venta) del día de cada cobro{hoyVenta ? `; hoy está a ${ars(hoyVenta)}` : ''}.
+                Los pesos se pasan a dólares con el dólar oficial (venta) del día de cada pago: lo pagado en el hotel con la fecha del cobro y la seña con la fecha de la seña (si no se cargó, la del cobro){hoyVenta ? `; hoy está a ${ars(hoyVenta)}` : ''}.
                 {res.sinCotizacion > 0 && cotizaciones ? ` ${res.sinCotizacion} cobro${res.sinCotizacion === 1 ? '' : 's'} en pesos quedó sin convertir (no hay cotización de esa fecha).` : ''}
               </p>
             </>
           )}
 
           {res && !res.vacio && seccion === 'ventas' && (
+            <>
+            <div className="gr-cifras cinco">
+              <Cifra etiqueta="Cobrado en el hotel" valor={usd(res.actual.hotelUsd)} sub="lo que se pagó al llegar" />
+              <Cifra etiqueta="Señas cobradas antes" valor={usd(res.actual.senasUsd)} sub="cada una con el dólar de su fecha" />
+              <Cifra etiqueta="Reservas con seña" valor={porc(res.pctConSena)} sub={`${res.reservasConSena} de ${res.actual.reservas}${res.senaPromedioPct != null ? ` · dejan ${porc(res.senaPromedioPct)} del total` : ''}`} />
+            </div>
             <div className="gr-grilla-tarjetas">
               <Tarjeta titulo="Habitaciones vendidas" ayuda="Cuántas habitaciones se cobraron. Muestra la estacionalidad: qué épocas se llena y cuáles no." tabla={tablaDe([unidad, 'Habitaciones'], res.serie.map((s) => [s.etiqueta, String(s.reservas)]))}>
                 <Columnas nombre="Habitaciones vendidas" enteros datos={res.serie.map((s) => ({ texto: s.etiqueta, valor: s.reservas }))} formato={hab} />
@@ -135,10 +141,11 @@ function Pantalla({ clave, salir }) {
               <Tarjeta titulo="Tarifa promedio" ayuda="Lo que se cobró en promedio por habitación, en dólares del día. Si sube, estás vendiendo más caro (o bajó el dólar)." tabla={tablaDe([unidad, 'Tarifa promedio'], res.serie.map((s) => [s.etiqueta, usd(s.tarifaUsd)]))}>
                 <Linea nombre="Tarifa promedio en dólares" datos={res.serie.map((s) => ({ texto: s.etiqueta, valor: s.tarifaUsd == null ? null : Math.round(s.tarifaUsd) }))} formato={usd} />
               </Tarjeta>
-              <Tarjeta titulo="Cómo pagan" ayuda={`En pesos: ${res.reservasEnPesos} cobros · en dólares: ${res.reservasEnDolares} cobros. Barras: dólares cobrados por cada medio.`} tabla={tablaDe(['Medio', 'Cobros', 'Ingresos'], res.medios.map((m) => [m.texto, String(m.n), usd(m.usd)]))}>
+              <Tarjeta titulo="Cómo pagan en el hotel" ayuda={`Reservas en pesos: ${res.reservasEnPesos} · en dólares: ${res.reservasEnDolares}. Barras: dólares pagados en el hotel con cada medio (sin las señas).`} tabla={tablaDe(['Medio', 'Cobros', 'Pagado en el hotel'], res.medios.map((m) => [m.texto, String(m.n), usd(m.usd)]))}>
                 <BarrasH datos={res.medios.map((m) => ({ texto: m.texto, valor: Math.round(m.usd), nota: `${m.n} ${m.n === 1 ? 'cobro' : 'cobros'}` }))} formato={usd} />
               </Tarjeta>
             </div>
+            </>
           )}
 
           {res && !res.vacio && seccion === 'huespedes' && (
@@ -180,7 +187,7 @@ function Pantalla({ clave, salir }) {
               <Tarjeta titulo="Qué habitaciones se venden" ayuda="Las que más se venden y a qué tarifa. Las que no aparecen o van abajo son las que cuesta vender." tabla={tablaDe(['Habitación', 'Ventas', 'Ingresos', 'Tarifa promedio'], res.porHabitacion.map((h) => [h.texto, String(h.n), usd(h.usd), usd(h.tarifa)]))}>
                 <BarrasH datos={res.porHabitacion.slice(0, 8).map((h) => ({ texto: `Hab. ${h.texto}`, valor: h.n, nota: `${usd(h.tarifa)} c/u` }))} formato={hab} />
               </Tarjeta>
-              <Tarjeta titulo="Quién cargó las reservas" ayuda="Para controlar el cobro: cuántas reservas cargó cada persona y cuánto sumaron." tabla={tablaDe(['Persona', 'Reservas', 'Ingresos'], res.equipo.map((e) => [e.texto, String(e.n), usd(e.usd)]))}>
+              <Tarjeta titulo="Cuánto cobró cada persona" ayuda="Para controlar la caja: cuántas reservas cargó cada persona y cuánto cobró en el hotel (sin las señas, que entraron antes)." tabla={tablaDe(['Persona', 'Reservas', 'Cobrado en el hotel'], res.equipo.map((e) => [e.texto, String(e.n), usd(e.usd)]))}>
                 <BarrasH datos={res.equipo.map((e) => ({ texto: e.texto, valor: Math.round(e.usd), nota: `${e.n} ${e.n === 1 ? 'reserva' : 'reservas'}` }))} formato={usd} />
               </Tarjeta>
             </div>

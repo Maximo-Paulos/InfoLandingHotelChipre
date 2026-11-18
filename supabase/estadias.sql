@@ -7,7 +7,11 @@
 --     Sin eso no hay código. Todos los check-ins que se hagan con los códigos de esa reserva quedan en la misma estadía.
 --   * La reserva se cierra sola a los `reserva_min` minutos (configurable) o cuando recepción toca «Terminar». Para otra habitación
 --     se abre otra reserva.
---   * El monto se guarda en su moneda original con la fecha del cobro: para las estadísticas se pasa a dólar oficial de ESE día.
+--   * `monto` es el VALOR TOTAL de la habitación. Si el huésped dejó una seña antes, recepción carga además cuánto pagó en el hotel
+--     (`pago_hotel`): la seña es la diferencia (monto - pago_hotel) y, si se sabe, la fecha en que se cobró (`fecha_sena`). Sin seña,
+--     pago_hotel = monto. Todo va en la misma moneda. Así la tarifa promedio es la real, no solo lo que se cobró en el hotel.
+--   * El monto se guarda en su moneda original con sus fechas: para las estadísticas cada parte se pasa a dólar oficial de SU día
+--     (la seña con la fecha de la seña, el resto con la fecha_cobro = el día del hotel).
 --   * Los check-ins viejos quedan «sin reserva» y el dueño los puede asignar a una.
 --   * El huésped además informa su año de nacimiento (para la edad promedio).
 
@@ -28,6 +32,16 @@ create table if not exists private.estadias (
   editado_por text
 );
 alter table private.estadias enable row level security;
+-- Lo que se pagó en el hotel y la fecha de la seña (si la hubo). Las reservas que ya estaban se cobraron enteras en el hotel.
+alter table private.estadias add column if not exists pago_hotel numeric(14, 2);
+alter table private.estadias add column if not exists fecha_sena date;
+update private.estadias set pago_hotel = monto where pago_hotel is null;
+alter table private.estadias alter column pago_hotel set not null;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'estadias_pago_hotel_ck' and conrelid = 'private.estadias'::regclass) then
+    alter table private.estadias add constraint estadias_pago_hotel_ck check (pago_hotel >= 0 and pago_hotel <= monto);
+  end if;
+end $$;
 alter table private.checkins add column if not exists estadia_id bigint references private.estadias (id);
 alter table private.checkin_sesiones add column if not exists estadia_id bigint;
 -- La reserva abierta de cada persona del equipo (0 = el dueño): su código solo sirve mientras dure.
@@ -36,6 +50,13 @@ alter table private.codigos_usuario add column if not exists estadia_vence times
 create index if not exists checkins_estadia_idx on private.checkins (estadia_id);
 
 -- ---------------------------------------------------------------- ayudas
+
+-- Las firmas de antes de la seña (se reemplazan por las de abajo, que suman pago_hotel y fecha_sena como datos opcionales).
+drop function if exists private.estadia_validar(text, numeric, text, int, date, int);
+drop function if exists public.recepcion_reserva_nueva(text, text, numeric, text, int, date);
+drop function if exists private.estadia_editar(text, boolean, bigint, text, numeric, text, int, date);
+drop function if exists public.recepcion_estadia_editar(text, bigint, text, numeric, text, int, date);
+drop function if exists public.admin_estadia_editar(text, bigint, text, numeric, text, int, date);
 
 -- Año de nacimiento: se suma a la revisión de los datos del huésped (opcional acá; checkin_enviar lo exige).
 create or replace function private.validar_huesped(p_datos jsonb)
@@ -98,7 +119,7 @@ $$;
 create or replace function private.estadia_json(p_id bigint, p_edicion_min int default null)
 returns json language sql stable security definer set search_path = '' as $$
   select json_build_object(
-    'id', e.id, 'habitacion', e.habitacion, 'monto', e.monto, 'moneda', e.moneda,
+    'id', e.id, 'habitacion', e.habitacion, 'monto', e.monto, 'moneda', e.moneda, 'pago_hotel', e.pago_hotel, 'fecha_sena', e.fecha_sena,
     'medio_pago_id', e.medio_pago_id, 'medio_pago', m.nombre, 'fecha_cobro', e.fecha_cobro,
     'cargado_por', e.cargado_por, 'creado', e.creado,
     'editable_seg', case when p_edicion_min is null then null
@@ -106,12 +127,15 @@ returns json language sql stable security definer set search_path = '' as $$
     from private.estadias e join private.medios_pago m on m.id = e.medio_pago_id where e.id = p_id;
 $$;
 
--- Revisa los datos de una reserva. Devuelve { ok, habitacion } o { ok:false, campos:[...] }.
-create or replace function private.estadia_validar(p_hab text, p_monto numeric, p_moneda text, p_medio int, p_fecha date, p_medio_actual int default null)
+-- Revisa los datos de una reserva. Devuelve { ok, habitacion, pago, fecha_sena } o { ok:false, campos:[...] }.
+--   p_pago: lo pagado en el hotel (null = todo el monto, sin seña) · p_fecha_sena: cuándo se cobró la seña (opcional; sin seña se ignora)
+create or replace function private.estadia_validar(p_hab text, p_monto numeric, p_moneda text, p_medio int, p_fecha date, p_medio_actual int default null, p_pago numeric default null, p_fecha_sena date default null)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare
   v_err text[] := array[]::text[];
   h text := private.habitacion_normal(p_hab);
+  v_pago numeric := coalesce(p_pago, p_monto);
+  v_sena_fecha date := null;
 begin
   if h is null or not private.habitacion_ok(h) then v_err := array_append(v_err, 'habitacion'); end if;
   if p_monto is null or p_monto < 0 or p_monto >= 1e12 then v_err := array_append(v_err, 'monto'); end if;
@@ -120,10 +144,19 @@ begin
     v_err := array_append(v_err, 'medio_pago');
   end if;
   if p_fecha is null or p_fecha not between current_date - 366 and current_date + 1 then v_err := array_append(v_err, 'fecha_cobro'); end if;
+  -- Lo pagado en el hotel no puede ser más que el total (la seña es lo que falta para llegar al total).
+  if p_monto is not null and (v_pago is null or v_pago < 0 or v_pago > p_monto) then v_err := array_append(v_err, 'pago_hotel'); end if;
+  if p_fecha_sena is not null and p_monto is not null and v_pago is not null and p_monto - v_pago > 0 then
+    if p_fecha_sena < current_date - 800 or (p_fecha is not null and p_fecha_sena > p_fecha) then
+      v_err := array_append(v_err, 'fecha_sena');
+    else
+      v_sena_fecha := p_fecha_sena;
+    end if;
+  end if;
   if array_length(v_err, 1) is not null then
     return jsonb_build_object('ok', false, 'campos', to_jsonb(v_err));
   end if;
-  return jsonb_build_object('ok', true, 'habitacion', h);
+  return jsonb_build_object('ok', true, 'habitacion', h, 'pago', v_pago, 'fecha_sena', v_sena_fecha);
 end;
 $$;
 
@@ -288,7 +321,7 @@ end;
 $$;
 
 -- Abre una reserva nueva y deja a esta persona con su primer código. Cierra la que tuviera abierta.
-create or replace function public.recepcion_reserva_nueva(p_clave text, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date)
+create or replace function public.recepcion_reserva_nueva(p_clave text, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date, p_pago_hotel numeric default null, p_fecha_sena date default null)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
   r text;
@@ -306,14 +339,14 @@ begin
   if not cfg.activo then
     return json_build_object('ok', false, 'error', 'no_disponible');
   end if;
-  v := private.estadia_validar(p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha);
+  v := private.estadia_validar(p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, null, p_pago_hotel, p_fecha_sena);
   if not (v ->> 'ok')::boolean then
     return json_build_object('ok', false, 'error', 'datos_invalidos', 'campos', v -> 'campos');
   end if;
   v_actor := private.actor(p_clave);
   v_uid := (v_actor ->> 'id')::bigint;
-  insert into private.estadias (habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por)
-    values (v ->> 'habitacion', p_monto, p_moneda, p_medio_pago, p_fecha, v_actor ->> 'alias') returning id into v_id;
+  insert into private.estadias (habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena)
+    values (v ->> 'habitacion', p_monto, p_moneda, p_medio_pago, p_fecha, v_actor ->> 'alias', (v ->> 'pago')::numeric, (v ->> 'fecha_sena')::date) returning id into v_id;
   perform private.codigo_usuario(v_uid, true);
   update private.codigos_usuario set estadia_id = v_id, estadia_vence = now() + make_interval(mins => cfg.reserva_min) where usuario_id = v_uid;
   perform private.auditar('recepcion', 'reserva_nueva', null, jsonb_build_object('estadia', v_id, 'alias', v_actor ->> 'alias'));
@@ -347,7 +380,7 @@ $$;
 
 -- Corrige una reserva. Recepción solo durante la ventana de edición; el dueño siempre. La habitación y el medio de pago pasan a
 -- todos los huéspedes de la reserva. Todo queda en la auditoría.
-create or replace function private.estadia_editar(p_quien text, p_dueno boolean, p_id bigint, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date)
+create or replace function private.estadia_editar(p_quien text, p_dueno boolean, p_id bigint, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date, p_pago_hotel numeric default null, p_fecha_sena date default null)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
   cfg private.checkin_config;
@@ -363,7 +396,7 @@ begin
   if not p_dueno and (not cfg.edicion_activa or now() > e.creado + make_interval(mins => cfg.edicion_min)) then
     return json_build_object('ok', false, 'error', 'fuera_de_tiempo');
   end if;
-  v := private.estadia_validar(p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, e.medio_pago_id);
+  v := private.estadia_validar(p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, e.medio_pago_id, p_pago_hotel, p_fecha_sena);
   if not (v ->> 'ok')::boolean then
     return json_build_object('ok', false, 'error', 'datos_invalidos', 'campos', v -> 'campos');
   end if;
@@ -372,9 +405,12 @@ begin
   if p_moneda <> e.moneda then v_cambios := array_append(v_cambios, 'moneda'); end if;
   if p_medio_pago <> e.medio_pago_id then v_cambios := array_append(v_cambios, 'medio_pago'); end if;
   if p_fecha <> e.fecha_cobro then v_cambios := array_append(v_cambios, 'fecha_cobro'); end if;
+  if (v ->> 'pago')::numeric <> e.pago_hotel then v_cambios := array_append(v_cambios, 'pago_hotel'); end if;
+  if (v ->> 'fecha_sena')::date is distinct from e.fecha_sena then v_cambios := array_append(v_cambios, 'fecha_sena'); end if;
   if array_length(v_cambios, 1) is not null then
     update private.estadias set habitacion = v ->> 'habitacion', monto = p_monto, moneda = p_moneda, medio_pago_id = p_medio_pago,
-           fecha_cobro = p_fecha, editado_en = now(), editado_por = p_quien where id = p_id;
+           fecha_cobro = p_fecha, pago_hotel = (v ->> 'pago')::numeric, fecha_sena = (v ->> 'fecha_sena')::date,
+           editado_en = now(), editado_por = p_quien where id = p_id;
     update private.checkins set habitacion = v ->> 'habitacion', medio_pago_id = p_medio_pago where estadia_id = p_id;
     perform private.auditar(case when p_dueno then 'admin' else 'recepcion' end, 'estadia_editar', null,
       jsonb_build_object('estadia', p_id, 'campos', to_jsonb(v_cambios), 'por', p_quien));
@@ -383,7 +419,7 @@ begin
 end;
 $$;
 
-create or replace function public.recepcion_estadia_editar(p_clave text, p_id bigint, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date)
+create or replace function public.recepcion_estadia_editar(p_clave text, p_id bigint, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date, p_pago_hotel numeric default null, p_fecha_sena date default null)
 returns json language plpgsql security definer set search_path = '' as $$
 declare r text;
 begin
@@ -392,13 +428,13 @@ begin
     return json_build_object('ok', false, 'error', r);
   end if;
   return private.estadia_editar(private.actor(p_clave) ->> 'alias', coalesce((private.actor(p_clave) ->> 'dueno')::boolean, false),
-                                p_id, p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha);
+                                p_id, p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, p_pago_hotel, p_fecha_sena);
 end;
 $$;
 
 -- ---------------------------------------------------------------- dueño
 
-create or replace function public.admin_estadia_editar(p_clave text, p_id bigint, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date)
+create or replace function public.admin_estadia_editar(p_clave text, p_id bigint, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date, p_pago_hotel numeric default null, p_fecha_sena date default null)
 returns json language plpgsql security definer set search_path = '' as $$
 declare r text;
 begin
@@ -406,7 +442,7 @@ begin
   if r <> 'ok' then
     return json_build_object('ok', false, 'error', r);
   end if;
-  return private.estadia_editar(coalesce(private.actor(p_clave) ->> 'alias', 'Dueño'), true, p_id, p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha);
+  return private.estadia_editar(coalesce(private.actor(p_clave) ->> 'alias', 'Dueño'), true, p_id, p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, p_pago_hotel, p_fecha_sena);
 end;
 $$;
 
@@ -554,7 +590,7 @@ begin
 
   select coalesce(json_agg(t order by t.fecha_cobro, t.id), '[]'::json) into v_reservas
   from (
-    select e.id, e.habitacion, e.monto, e.moneda, m.nombre as medio_pago, e.fecha_cobro, e.cargado_por,
+    select e.id, e.habitacion, e.monto, e.moneda, e.pago_hotel, e.fecha_sena, m.nombre as medio_pago, e.fecha_cobro, e.cargado_por,
            (select count(*)::int from private.checkins c where c.estadia_id = e.id) as huespedes
     from private.estadias e
     join private.medios_pago m on m.id = e.medio_pago_id
@@ -598,19 +634,19 @@ $$;
 -- ---------------------------------------------------------------- permisos
 
 revoke all on function private.estadia_json(bigint, int) from public, anon, authenticated;
-revoke all on function private.estadia_validar(text, numeric, text, int, date, int) from public, anon, authenticated;
-revoke all on function private.estadia_editar(text, boolean, bigint, text, numeric, text, int, date) from public, anon, authenticated;
+revoke all on function private.estadia_validar(text, numeric, text, int, date, int, numeric, date) from public, anon, authenticated;
+revoke all on function private.estadia_editar(text, boolean, bigint, text, numeric, text, int, date, numeric, date) from public, anon, authenticated;
 revoke all on function private.validar_huesped(jsonb) from public, anon, authenticated;
-revoke all on function public.recepcion_reserva_nueva(text, text, numeric, text, int, date) from public, anon, authenticated;
+revoke all on function public.recepcion_reserva_nueva(text, text, numeric, text, int, date, numeric, date) from public, anon, authenticated;
 revoke all on function public.recepcion_reserva_cerrar(text, boolean) from public, anon, authenticated;
-revoke all on function public.recepcion_estadia_editar(text, bigint, text, numeric, text, int, date) from public, anon, authenticated;
-revoke all on function public.admin_estadia_editar(text, bigint, text, numeric, text, int, date) from public, anon, authenticated;
+revoke all on function public.recepcion_estadia_editar(text, bigint, text, numeric, text, int, date, numeric, date) from public, anon, authenticated;
+revoke all on function public.admin_estadia_editar(text, bigint, text, numeric, text, int, date, numeric, date) from public, anon, authenticated;
 revoke all on function public.admin_huesped_estadia(text, bigint, bigint) from public, anon, authenticated;
 revoke all on function public.admin_reserva_min(text, int) from public, anon, authenticated;
-grant execute on function public.recepcion_reserva_nueva(text, text, numeric, text, int, date) to anon, authenticated;
+grant execute on function public.recepcion_reserva_nueva(text, text, numeric, text, int, date, numeric, date) to anon, authenticated;
 grant execute on function public.recepcion_reserva_cerrar(text, boolean) to anon, authenticated;
-grant execute on function public.recepcion_estadia_editar(text, bigint, text, numeric, text, int, date) to anon, authenticated;
-grant execute on function public.admin_estadia_editar(text, bigint, text, numeric, text, int, date) to anon, authenticated;
+grant execute on function public.recepcion_estadia_editar(text, bigint, text, numeric, text, int, date, numeric, date) to anon, authenticated;
+grant execute on function public.admin_estadia_editar(text, bigint, text, numeric, text, int, date, numeric, date) to anon, authenticated;
 grant execute on function public.admin_huesped_estadia(text, bigint, bigint) to anon, authenticated;
 grant execute on function public.admin_reserva_min(text, int) to anon, authenticated;
 revoke all on function public.admin_estadisticas(text, date, date) from public, anon, authenticated;

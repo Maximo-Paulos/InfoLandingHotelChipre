@@ -647,3 +647,5 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .fichas button{min-height:48px;padding:0 16px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie);color:var(--texto);font:700 14px var(--sans)}
 .fichas button.activa{border-color:var(--verde);background:var(--verde);color:#fff}
 .seg button:disabled,.fichas button:disabled{opacity:.6}
+.sena-datos{display:grid;gap:2px;margin:0 0 4px;padding:12px 12px 2px;border-left:4px solid var(--mostaza);border-radius:0 12px 12px 0;background:var(--mostaza-claro)}
+.sena-datos .campo{margin-bottom:10px}

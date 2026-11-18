@@ -22,8 +22,9 @@ export const recepcionEditar = (clave, id, datos, habitacion, medioPago) =>
 export const recepcionFotos = (clave, id) => rpc('recepcion_fotos', { p_clave: clave, p_id: id });
 export const recepcionFotoPermiso = (clave, id) => rpc('recepcion_foto_permiso', { p_clave: clave, p_id: id });
 
-// Reservas: habitación + monto, antes de dar el código. `r` = { habitacion, monto, moneda, medioPago, fecha }.
-const deReserva = (r) => ({ p_habitacion: r.habitacion, p_monto: r.monto, p_moneda: r.moneda, p_medio_pago: r.medioPago, p_fecha: r.fecha });
+// Reservas: habitación + valor total + lo pagado en el hotel, antes de dar el código.
+// `r` = { habitacion, monto (total), moneda, medioPago, fecha, pagoHotel, fechaSena } (sin pagoHotel se toma como cobrado todo en el hotel).
+const deReserva = (r) => ({ p_habitacion: r.habitacion, p_monto: r.monto, p_moneda: r.moneda, p_medio_pago: r.medioPago, p_fecha: r.fecha, p_pago_hotel: r.pagoHotel ?? null, p_fecha_sena: r.fechaSena ?? null });
 export const recepcionReservaNueva = (clave, r) => rpc('recepcion_reserva_nueva', { p_clave: clave, ...deReserva(r) });
 export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcion_reserva_cerrar', { p_clave: clave, p_extender: extender });
 export const recepcionEstadiaEditar = (clave, id, r) => rpc('recepcion_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });

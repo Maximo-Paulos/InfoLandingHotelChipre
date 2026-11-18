@@ -108,15 +108,23 @@ export async function cargarDemo(back, { log = console.log } = {}) {
       const medio = ponderado(extranjero ? MEDIOS_EXT : MEDIOS_ARG);
       const alta = temporada >= 1.3 ? 1.22 : temporada <= 0.7 ? 0.88 : 1;
       const usdTarifa = hab.base * alta * (extranjero ? 1.08 : 1) * entre(0.93, 1.1);
-      const antes = r() < 0.18 ? Math.floor(entre(1, 20)) : 0; // a veces se cobra una seña unos días antes
-      const fechaCobro = iso(sumar(dia, -antes));
+      // El hotel cobra el día de la llegada (fecha_cobro). Cerca de 4 de cada 10 reservas dejaron antes una seña (20 a 50 % del total).
+      const fechaCobro = fecha;
+      const paso = medio[2] === 'USD' ? 5 : 1000;
       const monto = medio[2] === 'USD' ? Math.round(usdTarifa / 5) * 5 : Math.round((usdTarifa * dolar[fechaCobro]) / 1000) * 1000;
+      let pagoHotel = monto;
+      let fechaSena = null;
+      if (r() < 0.38) {
+        const sena = Math.max(paso, Math.round((monto * elegir([0.2, 0.25, 0.3, 0.4, 0.5])) / paso) * paso);
+        pagoHotel = Math.max(0, monto - sena);
+        fechaSena = iso(sumar(dia, -Math.floor(entre(3, 28))));
+      }
       const quien = ponderado(EQUIPO)[0];
       // Hoy no puede haber check-ins «del futuro»: se corta en la hora de ahora.
       const hora = Math.min(i === 0 ? horaAhora : 23, Math.max(i === 0 ? 0 : 9, Math.round(normal(16, 3.2))));
       const minuto = Math.floor(r() * 60);
       idEst += 1;
-      estadias.push({ id: idEst, creado: AR(fecha, hora, minuto), habitacion: hab.n, monto, moneda: medio[2], medio_pago_id: medio[0], fecha_cobro: fechaCobro, cargado_por: quien });
+      estadias.push({ id: idEst, creado: AR(fecha, hora, minuto), habitacion: hab.n, monto, moneda: medio[2], medio_pago_id: medio[0], fecha_cobro: fechaCobro, cargado_por: quien, pago_hotel: pagoHotel, fecha_sena: fechaSena });
 
       const n = ponderado([[1, 30], [2, 46], [3, 14], [4, 8], [5, 2]])[0];
       const edadBase = Math.max(19, Math.round(normal(38, 12)));
@@ -157,9 +165,10 @@ export async function cargarDemo(back, { log = console.log } = {}) {
     }
   }
 
-  await back.sql(`insert into private.estadias (id, creado, habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por)
+  await back.sql(`insert into private.estadias (id, creado, habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena)
     overriding system value
-    select (x->>'id')::bigint, (x->>'creado')::timestamptz, x->>'habitacion', (x->>'monto')::numeric, x->>'moneda', (x->>'medio_pago_id')::int, (x->>'fecha_cobro')::date, x->>'cargado_por'
+    select (x->>'id')::bigint, (x->>'creado')::timestamptz, x->>'habitacion', (x->>'monto')::numeric, x->>'moneda', (x->>'medio_pago_id')::int, (x->>'fecha_cobro')::date, x->>'cargado_por',
+           (x->>'pago_hotel')::numeric, (x->>'fecha_sena')::date
     from jsonb_array_elements($1::jsonb) x`, [JSON.stringify(estadias)]);
   await back.sql(`insert into private.checkins (id, creado, grupo, idioma, datos, consentimiento, habitacion, medio_pago_id, habilitado_por, estadia_id)
     overriding system value

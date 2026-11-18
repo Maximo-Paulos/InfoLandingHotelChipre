@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import Modal from './Modal.jsx';
-import { plata } from './ReservaForm.jsx';
+import { cobroTexto, plata } from './ReservaForm.jsx';
 import { fechaHora, urlDrive } from './util.js';
 
 const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_id: f.foto_id, nombre: f.foto_nombre }] : []);
@@ -26,7 +26,7 @@ export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarRese
                     <b className="rg-hab">Hab. {g.estadia.habitacion}</b>
                     <span className="rg-cuenta">{g.filas.length} {g.filas.length === 1 ? 'huésped' : 'huéspedes'}</span>
                   </div>
-                  <p className="rg-plata">{plata(g.estadia.monto, g.estadia.moneda)} · {g.estadia.medio_pago} · cobro {ddmm(g.estadia.fecha_cobro)} · cargó {g.estadia.cargado_por}</p>
+                  <p className="rg-plata">{cobroTexto(g.estadia)} · {g.estadia.medio_pago} · cobro {ddmm(g.estadia.fecha_cobro)} · cargó {g.estadia.cargado_por}</p>
                   {onEditarReserva && (!reservaEditable || reservaEditable(g.estadia)) && (
                     <button type="button" className="rg-editar" onClick={() => onEditarReserva(g.estadia)} aria-label={`Corregir la reserva de la ${g.estadia.habitacion}`}>
                       <Icon name="lapiz" size={16} sw={1.8} /> Corregir
@@ -87,7 +87,7 @@ function Ficha({ fila, puedeEditar, onCerrar, onEditar, onFotos, reservas, onAsi
     <Modal titulo={nombreDe(fila) || 'Huésped'} onCerrar={onCerrar}>
       <dl className="ficha">
         <Dato etiqueta="Habitación">{fila.habitacion ? `Hab. ${fila.habitacion}` : 'Sin asignar'}</Dato>
-        {fila.estadia && <Dato etiqueta="Cobro de la habitación">{plata(fila.estadia.monto, fila.estadia.moneda)} · {fila.estadia.medio_pago}</Dato>}
+        {fila.estadia && <Dato etiqueta="Cobro de la habitación">{cobroTexto(fila.estadia)} · {fila.estadia.medio_pago}</Dato>}
         {!fila.estadia && fila.medio_pago && <Dato etiqueta="Medio de pago">{fila.medio_pago}</Dato>}
         <Dato etiqueta="Documento">{d.doc_tipo} {d.doc_numero}</Dato>
         <Dato etiqueta="Nacionalidad">{d.nacionalidad}</Dato>

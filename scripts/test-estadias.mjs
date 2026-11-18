@@ -1,6 +1,7 @@
 // Reservas (estadías): habitación + monto antes del código, huéspedes agrupados, año de nacimiento.
 //   node scripts/test-estadias.mjs
 // Usa la base de prueba en memoria con schema.sql + checkin.sql + estadias.sql y llama a las funciones como lo hace la guía (rol "anon").
+import fs from 'node:fs';
 import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 
 let fallas = 0;
@@ -116,6 +117,47 @@ r = await llamar('admin_huesped_estadia', { p_clave: dueno, p_id: idViejo, p_est
 lista = await llamar('admin_huespedes', { p_clave: dueno });
 ok(r.ok && lista.huespedes.find((h) => h.id === idViejo).estadia.id === id107, 'el dueño lo asigna a una reserva');
 
+console.log('\n== 8. Valor total, pago en el hotel y seña');
+const dias = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+r = await llamar('recepcion_reserva_nueva', reserva({ p_habitacion: '401', p_monto: 100000, p_pago_hotel: 70000, p_fecha_sena: dias(10) }));
+ok(r.ok === true, 'una reserva de 100.000 con 70.000 pagados en el hotel (seña de 30.000) se abre');
+let fila = (await back.sql(`select monto::float m, pago_hotel::float p, fecha_sena::text f from private.estadias where id = $1`, [r.id]))[0];
+ok(fila.m === 100000 && fila.p === 70000 && fila.f === dias(10), 'se guarda el total, lo pagado en el hotel y la fecha de la seña');
+est = await llamar('recepcion_estado', { p_clave: rec });
+ok(Number(est.reserva.estadia.monto) === 100000 && Number(est.reserva.estadia.pago_hotel) === 70000 && est.reserva.estadia.fecha_sena === dias(10), 'recepción ve el total, el pago en el hotel y la fecha de la seña');
+r = await llamar('recepcion_reserva_nueva', reserva({ p_habitacion: '402' }));
+fila = (await back.sql(`select monto::float m, pago_hotel::float p, fecha_sena from private.estadias where id = $1`, [r.id]))[0];
+ok(fila.p === fila.m && fila.fecha_sena === null, 'sin decir nada del pago, se cobró todo en el hotel (sin seña)');
+for (const [m, extra, campo] of [
+  ['pagó más que el total', { p_monto: 1000, p_pago_hotel: 1001 }, 'pago_hotel'],
+  ['pago negativo', { p_pago_hotel: -5 }, 'pago_hotel'],
+  ['seña cobrada después del hotel', { p_monto: 1000, p_pago_hotel: 400, p_fecha_sena: dias(-1) }, 'fecha_sena'],
+  ['seña de hace años', { p_monto: 1000, p_pago_hotel: 400, p_fecha_sena: '2020-01-01' }, 'fecha_sena']
+]) {
+  const x = await llamar('recepcion_reserva_nueva', reserva({ p_habitacion: '403', ...extra }));
+  ok(x.ok === false && x.error === 'datos_invalidos' && x.campos.includes(campo), `${m} → ${campo}`);
+}
+r = await llamar('recepcion_reserva_nueva', reserva({ p_habitacion: '404', p_monto: 5000, p_pago_hotel: 5000, p_fecha_sena: dias(3) }));
+fila = (await back.sql(`select fecha_sena from private.estadias where id = $1`, [r.id]))[0];
+ok(r.ok && fila.fecha_sena === null, 'la fecha de la seña se ignora si no hubo seña');
+const id401 = (await back.sql(`select id from private.estadias where habitacion = '401'`))[0].id;
+r = await llamar('admin_estadia_editar', { p_clave: dueno, p_id: id401, p_habitacion: '401', p_monto: 100000, p_moneda: 'ARS', p_medio_pago: 2, p_fecha: hoy, p_pago_hotel: 50000, p_fecha_sena: dias(12) });
+fila = (await back.sql(`select pago_hotel::float p, fecha_sena::text f from private.estadias where id = $1`, [id401]))[0];
+ok(r.ok && fila.p === 50000 && fila.f === dias(12), 'el dueño corrige lo pagado en el hotel y la fecha de la seña');
+const aud2 = await back.sql(`select detalle from private.checkin_auditoria where accion = 'estadia_editar' order by id desc limit 1`);
+ok(JSON.stringify(aud2[0].detalle.campos).includes('pago_hotel') && JSON.stringify(aud2[0].detalle.campos).includes('fecha_sena'), 'y queda en el historial qué se cambió');
+r = await llamar('admin_estadia_editar', { p_clave: dueno, p_id: id401, p_habitacion: '401', p_monto: 40000, p_moneda: 'ARS', p_medio_pago: 2, p_fecha: hoy, p_pago_hotel: 50000 });
+ok(r.ok === false && r.campos.includes('pago_hotel'), 'bajar el total por debajo de lo pagado en el hotel se rechaza');
+const stats = await llamar('admin_estadisticas', { p_clave: dueno });
+const e401 = stats.reservas.find((x) => x.id === id401);
+ok(Number(e401.monto) === 100000 && Number(e401.pago_hotel) === 50000 && e401.fecha_sena === dias(12), 'las estadísticas reciben el total, lo pagado en el hotel y la fecha de la seña');
+// Migración: una base con reservas de la versión anterior (sin pago_hotel) pasa a «se cobró todo en el hotel», y el archivo se puede repetir.
+await back.exec(`alter table private.estadias drop constraint estadias_pago_hotel_ck; alter table private.estadias drop column pago_hotel, drop column fecha_sena`);
+await back.exec(fs.readFileSync(new URL('../supabase/estadias.sql', import.meta.url), 'utf8'));
+await back.exec(fs.readFileSync(new URL('../supabase/estadias.sql', import.meta.url), 'utf8'));
+const mig = await back.sql(`select count(*)::int n, count(*) filter (where pago_hotel = monto and fecha_sena is null)::int ok from private.estadias`);
+ok(mig[0].n > 0 && mig[0].n === mig[0].ok, 'al migrar, las reservas de antes quedan cobradas enteras en el hotel (y el archivo se puede repetir)');
+ok((await llamar('recepcion_reserva_nueva', reserva({ p_habitacion: '405', p_monto: 1000, p_pago_hotel: 400 }))).ok === true, 'y las funciones siguen andando después de repetirlo');
 await back.cerrar();
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);

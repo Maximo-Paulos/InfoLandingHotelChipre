@@ -2,7 +2,7 @@
 //   node scripts/test-estadisticas.mjs
 import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 import { cargarDemo } from './datos-demo.mjs';
-import { aDolares, calcular, cortes, diasEntre, rangoAnterior, rangoDe, recortar, sumarDias, variacion, ventaEn } from '../src/admin/estadisticas.js';
+import { aDolares, calcular, partesUsd, cortes, diasEntre, rangoAnterior, rangoDe, recortar, sumarDias, variacion, ventaEn } from '../src/admin/estadisticas.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -24,6 +24,19 @@ ok(rangoAnterior({ desde: '2026-03-01', hasta: '2026-03-30' }, 'mes').hasta === 
 ok(rangoAnterior({ desde: '2026-01-01', hasta: '2026-11-18' }, 'todo') === null, '«Todo» no tiene anterior');
 ok(variacion(120, 100) === 20 && variacion(5, 0) === null && variacion(null, 3) === null, 'variación en %, sin dividir por cero');
 ok(cortes('2026-11-01', '2026-11-18') === 'dia' && cortes('2026-08-20', '2026-11-18') === 'semana' && cortes('2025-11-20', '2026-11-18') === 'mes', 'cada cuánto se corta la serie');
+
+const cot2 = [{ fecha: '2026-01-01', venta: 1000 }, { fecha: '2026-01-10', venta: 1200 }];
+const cerca = (a, b) => Math.abs(a - b) < 0.001;
+let pu = partesUsd({ monto: '100000', pago_hotel: '70000', moneda: 'ARS', fecha_cobro: '2026-01-10', fecha_sena: '2026-01-01' }, cot2);
+ok(cerca(pu.sena, 30) && cerca(pu.hotel, 70000 / 1200) && cerca(pu.total, 30 + 70000 / 1200), 'una reserva de 100.000 con seña de 30.000: la seña con el dólar de SU fecha y el resto con el del hotel');
+pu = partesUsd({ monto: '100000', pago_hotel: '70000', moneda: 'ARS', fecha_cobro: '2026-01-10', fecha_sena: null }, cot2);
+ok(cerca(pu.total, 100000 / 1200), 'sin fecha de la seña, todo con el dólar del día del cobro');
+pu = partesUsd({ monto: '100', pago_hotel: '60', moneda: 'USD', fecha_cobro: '2026-01-10' }, null);
+ok(pu.total === 100 && pu.hotel === 60 && pu.sena === 40, 'en dólares no hace falta cotización: total 100, hotel 60, seña 40');
+pu = partesUsd({ monto: '100000', pago_hotel: '0', moneda: 'ARS', fecha_cobro: '2026-01-10', fecha_sena: '2026-01-01' }, [{ fecha: '2026-01-01', venta: 1000 }]);
+ok(pu && cerca(pu.total, 100) && pu.hotel === 0, 'si todo se pagó de seña, no hace falta el dólar del día del hotel');
+ok(partesUsd({ monto: '100000', pago_hotel: '70000', moneda: 'ARS', fecha_cobro: '2026-01-10', fecha_sena: '2025-06-01' }, cot2) === null, 'si no hay dólar para la fecha de la seña no se inventa nada');
+ok(aDolares({ monto: '55000', moneda: 'ARS', fecha_cobro: '2026-01-10' }, cot2) === 55000 / 1200, 'una reserva de antes de las señas (sin pago_hotel) cuenta como cobrada entera en el hotel');
 
 console.log('\n== 2. La base: solo el dueño, sin datos personales');
 const back = await iniciarBackend({ puerto: 54398, estadias: true });
@@ -53,8 +66,8 @@ const dolar = Array.from({ length: 500 }, (_, i) => ({ fecha: sumarDias(sumarDia
 const rango = rangoDe('365', e.hoy);
 const r = calcular(e, dolar, rango, rangoAnterior(rango, '365'));
 const { reservas, huespedes } = recortar(e, rango);
-const aMano = reservas.reduce((s, x) => s + (x.moneda === 'USD' ? Number(x.monto) : Number(x.monto) / 1500), 0);
-ok(Math.abs(r.actual.ingresosUsd - aMano) < 0.01, `ingresos del año: US$ ${Math.round(r.actual.ingresosUsd)}`);
+const aMano = reservas.reduce((s, x) => s + (x.moneda === 'USD' ? Number(x.monto) : Number(x.monto) / 1500), 0); // con un dólar parejo, seña y hotel dan lo mismo que el total
+ok(r.actual.ingresosUsd > 0 && Math.abs(r.actual.ingresosUsd - aMano) < 0.01, `ingresos del año: US$ ${Math.round(r.actual.ingresosUsd)}`);
 ok(r.actual.reservas === reservas.length && r.actual.huespedes === huespedes.length, 'habitaciones y huéspedes del período');
 ok(r.serie.reduce((s, x) => s + x.reservas, 0) === r.actual.reservas && Math.abs(r.serie.reduce((s, x) => s + x.ingresosUsd, 0) - r.actual.ingresosUsd) < 0.01, 'la serie por mes suma lo mismo que el total');
 ok(r.corte === 'mes' && r.serie.length >= 12 && r.serie.length <= 13, `12 meses = ${r.serie.length} columnas`);
@@ -64,6 +77,10 @@ ok(r.porDia.reduce((s, x) => s + x.n, 0) === reservas.length && r.porHora.reduce
 ok(r.tamanos.reduce((s, x) => s + x.n, 0) === reservas.filter((x) => x.huespedes >= 1).length, 'tamaño de grupo');
 ok(r.porHabitacion.reduce((s, x) => s + x.n, 0) === reservas.length && r.medios.reduce((s, x) => s + x.n, 0) === reservas.length && r.equipo.reduce((s, x) => s + x.n, 0) === reservas.length, 'habitaciones, medios de pago y equipo suman todas las reservas');
 ok(r.pctRecurrentes > 0 && r.pctRecurrentes < 40 && r.pctEmail > 80 && r.pctExtranjeros > 20 && r.pctExtranjeros < 70, `recurrentes ${r.pctRecurrentes?.toFixed(1)}% · con email ${r.pctEmail?.toFixed(0)}% · extranjeros ${r.pctExtranjeros?.toFixed(0)}%`);
+ok(cerca(r.actual.hotelUsd + r.actual.senasUsd, r.actual.ingresosUsd), `el total se reparte en hotel + seña: US$ ${Math.round(r.actual.hotelUsd)} + US$ ${Math.round(r.actual.senasUsd)}`);
+ok(r.pctConSena > 25 && r.pctConSena < 55 && r.senaPromedioPct > 15 && r.senaPromedioPct < 55, `reservas con seña ${r.pctConSena?.toFixed(0)}% · dejan ${r.senaPromedioPct?.toFixed(0)}% del total`);
+ok(cerca(r.medios.reduce((x, m) => x + m.usd, 0), r.actual.hotelUsd) && cerca(r.equipo.reduce((x, m) => x + m.usd, 0), r.actual.hotelUsd), 'medios de pago y equipo suman lo cobrado en el hotel (no el total)');
+ok(r.actual.tarifaUsd > r.actual.hotelUsd / r.actual.reservas, 'la tarifa promedio usa el total: es mayor que lo cobrado en el hotel por habitación');
 ok(r.previo && r.previo.reservas === 0, 'los datos de demostración no llegan a dos años: el año anterior está vacío (no hay con qué comparar)');
 const r90 = calcular(e, dolar, rangoDe('90', e.hoy), rangoAnterior(rangoDe('90', e.hoy), '90'));
 ok(r90.previo.reservas > 0 && variacion(r90.actual.reservas, r90.previo.reservas) !== null, 'tres meses sí se pueden comparar con los tres anteriores');
