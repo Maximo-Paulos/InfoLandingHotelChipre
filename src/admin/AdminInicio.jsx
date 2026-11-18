@@ -60,7 +60,7 @@ function Contenido({ clave, salir }) {
 
         <a className="btn in-accion" href="#/recepcion"><Icon name="llave" size={22} sw={1.8} /> Nueva reserva y código</a>
 
-        <h2 className="in-sub">Hoy</h2>
+        <div className="in-fila"><h2 className="in-sub">Hoy</h2><a className="in-ver" href="#/admin/caja">Ver cobros y reservas <Icon name="adelante" size={16} sw={2} /></a></div>
         <div className="gr-cifras cinco in-cifras">
           <Cifra etiqueta="Habitaciones vendidas" valor={hoy ? num(hoy.actual.reservas) : '…'} />
           <Cifra etiqueta="Huéspedes" valor={hoy ? num(hoy.actual.huespedes) : '…'} />
@@ -69,9 +69,9 @@ function Contenido({ clave, salir }) {
         <div className="in-fila"><h2 className="in-sub">Este mes</h2><a className="in-ver" href="#/admin/estadisticas">Ver estadísticas <Icon name="adelante" size={16} sw={2} /></a></div>
         <div className="gr-cifras cinco in-cifras">
           <Cifra etiqueta="Ingresos" valor={mes ? usd(mes.actual.ingresosUsd) : '…'} cambio={mes?.previo ? variacion(mes.actual.ingresosUsd, mes.previo.ingresosUsd) : null} />
-          <Cifra etiqueta="Tarifa promedio" valor={mes ? usd(mes.actual.tarifaUsd) : '…'} cambio={mes?.previo ? variacion(mes.actual.tarifaUsd, mes.previo.tarifaUsd) : null} />
-          <Cifra etiqueta="Habitaciones" valor={mes ? num(mes.actual.reservas) : '…'} cambio={mes?.previo ? variacion(mes.actual.reservas, mes.previo.reservas) : null} />
-          <Cifra etiqueta="Huéspedes" valor={mes ? num(mes.actual.huespedes) : '…'} cambio={mes?.previo ? variacion(mes.actual.huespedes, mes.previo.huespedes) : null} />
+          <Cifra etiqueta="Ticket promedio" valor={mes ? usd(mes.actual.tarifaUsd) : '…'} cambio={mes?.previo ? variacion(mes.actual.tarifaUsd, mes.previo.tarifaUsd) : null} />
+          <Cifra etiqueta="Habitaciones" valor={mes ? num(mes.actual.reservas) : '…'} sub={mes?.actual.noches ? `${num(mes.actual.noches)} noches` : null} cambio={mes?.previo ? variacion(mes.actual.reservas, mes.previo.reservas) : null} />
+          <Cifra etiqueta="Huéspedes" valor={mes ? num(mes.actual.huespedes) : '…'} cambio={mes?.previo ? variacion(mes.actual.huespedes, mes.previo.huespedes) : null} sub={mes?.sinReserva ? `${mes.sinReserva} de antes de las reservas` : null} />
         </div>
 
         <div className="in-fila"><h2 className="in-sub">Últimos check-ins</h2><a className="in-ver" href="#/admin/huespedes">Ver todos <Icon name="adelante" size={16} sw={2} /></a></div>

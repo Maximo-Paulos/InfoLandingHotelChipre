@@ -649,3 +649,41 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .seg button:disabled,.fichas button:disabled{opacity:.6}
 .sena-datos{display:grid;gap:2px;margin:0 0 4px;padding:12px 12px 2px;border-left:4px solid var(--mostaza);border-radius:0 12px 12px 0;background:var(--mostaza-claro)}
 .sena-datos .campo{margin-bottom:10px}
+
+/* Detalle de la reserva (categoría · noches · canal) y reservas sin cobro (obra social) */
+.rg-det{grid-column:1/-1;margin:2px 0 0;font-size:14px;font-weight:700;color:var(--verde-oscuro)}
+.sin-cobro{margin:4px 0;padding:12px 14px;border:1px solid rgba(34,51,42,.16);border-left:4px solid var(--verde);border-radius:12px;background:var(--verde-claro);font-size:14px;line-height:1.45}
+.medio-cobra{display:flex;align-items:flex-start;gap:10px;margin:8px 0 0;font-size:14px;line-height:1.35}
+.medio-cobra input{flex:none;width:22px;height:22px;margin-top:1px}
+
+/* Caja: todas las reservas con lo cobrado, por día */
+.caja-totales{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.caja-card{min-width:0;padding:14px 16px;border:1px solid var(--linea);border-radius:16px;background:var(--superficie)}
+.caja-card h3{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px;font:500 20px/1.2 var(--serif);color:var(--texto)}
+.caja-card h3 small{font:400 13px var(--sans);color:var(--texto-suave)}
+.caja-card dl{display:grid;gap:6px;margin:0}
+.caja-card dl>div{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.caja-card dt{font-size:14px;color:var(--texto-suave)}
+.caja-card dd{margin:0;font-size:16px;font-weight:700;text-align:right}
+.caja-card dd.grande{font-size:20px}
+.caja-medios{display:grid;margin:0;padding:0;list-style:none}
+.caja-medios li{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--linea)}
+.caja-medios li:first-child{border-top:0}
+.caja-medios small{margin-left:6px;font-size:13px;color:var(--texto-suave)}
+.caja-dias{display:grid;gap:14px}
+.caja-dia{overflow:hidden;border:1px solid var(--linea);border-radius:16px;background:var(--superficie)}
+.caja-dia header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 10px;padding:10px 14px;border-bottom:1px solid var(--linea);background:var(--verde-claro)}
+.caja-dia header b{font:500 18px/1.2 var(--serif);text-transform:capitalize}
+.caja-dia header span{font-size:13px;color:var(--texto-suave)}
+.caja-dia ul{margin:0;padding:0;list-style:none}
+.caja-dia li+li{border-top:1px solid var(--linea)}
+.caja-fila{display:flex;align-items:flex-start;gap:12px;width:100%;min-height:64px;padding:10px 14px;border:0;background:transparent;color:var(--texto);text-align:left}
+.caja-fila:active{background:var(--verde-claro)}
+.caja-fila .svg{flex:none;margin-top:4px;color:var(--texto-suave)}
+.caja-hab{flex:none;min-width:48px;padding:4px 8px;border-radius:10px;background:var(--verde-claro);font:500 18px/1.2 var(--serif);text-align:center}
+.caja-cuerpo{display:grid;flex:1 1 auto;min-width:0;gap:1px}
+.caja-cuerpo b{font-size:16px;line-height:1.3}
+.caja-cuerpo small{font-size:13px;line-height:1.35;color:var(--texto-suave)}
+.caja-cuerpo small.alerta{font-weight:700;color:var(--terracota-texto)}
+.caja-card dt{text-transform:none;letter-spacing:0;font-weight:400}
+.caja-card dd{white-space:nowrap}

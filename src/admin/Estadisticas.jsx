@@ -6,22 +6,24 @@ import Icon from '../components/Icon.jsx';
 import { useNoIndexar } from '../personal.js';
 import { cargarCotizaciones } from './cotizaciones.js';
 import { ars, calcular, num, PERIODOS, porc, rangoAnterior, rangoDe, usd, variacion } from './estadisticas.js';
+import Caja from './Caja.jsx';
 import { BarrasH, Cifra, Columnas, Linea, Tarjeta, Torta } from './graficos.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
 
 // Estadísticas del hotel para el dueño: cuánto se vendió, a qué tarifa (en dólares oficiales del día del cobro), quiénes se hospedan y cómo se vende.
 // Todo sale de las reservas y los check-ins ya cargados; la base entrega solo cifras sueltas, sin nombres ni documentos.
 // Se mira por secciones (Resumen, Ventas, Huéspedes, Operación) y el período se elige en una hoja desde abajo: nada de una página interminable.
-export default function Estadisticas() {
+export default function Estadisticas({ inicial = 'resumen', periodoInicial = '365' }) {
   useNoIndexar('Estadísticas');
   const sesion = useSesionAdmin();
   if (sesion.fase !== 'ok') return <LoginAdmin sesion={sesion} />;
-  return <Pantalla clave={sesion.clave} salir={sesion.salir} />;
+  return <Pantalla clave={sesion.clave} salir={sesion.salir} inicial={inicial} periodoInicial={periodoInicial} />;
 }
 
 const SECCIONES = [
   { id: 'resumen', texto: 'Resumen' },
   { id: 'ventas', texto: 'Ventas' },
+  { id: 'caja', texto: 'Caja' },
   { id: 'huespedes', texto: 'Huéspedes' },
   { id: 'operacion', texto: 'Operación' }
 ];
@@ -29,13 +31,14 @@ const tablaDe = (cols, filas) => ({ cols, filas });
 const hab = (n) => `${n} hab.`;
 const dmy = (iso) => { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a.slice(2)}`; };
 
-function Pantalla({ clave, salir }) {
+function Pantalla({ clave, salir, inicial, periodoInicial }) {
   const [datos, setDatos] = useState(null);
   const [cotizaciones, setCotizaciones] = useState(undefined); // undefined = cargando · null = no se pudo bajar
   const [error, setError] = useState('');
-  const [periodo, setPeriodo] = useState('365');
+  const [periodo, setPeriodo] = useState(periodoInicial);
+  const [version, setVersion] = useState(0); // sube al corregir una reserva: vuelve a pedir los datos
   const [hoja, setHoja] = useState(false);
-  const [seccion, setSeccion] = useState('resumen');
+  const [seccion, setSeccion] = useState(inicial);
   const botones = useRef({});
 
   useEffect(() => {
@@ -46,7 +49,7 @@ function Pantalla({ clave, salir }) {
     }).catch(() => { if (vivo) setError('No se pudo conectar. Revisá tu conexión.'); });
     cargarCotizaciones().then((c) => { if (vivo) setCotizaciones(c); }).catch(() => { if (vivo) setCotizaciones(null); });
     return () => { vivo = false; };
-  }, [clave, salir]);
+  }, [clave, salir, version]);
 
   const listo = datos && cotizaciones !== undefined;
   const r = useMemo(() => {
@@ -112,8 +115,9 @@ function Pantalla({ clave, salir }) {
             <>
               <div className="gr-cifras">
                 <Cifra etiqueta="Ingresos" valor={usd(res.actual.ingresosUsd)} cambio={cambio('ingresosUsd')} sub={`valor total de las reservas: ${usd(res.actual.hotelUsd)} en el hotel + ${usd(res.actual.senasUsd)} en señas`} />
-                <Cifra etiqueta="Habitaciones vendidas" valor={num(res.actual.reservas)} cambio={cambio('reservas')} sub={res.huespedesPorHab ? `${num(res.huespedesPorHab, 1)} huéspedes por habitación` : null} />
-                <Cifra etiqueta="Tarifa promedio" valor={usd(res.actual.tarifaUsd)} cambio={cambio('tarifaUsd')} sub="valor total por habitación, con la seña incluida" />
+                <Cifra etiqueta="Habitaciones vendidas" valor={num(res.actual.reservas)} cambio={cambio('reservas')} sub={[res.actual.noches ? `${num(res.actual.noches)} noches` : null, res.actual.sinCobro ? `${res.actual.sinCobro} de obra social o sin cobro` : null].filter(Boolean).join(' · ') || null} />
+                <Cifra etiqueta="Ticket promedio" valor={usd(res.actual.tarifaUsd)} cambio={cambio('tarifaUsd')} sub="lo que deja una reserva que cobra, con la seña incluida" />
+                <Cifra etiqueta="Tarifa por noche" valor={usd(res.actual.tarifaNocheUsd)} cambio={cambio('tarifaNocheUsd')} sub={res.actual.nochesProm ? `se quedan ${num(res.actual.nochesProm, 1)} noches en promedio` : 'cargá las noches en cada reserva'} />
                 <Cifra etiqueta="Huéspedes" valor={num(res.actual.huespedes)} cambio={cambio('huespedes')} sub={res.sinReserva ? `${res.sinReserva} de antes de las reservas` : null} />
                 <Cifra etiqueta="Ingreso por huésped" valor={usd(res.actual.porHuesped)} cambio={cambio('porHuesped')} sub="lo cobrado dividido los huéspedes" />
               </div>
@@ -138,8 +142,20 @@ function Pantalla({ clave, salir }) {
               <Tarjeta titulo="Habitaciones vendidas" ayuda="Cuántas habitaciones se cobraron. Muestra la estacionalidad: qué épocas se llena y cuáles no." tabla={tablaDe([unidad, 'Habitaciones'], res.serie.map((s) => [s.etiqueta, String(s.reservas)]))}>
                 <Columnas nombre="Habitaciones vendidas" enteros datos={res.serie.map((s) => ({ texto: s.etiqueta, valor: s.reservas }))} formato={hab} />
               </Tarjeta>
-              <Tarjeta titulo="Tarifa promedio" ayuda="Lo que se cobró en promedio por habitación, en dólares del día. Si sube, estás vendiendo más caro (o bajó el dólar)." tabla={tablaDe([unidad, 'Tarifa promedio'], res.serie.map((s) => [s.etiqueta, usd(s.tarifaUsd)]))}>
+              <Tarjeta titulo="Ticket promedio" ayuda="Lo que deja en promedio una reserva que cobra, en dólares del día. Si sube, estás vendiendo más caro (o bajó el dólar)." tabla={tablaDe([unidad, 'Tarifa promedio'], res.serie.map((s) => [s.etiqueta, usd(s.tarifaUsd)]))}>
                 <Linea nombre="Tarifa promedio en dólares" datos={res.serie.map((s) => ({ texto: s.etiqueta, valor: s.tarifaUsd == null ? null : Math.round(s.tarifaUsd) }))} formato={usd} />
+              </Tarjeta>
+              <Tarjeta titulo="Cuántas noches se quedan" ayuda={`${res.actual.nochesProm ? `Se quedan ${num(res.actual.nochesProm, 1)} noches en promedio. ` : ''}Ticket promedio ${usd(res.actual.tarifaUsd)} · tarifa por noche ${usd(res.actual.tarifaNocheUsd)}.${res.sinNoches ? ` ${res.sinNoches} reservas (las de antes) no tienen las noches cargadas y no entran acá.` : ''}`} tabla={tablaDe(['Noches', 'Reservas'], res.porNoches.map((x) => [x.texto, String(x.n)]))}>
+                <Columnas nombre="Reservas según las noches que se quedan" enteros datos={res.porNoches.map((x) => ({ texto: x.texto, valor: x.n }))} formato={hab} />
+              </Tarjeta>
+              <Tarjeta titulo="Tarifa por noche" ayuda="Lo que se cobra por noche en promedio, en dólares del día. Sirve para comparar épocas aunque la gente se quede distinta cantidad de noches." tabla={tablaDe([unidad, 'Tarifa por noche'], res.serie.map((x) => [x.etiqueta, usd(x.tarifaNocheUsd)]))}>
+                <Linea nombre="Tarifa por noche en dólares" datos={res.serie.map((x) => ({ texto: x.etiqueta, valor: x.tarifaNocheUsd == null ? null : Math.round(x.tarifaNocheUsd) }))} formato={usd} />
+              </Tarjeta>
+              <Tarjeta titulo="Categorías más buscadas" ayuda="Qué categorías de habitación se venden más y a qué tarifa por noche." tabla={tablaDe(['Categoría', 'Reservas', 'Noches', 'Tarifa por noche', 'Ticket promedio'], res.porCategoria.map((x) => [x.texto, String(x.n), String(x.noches), usd(x.tarifaNoche), usd(x.tarifa)]))}>
+                <BarrasH datos={res.porCategoria.map((x) => ({ texto: x.texto, valor: x.n, nota: x.tarifaNoche ? `${usd(x.tarifaNoche)} por noche` : undefined }))} formato={hab} />
+              </Tarjeta>
+              <Tarjeta titulo="Canales de venta" ayuda={res.sinCobro.reservas ? `Las ${res.sinCobro.reservas} reservas sin cobro (obra social) cuentan acá y en habitaciones y noches, pero no suman ingresos ni tarifas.` : 'Por dónde llegan las reservas.'} tabla={tablaDe(['Canal', 'Reservas', 'Noches', 'Ingresos'], res.porCanal.map((x) => [x.texto, String(x.n), String(x.noches), x.sinCobro === x.n ? 'sin cobro' : usd(x.usd)]))}>
+                <BarrasH datos={res.porCanal.map((x) => ({ texto: x.texto, valor: x.n, nota: x.sinCobro === x.n ? 'sin cobro' : usd(x.usd) }))} formato={hab} />
               </Tarjeta>
               <Tarjeta titulo="Cómo pagan en el hotel" ayuda={`Reservas en pesos: ${res.reservasEnPesos} · en dólares: ${res.reservasEnDolares}. Barras: dólares pagados en el hotel con cada medio (sin las señas).`} tabla={tablaDe(['Medio', 'Cobros', 'Pagado en el hotel'], res.medios.map((m) => [m.texto, String(m.n), usd(m.usd)]))}>
                 <BarrasH datos={res.medios.map((m) => ({ texto: m.texto, valor: Math.round(m.usd), nota: `${m.n} ${m.n === 1 ? 'cobro' : 'cobros'}` }))} formato={usd} />
@@ -147,6 +163,8 @@ function Pantalla({ clave, salir }) {
             </div>
             </>
           )}
+
+          {listo && seccion === 'caja' && <Caja datos={datos} rango={r.rango} clave={clave} alGuardar={() => setVersion((v) => v + 1)} />}
 
           {res && !res.vacio && seccion === 'huespedes' && (
             <>

@@ -81,10 +81,11 @@ export default function App() {
         {!esRecepcion && esAdmin && ruta === '' && <AdminInicio />}
         {!esRecepcion && esAdmin && ruta === 'huespedes' && <AdminHuespedes />}
         {!esRecepcion && esAdmin && ruta === 'estadisticas' && <Estadisticas />}
+        {!esRecepcion && esAdmin && ruta === 'caja' && <Estadisticas inicial="caja" periodoInicial="mes" />}
         {!esRecepcion && esAdmin && ruta === 'ajustes' && <AdminAjustes />}
         {!esRecepcion && esAdmin && ruta === 'equipo' && <Equipo />}
         {/* El editor de la guía: #/admin/editar/… (los links viejos #/admin/wifi siguen andando) */}
-        {!esRecepcion && esAdmin && ruta !== '' && ruta !== 'huespedes' && ruta !== 'estadisticas' && ruta !== 'ajustes' && ruta !== 'equipo' && (
+        {!esRecepcion && esAdmin && ruta !== '' && ruta !== 'huespedes' && ruta !== 'estadisticas' && ruta !== 'caja' && ruta !== 'ajustes' && ruta !== 'equipo' && (
           <Admin ruta={ruta === 'editar' || ruta.startsWith('editar/') ? ruta.slice(6).replace(/^\//, '') : ruta} />
         )}
         {!esRecepcion && !esAdmin && !esEntrar && <PublicoProvider><Pantalla ruta={ruta} /></PublicoProvider>}

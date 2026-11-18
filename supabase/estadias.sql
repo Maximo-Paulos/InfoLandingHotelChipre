@@ -792,6 +792,7 @@ begin
   from (
     select e.id, e.habitacion, e.monto, e.moneda, e.pago_hotel, e.fecha_sena, m.nombre as medio_pago, e.fecha_cobro, e.cargado_por,
            e.noches, ca.nombre as canal, ca.cobra as canal_cobra, cg.nombre as categoria,
+           e.medio_pago_id, e.canal_id, e.categoria_id, e.creado,
            (select count(*)::int from private.checkins c where c.estadia_id = e.id) as huespedes
     from private.estadias e
     join private.medios_pago m on m.id = e.medio_pago_id
