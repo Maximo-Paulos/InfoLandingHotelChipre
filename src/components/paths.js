@@ -1,5 +1,6 @@
 // Iconos de línea (trazos SVG). Se dibujan con <Icon name="..." />.
 export const PATHS = {
+    grafico: '<path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-7"/>',
     casa: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
     equipo: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6 16c.6-1.6 1.7-2.2 3-2.2s2.4.6 3 2.2"/><path d="M15 10h3"/><path d="M15 14h3"/>',
     menu: '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>',

@@ -527,6 +527,74 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------- estadísticas (solo el dueño)
+
+-- Lo que necesita la pantalla de estadísticas: las reservas cobradas y los huéspedes del período, SIN datos personales
+-- (ni nombre, ni documento, ni email, ni teléfono: solo si tiene o no). Las cuentas y los gráficos se arman en la pantalla.
+-- El monto sigue en su moneda original con la fecha del cobro: la pantalla lo pasa a dólar oficial de ese día.
+--   p_desde / p_hasta: fechas (hora argentina) · sin pasar nada, los últimos ~3 años.
+--   visitas: cuántas estadías distintas tuvo esa misma persona (mismo documento) en toda la historia: 1 = vino una vez.
+create or replace function public.admin_estadisticas(p_clave text, p_desde date default null, p_hasta date default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
+  v_desde date := coalesce(p_desde, v_hoy - 1100);
+  v_hasta date := coalesce(p_hasta, v_hoy);
+  v_reservas json;
+  v_huespedes json;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  if v_desde > v_hasta then
+    return json_build_object('ok', false, 'error', 'datos_invalidos');
+  end if;
+
+  select coalesce(json_agg(t order by t.fecha_cobro, t.id), '[]'::json) into v_reservas
+  from (
+    select e.id, e.habitacion, e.monto, e.moneda, m.nombre as medio_pago, e.fecha_cobro, e.cargado_por,
+           (select count(*)::int from private.checkins c where c.estadia_id = e.id) as huespedes
+    from private.estadias e
+    join private.medios_pago m on m.id = e.medio_pago_id
+    where e.fecha_cobro between v_desde and v_hasta
+    order by e.fecha_cobro desc, e.id desc
+    limit 20000
+  ) t;
+
+  select coalesce(json_agg(t order by t.id), '[]'::json) into v_huespedes
+  from (
+    with visitas as (
+      select lower(btrim(coalesce(datos->>'doc_tipo', ''))) as tipo, lower(btrim(coalesce(datos->>'doc_numero', ''))) as numero,
+             count(distinct coalesce(estadia_id, -id))::int as n
+      from private.checkins
+      group by 1, 2
+    )
+    select c.id, c.estadia_id,
+           (c.creado at time zone 'America/Argentina/Buenos_Aires')::date as fecha,
+           extract(hour from c.creado at time zone 'America/Argentina/Buenos_Aires')::int as hora,
+           nullif(btrim(c.datos->>'nacionalidad'), '') as nacionalidad,
+           nullif(btrim(c.datos->>'localidad'), '') as localidad,
+           nullif(c.datos->>'anio_nac', '')::int as anio_nac,
+           c.datos->>'doc_tipo' as doc_tipo,
+           coalesce(c.datos->>'email', '') <> '' as con_email,
+           coalesce(c.datos->>'telefono', '') <> '' as con_telefono,
+           c.habilitado_por as habilito,
+           coalesce(v.n, 1) as visitas
+    from private.checkins c
+    left join private.estadias e on e.id = c.estadia_id
+    left join visitas v on v.tipo = lower(btrim(coalesce(c.datos->>'doc_tipo', ''))) and v.numero = lower(btrim(coalesce(c.datos->>'doc_numero', '')))
+    where case when e.id is not null then e.fecha_cobro between v_desde and v_hasta
+               else (c.creado at time zone 'America/Argentina/Buenos_Aires')::date between v_desde and v_hasta end
+    order by c.id desc
+    limit 50000
+  ) t;
+
+  return json_build_object('ok', true, 'desde', v_desde, 'hasta', v_hasta, 'hoy', v_hoy, 'reservas', v_reservas, 'huespedes', v_huespedes);
+end;
+$$;
+
 -- ---------------------------------------------------------------- permisos
 
 revoke all on function private.estadia_json(bigint, int) from public, anon, authenticated;
@@ -545,3 +613,5 @@ grant execute on function public.recepcion_estadia_editar(text, bigint, text, nu
 grant execute on function public.admin_estadia_editar(text, bigint, text, numeric, text, int, date) to anon, authenticated;
 grant execute on function public.admin_huesped_estadia(text, bigint, bigint) to anon, authenticated;
 grant execute on function public.admin_reserva_min(text, int) to anon, authenticated;
+revoke all on function public.admin_estadisticas(text, date, date) from public, anon, authenticated;
+grant execute on function public.admin_estadisticas(text, date, date) to anon, authenticated;

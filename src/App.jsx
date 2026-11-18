@@ -12,6 +12,7 @@ import { SECCIONES } from './secciones.jsx';
 const Recepcion = lazy(() => import('./checkin/Recepcion.jsx'));
 const AdminInicio = lazy(() => import('./admin/AdminInicio.jsx'));
 const AdminHuespedes = lazy(() => import('./admin/AdminHuespedes.jsx'));
+const Estadisticas = lazy(() => import('./admin/Estadisticas.jsx'));
 const Equipo = lazy(() => import('./admin/Equipo.jsx'));
 const Entrar = lazy(() => import('./Entrar.jsx'));
 const cargando = <div className="page"><main className="card"><p style={{ margin: 0 }} role="status">Cargando…</p></main></div>;
@@ -78,9 +79,10 @@ export default function App() {
         {esRecepcion && <Recepcion vista={hash === 'recepcion/huespedes' ? 'huespedes' : 'codigo'} />}
         {!esRecepcion && esAdmin && ruta === '' && <AdminInicio />}
         {!esRecepcion && esAdmin && ruta === 'huespedes' && <AdminHuespedes />}
+        {!esRecepcion && esAdmin && ruta === 'estadisticas' && <Estadisticas />}
         {!esRecepcion && esAdmin && ruta === 'equipo' && <Equipo />}
         {/* El editor de la guía: #/admin/editar/… (los links viejos #/admin/wifi siguen andando) */}
-        {!esRecepcion && esAdmin && ruta !== '' && ruta !== 'huespedes' && ruta !== 'equipo' && (
+        {!esRecepcion && esAdmin && ruta !== '' && ruta !== 'huespedes' && ruta !== 'estadisticas' && ruta !== 'equipo' && (
           <Admin ruta={ruta === 'editar' || ruta.startsWith('editar/') ? ruta.slice(6).replace(/^\//, '') : ruta} />
         )}
         {!esRecepcion && !esAdmin && !esEntrar && <PublicoProvider><Pantalla ruta={ruta} /></PublicoProvider>}

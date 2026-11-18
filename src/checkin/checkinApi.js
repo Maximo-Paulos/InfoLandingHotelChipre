@@ -29,6 +29,7 @@ export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcio
 export const recepcionEstadiaEditar = (clave, id, r) => rpc('recepcion_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
 export const adminEstadiaEditar = (clave, id, r) => rpc('admin_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
 export const adminHuespedEstadia = (clave, id, estadia) => rpc('admin_huesped_estadia', { p_clave: clave, p_id: id, p_estadia: estadia });
+export const adminEstadisticas = (clave, desde = null, hasta = null) => rpc('admin_estadisticas', { p_clave: clave, p_desde: desde, p_hasta: hasta });
 export const adminReservaMin = (clave, minutos) => rpc('admin_reserva_min', { p_clave: clave, p_min: minutos });
 
 // Admin general

@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { cargarDemo } from './datos-demo.mjs';
 
 const raiz = fileURLToPath(new URL('..', import.meta.url));
 const PUERTO = 54321;
@@ -13,6 +14,9 @@ const back = await iniciarBackend({ puerto: PUERTO, silencioso: false, estadias:
 // El check-in arranca prendido, con la clave de recepción cargada y con un Drive simulado, para ahorrar pasos.
 await back.sql(`update private.checkin_config set activo = true, foto_url = $1 where id = 1`, [`${back.url}/apps-script/exec`]);
 await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
+// Con datos inventados (casi un año de reservas) para ver las estadísticas llenas. `npm run local -- --vacio` arranca sin nada.
+const conDemo = !process.argv.includes('--vacio');
+if (conDemo) await cargarDemo(back);
 
 console.log(`
 Base de prueba lista en ${back.url} (vive solo en memoria).
@@ -21,6 +25,7 @@ Base de prueba lista en ${back.url} (vive solo en memoria).
   Recepción:   http://localhost:5173/#/recepcion       clave: ${CLAVE_RECEPCION}
   Huésped:     http://localhost:5173/#/registro        (el código lo muestra la pantalla de recepción)
   Fotos:       van a un Drive simulado (solo para probar); lo guardado se ve con el link "Ver foto" de la planilla.
+Personal de prueba: Lucía y Martín (recepción), clave clave-demo-123.${conDemo ? '\nLos huéspedes y las reservas de estos meses son inventados (npm run local -- --vacio para empezar sin nada).' : ''}
 Para salir: Ctrl+C.
 `);
 

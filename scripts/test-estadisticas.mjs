@@ -1,0 +1,81 @@
+// Estadísticas del dueño: la función de la base (solo admin, sin datos personales) y las cuentas de la pantalla.
+//   node scripts/test-estadisticas.mjs
+import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
+import { cargarDemo } from './datos-demo.mjs';
+import { aDolares, calcular, cortes, diasEntre, rangoAnterior, rangoDe, recortar, sumarDias, variacion, ventaEn } from '../src/admin/estadisticas.js';
+
+let fallas = 0;
+const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
+
+console.log('\n== 1. Las cuentas sueltas');
+const cot = [{ fecha: '2026-01-02', venta: 1000 }, { fecha: '2026-01-05', venta: 1100 }, { fecha: '2026-01-06', venta: 1200 }];
+ok(ventaEn(cot, '2026-01-01') === null, 'antes de la primera cotización no hay dólar');
+ok(ventaEn(cot, '2026-01-02') === 1000 && ventaEn(cot, '2026-01-04') === 1000, 'un fin de semana usa el último dólar que hubo');
+ok(ventaEn(cot, '2026-01-05') === 1100 && ventaEn(cot, '2030-01-01') === 1200, 'el día exacto, y más allá de la última usa la última');
+ok(aDolares({ monto: '55000', moneda: 'ARS', fecha_cobro: '2026-01-05' }, cot) === 50, 'pesos -> dólares con el dólar del día del cobro');
+ok(aDolares({ monto: '60', moneda: 'USD', fecha_cobro: '2026-01-05' }, null) === 60, 'lo cobrado en dólares queda igual, haya o no cotización');
+ok(aDolares({ monto: '60', moneda: 'ARS', fecha_cobro: '2026-01-05' }, null) === null, 'pesos sin cotización: no se inventa un valor');
+ok(sumarDias('2026-02-27', 2) === '2026-03-01' && diasEntre('2026-01-01', '2026-01-31') === 30, 'las fechas se suman bien');
+ok(JSON.stringify(rangoDe('30', '2026-11-18')) === '{"desde":"2026-10-20","hasta":"2026-11-18"}', '30 días incluye hoy');
+ok(rangoDe('mes', '2026-11-18').desde === '2026-11-01' && rangoDe('anio', '2026-11-18').desde === '2026-01-01', 'este mes y este año');
+const ant = rangoAnterior({ desde: '2026-10-20', hasta: '2026-11-18' }, '30');
+ok(ant.hasta === '2026-10-19' && diasEntre(ant.desde, ant.hasta) === 29, 'el período anterior tiene el mismo largo y termina justo antes');
+ok(rangoAnterior({ desde: '2026-03-01', hasta: '2026-03-30' }, 'mes').hasta === '2026-02-28', 'el mes anterior más corto no se pasa de su fin');
+ok(rangoAnterior({ desde: '2026-01-01', hasta: '2026-11-18' }, 'todo') === null, '«Todo» no tiene anterior');
+ok(variacion(120, 100) === 20 && variacion(5, 0) === null && variacion(null, 3) === null, 'variación en %, sin dividir por cero');
+ok(cortes('2026-11-01', '2026-11-18') === 'dia' && cortes('2026-08-20', '2026-11-18') === 'semana' && cortes('2025-11-20', '2026-11-18') === 'mes', 'cada cuánto se corta la serie');
+
+console.log('\n== 2. La base: solo el dueño, sin datos personales');
+const back = await iniciarBackend({ puerto: 54398, estadias: true });
+await back.sql(`update private.checkin_config set activo = true where id = 1`);
+await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
+const demo = await cargarDemo(back, { log: () => {} });
+const llamar = (n, a) => back.llamar(n, a, '203.0.113.9');
+const rec = (await llamar('sesion_entrar', { p_clave: CLAVE_RECEPCION })).token;
+const dueno = (await llamar('sesion_entrar', { p_clave: CLAVE_ADMIN })).token;
+ok((await llamar('admin_estadisticas', { p_clave: 'mala' })).ok === false, 'sin clave no se ve nada');
+ok((await llamar('admin_estadisticas', { p_clave: rec })).ok === false, 'recepción no ve las estadísticas');
+const e = await llamar('admin_estadisticas', { p_clave: dueno });
+ok(e.ok === true && e.reservas.length === demo.reservas && e.huespedes.length === demo.huespedes, `el dueño recibe todo: ${e.reservas?.length} reservas y ${e.huespedes?.length} huéspedes`);
+const claves = new Set(e.huespedes.flatMap((h) => Object.keys(h)));
+ok(!['nombre', 'apellido', 'email', 'telefono', 'doc_numero', 'domicilio', 'datos'].some((k) => claves.has(k)), 'ningún huésped trae nombre, documento, email, teléfono ni domicilio');
+ok([...claves].sort().join() === 'anio_nac,con_email,con_telefono,doc_tipo,estadia_id,fecha,habilito,hora,id,localidad,nacionalidad,visitas', 'solo las columnas pensadas para estadísticas');
+ok(e.reservas.every((r) => ['id', 'habitacion', 'monto', 'moneda', 'medio_pago', 'fecha_cobro', 'cargado_por', 'huespedes'].every((k) => k in r)), 'cada reserva trae habitación, monto, moneda, medio, fecha, quién y cuántos huéspedes');
+const corto = await llamar('admin_estadisticas', { p_clave: dueno, p_desde: sumarDias(e.hoy, -6), p_hasta: e.hoy });
+ok(corto.ok && corto.reservas.length > 0 && corto.reservas.length < e.reservas.length && corto.reservas.every((r) => r.fecha_cobro >= sumarDias(e.hoy, -6)), 'se puede pedir solo una semana');
+ok((await llamar('admin_estadisticas', { p_clave: dueno, p_desde: '2026-12-31', p_hasta: '2026-01-01' })).ok === false, 'fechas al revés se rechazan');
+ok(e.huespedes.some((h) => h.visitas > 1) && e.huespedes.every((h) => h.visitas >= 1), 'se marca a quien ya se alojó antes');
+ok(e.huespedes.every((h) => h.estadia_id != null && h.hora >= 0 && h.hora <= 23), 'cada huésped tiene reserva y hora del check-in');
+
+console.log('\n== 3. Lo que se dibuja, con los datos de demostración');
+// Un dólar parejo (1500) para que las cuentas se puedan verificar a mano.
+const dolar = Array.from({ length: 500 }, (_, i) => ({ fecha: sumarDias(sumarDias(e.hoy, -450), i), venta: 1500 }));
+const rango = rangoDe('365', e.hoy);
+const r = calcular(e, dolar, rango, rangoAnterior(rango, '365'));
+const { reservas, huespedes } = recortar(e, rango);
+const aMano = reservas.reduce((s, x) => s + (x.moneda === 'USD' ? Number(x.monto) : Number(x.monto) / 1500), 0);
+ok(Math.abs(r.actual.ingresosUsd - aMano) < 0.01, `ingresos del año: US$ ${Math.round(r.actual.ingresosUsd)}`);
+ok(r.actual.reservas === reservas.length && r.actual.huespedes === huespedes.length, 'habitaciones y huéspedes del período');
+ok(r.serie.reduce((s, x) => s + x.reservas, 0) === r.actual.reservas && Math.abs(r.serie.reduce((s, x) => s + x.ingresosUsd, 0) - r.actual.ingresosUsd) < 0.01, 'la serie por mes suma lo mismo que el total');
+ok(r.corte === 'mes' && r.serie.length >= 12 && r.serie.length <= 13, `12 meses = ${r.serie.length} columnas`);
+ok(r.paises.reduce((s, p) => s + p.n, 0) === huespedes.length && r.paises.length <= 6 && r.paises[0].texto === 'Argentina', 'la torta de países suma todos los huéspedes, con «Otros» al final');
+ok(r.porEdad.reduce((s, x) => s + x.n, 0) === r.edadesN && r.edadProm > 25 && r.edadProm < 55, `edad promedio razonable: ${r.edadProm?.toFixed(1)}`);
+ok(r.porDia.reduce((s, x) => s + x.n, 0) === reservas.length && r.porHora.reduce((s, x) => s + x.n, 0) === huespedes.length, 'día de la semana y hora suman todo');
+ok(r.tamanos.reduce((s, x) => s + x.n, 0) === reservas.filter((x) => x.huespedes >= 1).length, 'tamaño de grupo');
+ok(r.porHabitacion.reduce((s, x) => s + x.n, 0) === reservas.length && r.medios.reduce((s, x) => s + x.n, 0) === reservas.length && r.equipo.reduce((s, x) => s + x.n, 0) === reservas.length, 'habitaciones, medios de pago y equipo suman todas las reservas');
+ok(r.pctRecurrentes > 0 && r.pctRecurrentes < 40 && r.pctEmail > 80 && r.pctExtranjeros > 20 && r.pctExtranjeros < 70, `recurrentes ${r.pctRecurrentes?.toFixed(1)}% · con email ${r.pctEmail?.toFixed(0)}% · extranjeros ${r.pctExtranjeros?.toFixed(0)}%`);
+ok(r.previo && r.previo.reservas === 0, 'los datos de demostración no llegan a dos años: el año anterior está vacío (no hay con qué comparar)');
+const r90 = calcular(e, dolar, rangoDe('90', e.hoy), rangoAnterior(rangoDe('90', e.hoy), '90'));
+ok(r90.previo.reservas > 0 && variacion(r90.actual.reservas, r90.previo.reservas) !== null, 'tres meses sí se pueden comparar con los tres anteriores');
+const sinDolar = calcular(e, null, rango, null);
+ok(sinDolar.sinCotizacion === reservas.filter((x) => x.moneda === 'ARS').length && sinDolar.actual.ingresosUsd < r.actual.ingresosUsd, 'sin cotización los cobros en pesos no suman (y se cuentan aparte)');
+const semana = calcular(e, dolar, rangoDe('90', e.hoy), null);
+ok(semana.corte === 'semana' && semana.serie.length >= 13 && semana.serie.length <= 14, `3 meses = ${semana.serie.length} semanas`);
+const mes = calcular(e, dolar, rangoDe('mes', e.hoy), null);
+ok(mes.corte === 'dia' && mes.serie.length === Number(e.hoy.slice(8)), 'este mes = un punto por día');
+const vacio = calcular({ reservas: [], huespedes: [] }, dolar, rango, null);
+ok(vacio.vacio && vacio.actual.tarifaUsd === null && vacio.edadProm === null, 'sin datos no se rompe nada');
+
+await back.cerrar();
+console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
+process.exit(fallas ? 1 : 0);

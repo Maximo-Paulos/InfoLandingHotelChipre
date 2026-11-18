@@ -125,6 +125,8 @@ npm run local
 ```
 Levanta una base de prueba **en memoria** (con los mismos archivos SQL que producción) y la guía apuntando a ella, con el check-in prendido y un Drive simulado. Claves de prueba que muestra el comando. Lo que cargues ahí se pierde al cerrar.
 
+Arranca con **datos inventados** (casi un año de reservas y unos 2.300 huéspedes de varios países, pagos en pesos y dólares) para ver las estadísticas llenas. `npm run local -- --vacio` arranca sin nada.
+
 Pruebas automáticas (no usan la base real):
 - `node scripts/test-validar.mjs`: reglas de validación del formulario (teléfonos, documentos, etc.).
 - `node scripts/test-apps-script.mjs`: la lógica del script de Google con un Drive simulado.
@@ -164,9 +166,20 @@ Para verla desde el celular en la misma red Wi-Fi: `npm run dev -- --host` y abr
 ## Equipo, pestañas de abajo y «habilitado por»
 - **Una clave por persona:** en la pestaña **Equipo** (solo el dueño) se agrega a cada persona con un **nombre (alias)**, un rol (*Recepción* o *Dueño*, este último entra a todo menos a Equipo) y su propia clave. Solo el dueño pone y cambia las claves; no se pueden ver después, solo cambiar. Dos personas no pueden tener la misma clave ni el mismo nombre activo. Dar de baja cierra sus sesiones y deja de servir su clave y su código; nada se borra.
 - **Un código por persona:** cada una ve el suyo en *Código*. Cuando un huésped lo usa, el check-in queda anotado como **«Habilitó: nombre»** (en la planilla de recepción y en la del dueño). Ese nombre se guarda como texto **tal como se llamaba ese día**: si Jorge se va y le cambian el nombre y la clave a Lucas, los check-ins viejos siguen diciendo Jorge y los nuevos dicen Lucas. Los check-ins anteriores a esta versión quedan sin «habilitó».
-- **Pestañas abajo, como una app:** recepción tiene *Código* y *Huéspedes*; el dueño, *Inicio*, *Código*, *Huéspedes* y *Equipo*; todos tienen *Más* (editar la guía, ver la guía del huésped y salir). Arriba se ve el nombre de la pantalla y quién entró.
+- **Pestañas abajo, como una app:** recepción tiene *Código* y *Huéspedes*; el dueño, *Inicio*, *Código*, *Huéspedes*, *Datos* y *Equipo*; todos tienen *Más* (editar la guía, ver la guía del huésped y salir). Arriba se ve el nombre de la pantalla y quién entró.
 - **Base de datos:** ejecutar `supabase/equipo.sql` en el SQL Editor (solo agrega tablas y columnas, pasa la clave de recepción de hoy a la persona «Recepción» sin que nadie tenga que volver a entrar, no quita nada y se puede repetir). **Ejecutarlo ANTES de publicar la versión nueva.** Una base nueva se arma con `schema.sql` + `checkin.sql`.
 - `node scripts/test-equipo.mjs`: migración desde la base de hoy (sin perder nada, repetible, idéntica a una base nueva) y todo el flujo: crear personas, claves únicas, quién puede tocar al equipo, un código por persona, el alias congelado en cada check-in, dar de baja y seguridad.
+
+## Reservas por habitación, año de nacimiento y estadísticas
+- **Reserva antes del código:** en *Código*, recepción (o el dueño) abre una **reserva**: habitación, monto cobrado, moneda (ARS/USD), medio de pago y fecha del cobro. **Sin reserva no hay código.** Todos los huéspedes que hagan el check-in con los códigos de esa reserva quedan en la misma habitación, con su monto y medio de pago. Otra habitación = otra reserva (el código de la anterior deja de servir). Los códigos siguen cambiando cada pocos segundos mientras la reserva está abierta; se cierra sola a los **10 minutos** (el dueño lo cambia en *Ajustes → Check-in*) o con *Terminar reserva*. También hay *Dar 10 min más* y *Corregir reserva*.
+- **Un monto por habitación**, no por persona. El número de huéspedes por habitación no se controla.
+- **Correcciones:** recepción corrige una reserva dentro de la ventana de edición de siempre; el dueño siempre. Cada cambio queda en el historial. Los check-ins de antes quedan «sin reserva» y el dueño los puede asignar a una desde la planilla.
+- **El huésped informa su año de nacimiento** (obligatorio en el formulario; recepción puede dejarlo vacío al corregir un check-in viejo).
+- **Pestaña Datos (estadísticas):** ingresos en dólares, habitaciones vendidas, tarifa promedio, ingreso por huésped, país de origen (torta), edades, ciudades, tamaño del grupo, días y horas de más movimiento, habitaciones que más se venden, medios de pago, quién cargó cada reserva, y cuántos dejaron email/teléfono o ya se habían alojado. Con período elegible (mes, 30 días, 3 meses, 12 meses, año, todo) y comparación con el período anterior. Cada gráfico trae «Ver números» con la tabla.
+- **Dólar:** lo cobrado en pesos se pasa a dólares con el **dólar oficial (venta) del día del cobro**, bajado de la API pública de ArgentinaDatos (solo lectura: no se le manda ningún dato del hotel). Si no responde, los pesos quedan fuera de los totales en dólares y la pantalla lo avisa. El monto se guarda siempre en su moneda original.
+- **Privacidad:** la base le entrega a la pantalla de estadísticas solo cifras sueltas: nunca nombres, documentos, emails, teléfonos ni domicilios.
+- **Base de datos:** ejecutar `supabase/estadias.sql` en el SQL Editor **después de `checkin.sql`** (agrega una tabla, algunas columnas y funciones nuevas, no borra nada y se puede repetir; vale igual para una base nueva). **Ejecutarlo ANTES de publicar la versión nueva de la guía**: con la versión nueva y sin esas funciones no hay forma de sacar un código. Los códigos que estén circulando dejan de servir hasta que recepción abra una reserva.
+- `node scripts/test-estadias.mjs`: reservas (validaciones, huéspedes agrupados, código nuevo al abrir otra, cierre y vencimiento, correcciones y auditoría, check-ins viejos). `node scripts/test-estadisticas.mjs`: la función de estadísticas (solo el dueño, sin datos personales) y las cuentas de la pantalla (dólar del día, períodos, series, torta, edades). `scripts/e2e-checkin.mjs` todavía no contempla las reservas.
 
 ## Publicar (Vercel)
 El proyecto de Vercel está conectado a este repo: cada cambio en `main` se publica solo. Configuración: preset **Vite**, comando `npm run build`, carpeta de salida `dist`. No hacen falta variables de entorno.
@@ -189,7 +202,7 @@ La URL de Supabase y la clave `publishable` van en el navegador **a propósito**
 Los links cargados en el panel solo se aceptan si empiezan con `http://` o `https://`.
 
 ## Rehacer la base en otro proyecto de Supabase
-1. En el SQL Editor, ejecutar `supabase/schema.sql` y la línea final comentada con tu clave. Para el check-in digital, ejecutar después `supabase/checkin.sql`.
+1. En el SQL Editor, ejecutar `supabase/schema.sql` y la línea final comentada con tu clave. Para el check-in digital, ejecutar después `supabase/checkin.sql` y, por último, `supabase/estadias.sql` (reservas y estadísticas).
 2. Poner la URL y la clave publishable del proyecto nuevo en `.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_KEY`) o en `src/config.js`.
 3. Cargar el contenido inicial: `ADMIN_PASSWORD="tu-clave" npm run seed` (usa `src/data/hotel.js`; sirve también para volver a los datos de ejemplo).
 
@@ -200,9 +213,9 @@ Los links cargados en el panel solo se aceptan si empiezan con `http://` o `http
 - `src/admin/`: panel del dueño (inicio, editor de la guía, huéspedes y configuración del check-in).
 - `src/checkin/`: check-in digital (formulario del huésped, pantalla de recepción, planilla, validaciones; `comprimir.js` y `jpegReducido.js` achican las fotos sin llenar la memoria del celular; `CamaraFoto.jsx` es la cámara dentro de la página).
 - `apps-script/Codigo.gs`: script de Google que guarda las fotos en Drive (lo pega el asistente del panel).
-- `scripts/`: `local.mjs` y `backend-local.mjs` (base de prueba en memoria), `test-*.mjs` y `e2e-checkin.mjs` (pruebas), `fotos-ayuda.mjs` (ayudas para armar fotos de prueba) y `fixtures/jpeg/` (fotos de prueba chicas).
+- `scripts/`: `local.mjs`, `backend-local.mjs` y `datos-demo.mjs` (base de prueba en memoria y datos inventados), `test-*.mjs` y `e2e-checkin.mjs` (pruebas), `fotos-ayuda.mjs` (ayudas para armar fotos de prueba) y `fixtures/jpeg/` (fotos de prueba chicas).
 - `src/data/api.js`: conexión con Supabase. `src/data/hotel.js`: contenido de ejemplo.
-- `supabase/schema.sql`: la base de datos. `supabase/checkin.sql`: tablas y funciones del check-in (todo, incluidos el medio de pago y las fotos del dueño). `supabase/medios_pago.sql`: solo lo nuevo del medio de pago, para una base que ya tenía el check-in. `supabase/fotos_admin.sql`: solo lo nuevo de las fotos del dueño (va después de `medios_pago.sql`). `scripts/seed.mjs`: carga inicial.
+- `supabase/schema.sql`: la base de datos. `supabase/checkin.sql`: tablas y funciones del check-in (todo, incluidos el medio de pago y las fotos del dueño). `supabase/medios_pago.sql`: solo lo nuevo del medio de pago, para una base que ya tenía el check-in. `supabase/fotos_admin.sql`: solo lo nuevo de las fotos del dueño (va después de `medios_pago.sql`). `supabase/estadias.sql`: reservas por habitación, año de nacimiento y estadísticas (va después de `checkin.sql`). `scripts/seed.mjs`: carga inicial.
 - `src/styles.css`: paleta (salvia, hueso, terracota, mostaza, verde) y componentes.
 
 ## Detalles

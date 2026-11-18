@@ -493,3 +493,80 @@ body:has(.tabs-personal) .toast{bottom:calc(84px + env(safe-area-inset-bottom));
   .planilla tr.grupo .btn.mini{display:flex;width:100%;margin:8px 0 0;justify-content:center}
   .fila-monto{grid-template-columns:1fr}
 }
+
+/* Estadísticas del dueño: tarjetas con gráficos hechos en SVG (ver src/admin/graficos.jsx). */
+.estad{--gr-barra:#6b8f6f;--gr-fuerte:#2f4f34;--gr-sobre:#22332a;--gr-linea:#4d7050;--gr-grilla:rgba(34,51,42,.12);--gr-eje:#6a746d;--gr-pista:#dfe7e0;--c0:#2a78d6;--c1:#eb6834;--c2:#1baf7a;--c3:#eda100;--c4:#e87ba4;--co:#9a998f;--gr-bien:#006300;--gr-mal:#a23b25}
+.periodos{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+.periodos button{min-height:44px;padding:0 16px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie);color:var(--texto);font:700 14px var(--sans)}
+.periodos button.activa{border-color:var(--verde);background:var(--verde);color:#fff}
+.gr-cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:12px;margin:16px 0 4px}
+.gr-cifras.cinco{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))}
+.gr-cifra-card{padding:14px 16px;border:1px solid var(--linea);border-radius:16px;background:var(--superficie)}
+.gr-cifra-card p{margin:0}
+.gr-etiqueta{font-size:13px;font-weight:700;color:var(--texto-suave)}
+.gr-grande{margin-top:2px!important;font:500 34px/1.1 var(--serif);color:var(--texto)}
+.gr-cambio{margin-top:4px!important;font-size:13px;font-weight:700;color:var(--texto-suave)}
+.gr-cambio span{font-weight:400}
+.gr-cambio.bien{color:var(--gr-bien)}
+.gr-cambio.mal{color:var(--gr-mal)}
+.gr-sub{margin-top:6px!important;font-size:13px;line-height:1.35;color:var(--texto-suave)}
+.gr-grilla-tarjetas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,430px),1fr));gap:14px;margin-top:12px}
+.gr-tarjeta{min-width:0;padding:16px;border:1px solid var(--linea);border-radius:18px;background:var(--superficie)}
+.gr-tarjeta h3{margin:0;font:500 21px/1.2 var(--serif);color:var(--texto)}
+.gr-ayuda{margin:4px 0 10px;font-size:13px;line-height:1.4;color:var(--texto-suave)}
+.gr-lienzo{position:relative}
+.gr-svg{display:block;width:100%;height:auto;max-width:560px;touch-action:pan-y}
+.gr-grilla{stroke:var(--gr-grilla);stroke-width:1}
+.gr-eje{fill:var(--gr-eje);font:700 10px var(--sans)}
+.gr-valor{fill:var(--texto);font:700 11px var(--sans)}
+.gr-barra{fill:var(--gr-barra)}
+.gr-barra.fuerte{fill:var(--gr-fuerte)}
+.gr-barra.sobre{fill:var(--gr-sobre)}
+.gr-linea{fill:none;stroke:var(--gr-linea);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.gr-punto{fill:var(--gr-linea);stroke:var(--superficie);stroke-width:2}
+.gr-mira{stroke:var(--gr-eje);stroke-width:1}
+.gr-cartel{position:absolute;z-index:2;transform:translate(-50%,-4px);display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 9px;border-radius:10px;background:var(--verde-oscuro);color:#fff;font-size:12px;line-height:1.2;white-space:nowrap;pointer-events:none}
+.gr-cartel b{font-size:14px}
+.gr-cartel span{opacity:.85}
+.gr-filas{display:grid;gap:10px;margin:6px 0 0;padding:0;list-style:none}
+.gr-filas li{display:grid;grid-template-columns:minmax(64px,32%) 1fr auto;align-items:center;gap:10px}
+.gr-nombre{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;color:var(--texto)}
+.gr-pista{height:10px;border-radius:999px;background:var(--gr-pista);overflow:hidden}
+.gr-relleno{display:block;height:100%;border-radius:999px;background:var(--gr-barra)}
+.gr-cifra{display:flex;flex-direction:column;align-items:flex-end;min-width:56px;text-align:right;font-size:14px;line-height:1.2}
+.gr-cifra small{font-size:11px;color:var(--texto-suave)}
+.gr-torta{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+.gr-torta svg{flex:none;width:168px;height:168px;transform:rotate(0)}
+.gr-hueco{fill:none;stroke:var(--gr-pista);stroke-width:5}
+.gr-trozo{fill:none;stroke-width:5;transition:stroke-width .12s}
+.gr-trozo.sobre{stroke-width:6.2}
+.gr-trozo.c0,.gr-llave.c0{stroke:var(--c0);background:var(--c0)}
+.gr-trozo.c1,.gr-llave.c1{stroke:var(--c1);background:var(--c1)}
+.gr-trozo.c2,.gr-llave.c2{stroke:var(--c2);background:var(--c2)}
+.gr-trozo.c3,.gr-llave.c3{stroke:var(--c3);background:var(--c3)}
+.gr-trozo.c4,.gr-llave.c4{stroke:var(--c4);background:var(--c4)}
+.gr-trozo.co,.gr-llave.co{stroke:var(--co);background:var(--co)}
+.gr-centro{fill:var(--texto);font:500 6.4px var(--serif)}
+.gr-centro-sub{fill:var(--gr-eje);font:700 2.6px var(--sans)}
+.gr-leyenda{display:grid;flex:1 1 150px;gap:6px;margin:0;padding:0;list-style:none}
+.gr-leyenda li{display:grid;grid-template-columns:14px minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:2px 4px;border-radius:8px;font-size:14px}
+.gr-leyenda li.sobre{background:var(--verde-claro)}
+.gr-leyenda small{min-width:34px;text-align:right;color:var(--texto-suave)}
+.gr-llave{display:block;width:12px;height:12px;border-radius:3px}
+.gr-numeros{margin-top:10px;border-top:1px solid var(--linea);padding-top:8px;font-size:14px}
+.gr-numeros summary{min-height:36px;display:flex;align-items:center;cursor:pointer;font-weight:700;color:var(--terracota-texto)}
+.gr-tabla-scroll{max-height:260px;overflow:auto}
+.gr-numeros table{width:100%;border-collapse:collapse}
+.gr-numeros th,.gr-numeros td{padding:5px 6px;border-bottom:1px solid var(--linea);text-align:left;font-weight:400;white-space:nowrap}
+.gr-numeros thead th{position:sticky;top:0;background:var(--superficie);font-weight:700;color:var(--texto-suave)}
+.gr-numeros .der{text-align:right}
+@media (max-width:760px){
+  .estad .gr-grande{font-size:30px}
+  .gr-torta svg{width:150px;height:150px;margin:0 auto}
+}
+@media (max-width:760px){
+  .gr-cifras{grid-template-columns:1fr 1fr;gap:10px}
+  .gr-cifras:not(.cinco)>:first-child{grid-column:1/-1}
+  .gr-cifras .gr-grande{font-size:26px}
+  .gr-cifra-card{padding:12px 13px}
+}

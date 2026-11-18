@@ -5,20 +5,21 @@ import { perfilGuardado, refrescarSesion } from './sesion.js';
 
 // Lo que ve el personal en todas sus pantallas, como una app: una barra de arriba con el nombre de la pantalla y de quién entró, y
 // las pestañas de abajo para cambiar de sección (la última, «Más», abre el resto: editar la guía, la guía del huésped y salir).
-// Cada uno ve solo lo suyo: recepción tiene Código y Huéspedes; el dueño, además, Inicio y Equipo.
+// Cada uno ve solo lo suyo: recepción tiene Código y Huéspedes; el dueño, además, Inicio, Datos (estadísticas) y Equipo.
 const TABS = {
   inicio: { texto: 'Inicio', href: '#/admin', icono: 'casa' },
   codigo: { texto: 'Código', href: '#/recepcion', icono: 'llave' },
   huespedes: { texto: 'Huéspedes', href: '#/admin/huespedes', icono: 'personas' },
   huespedesRec: { texto: 'Huéspedes', href: '#/recepcion/huespedes', icono: 'personas' },
+  estadisticas: { texto: 'Datos', href: '#/admin/estadisticas', icono: 'grafico' },
   equipo: { texto: 'Equipo', href: '#/admin/equipo', icono: 'equipo' }
 };
 const tabsPara = (rol, dueno) => (rol === 'recepcion'
   ? ['codigo', 'huespedesRec']
-  : ['inicio', 'codigo', 'huespedes', ...(dueno ? ['equipo'] : [])]);
+  : ['inicio', 'codigo', 'huespedes', 'estadisticas', ...(dueno ? ['equipo'] : [])]);
 const ROL = { admin: 'dueño', recepcion: 'recepción' };
 
-//   titulo: nombre de la pantalla · actual: qué pestaña es (inicio, codigo, huespedes, huespedesRec, equipo; otra cosa = «Más»)
+//   titulo: nombre de la pantalla · actual: qué pestaña es (inicio, codigo, huespedes, estadisticas, huespedesRec, equipo; otra cosa = «Más»)
 //   atras: { href, texto } para las pantallas que no son una pestaña (el editor) · salir(): cierra la sesión de este dispositivo
 //   confirmar(): si devuelve false no se sale de la pantalla (para avisar de cambios sin guardar) · ancha: para las pantallas con planilla
 //   children: una segunda fila dentro de la barra de arriba (el editor pone ahí Guardar y Descartar)
