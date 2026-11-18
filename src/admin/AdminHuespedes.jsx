@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BarraPersonal from '../BarraPersonal.jsx';
 import Icon from '../components/Icon.jsx';
-import { adminAuditoria, adminEstadiaEditar, adminHuespedEditar, adminHuespedEstadia, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
+import { adminEstadiaEditar, adminHuespedEditar, adminHuespedEstadia, adminHuespedes, adminMediosPago, textoCodigo } from '../checkin/checkinApi.js';
 import EditarHuesped from '../checkin/EditarHuesped.jsx';
 import Modal from '../checkin/Modal.jsx';
 import Planilla from '../checkin/Planilla.jsx';
 import ReservaForm from '../checkin/ReservaForm.jsx';
-import { fechaHora } from '../checkin/util.js';
 import FotosHuesped from './FotosHuesped.jsx';
-import { ConectarDrive, ConfigCheckin, useConfigCheckin } from './PanelCheckin.jsx';
-import PanelMediosPago from './PanelMediosPago.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
 
 const POR_PAGINA = 50;
@@ -23,7 +20,6 @@ export default function AdminHuespedes() {
 }
 
 function Contenido({ clave, salir }) {
-  const { config, error: errorConfig, recargar } = useConfigCheckin(clave);
   const [filas, setFilas] = useState([]);
   const [hayMas, setHayMas] = useState(false);
   const [escrito, setEscrito] = useState('');
@@ -120,9 +116,8 @@ function Contenido({ clave, salir }) {
       <main className="card ancha">
         <header>
           <h1>Huéspedes</h1>
-          <p className="lead">Quiénes hicieron el check-in. Tocá una habitación para cargarla.</p>
+          <p className="lead">Quiénes hicieron el check-in, agrupados por habitación.</p>
         </header>
-        {errorConfig && <p className="ed-error" role="alert">{errorConfig}</p>}
 
         <div className="head-row">
           <h2>Todos los huéspedes</h2>
@@ -130,7 +125,7 @@ function Contenido({ clave, salir }) {
         </div>
         <div className="campo buscador">
           <label htmlFor="buscar">Buscar por nombre, documento, email, teléfono, localidad o habitación</label>
-          <input id="buscar" type="search" value={escrito} onChange={(e) => setEscrito(e.target.value)} autoComplete="off" />
+          <input id="buscar" type="search" value={escrito} onChange={(e) => setEscrito(e.target.value)} autoComplete="off" placeholder="Buscar por nombre, documento o habitación" />
         </div>
         {aviso && <p className="ed-ok" role="status">{aviso}</p>}
         {error && <p className="ed-error" role="alert">{error}</p>}
@@ -140,12 +135,6 @@ function Contenido({ clave, salir }) {
         {filas.length > 0 && <p className="ayuda" role="status">Mostrando {filas.length} {filas.length === 1 ? 'huésped' : 'huéspedes'}{hayMas ? '. Tocá «Cargar más» para ver a los anteriores.' : '.'}</p>}
         {hayMas && <div className="btns"><button type="button" className="btn claro" onClick={() => cargar('mas')} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar más'}</button></div>}
 
-        <h2 className="sub">Ajustes</h2>
-        <p className="ayuda">Lo que se toca de vez en cuando: el check-in, los pagos, las fotos y el historial.</p>
-        <ConfigCheckin clave={clave} config={config} recargar={recargar} />
-        <PanelMediosPago clave={clave} medios={medios} alGuardar={(lista) => { setMedios(lista); cargar('refrescar'); }} />
-        <ConectarDrive clave={clave} config={config} recargar={recargar} />
-        <Historial clave={clave} />
       </main>
 
       {editando && (
@@ -163,42 +152,5 @@ function Contenido({ clave, salir }) {
       )}
       {fotosDe && <FotosHuesped clave={clave} fila={fotosDe} onCerrar={() => setFotosDe(null)} alCambiar={() => cargar('refrescar')} />}
     </div>
-  );
-}
-
-const ACCIONES = { reserva_nueva: 'abrió una reserva', estadia_editar: 'corrigió una reserva', huesped_estadia: 'asignó un huésped a una reserva', editar: 'editó a un huésped', config: 'cambió la configuración', clave_recepcion: 'cambió la clave de recepción', codigo_nuevo: 'generó un código nuevo', usuario_creado: 'agregó a una persona al equipo', usuario_editado: 'cambió a una persona del equipo', medios_pago: 'cambió los medios de pago', foto_agregada: 'agregó una foto', sesion_abierta: 'abrió sesión en un dispositivo', foto_quitada: 'quitó una foto', foto_repuesta: 'volvió a poner una foto' };
-const CAMPOS = { nombre: 'nombre', apellido: 'apellido', email: 'email', telefono: 'teléfono', nacionalidad: 'nacionalidad', localidad: 'localidad', domicilio: 'domicilio', doc_tipo: 'tipo de documento', doc_numero: 'número de documento', habitacion: 'habitación', medio_pago: 'medio de pago', anio_nac: 'año de nacimiento', monto: 'monto', moneda: 'moneda', fecha_cobro: 'fecha del cobro' };
-
-// Quién cambió qué y cuándo (no guarda los valores, solo los nombres de los campos).
-function Historial({ clave }) {
-  const [registros, setRegistros] = useState(null);
-  const [error, setError] = useState('');
-  const abrir = async (e) => {
-    if (!e.currentTarget.open || registros) return;
-    try {
-      const r = await adminAuditoria(clave, 40);
-      if (r.ok) setRegistros(r.registros); else setError(textoCodigo(r.error));
-    } catch {
-      setError('No se pudo conectar. Revisá tu conexión.');
-    }
-  };
-  return (
-    <details className="panel" onToggle={abrir}>
-      <summary>Historial de cambios</summary>
-      {error && <p className="ed-error">{error}</p>}
-      {registros && !registros.length && <p className="ayuda">Todavía no hay cambios registrados.</p>}
-      {registros?.length > 0 && (
-        <ul className="historial">
-          {registros.map((r) => (
-            <li key={r.id}>
-              <b>{fechaHora(r.en)}</b> · {r.detalle?.alias && r.accion !== 'usuario_creado' && r.accion !== 'usuario_editado' ? `${r.detalle.alias} (${r.quien === 'admin' ? 'dueño' : 'recepción'})` : r.quien === 'admin' ? 'Dueño' : 'Recepción'} {ACCIONES[r.accion] ?? r.accion}
-              {r.checkin_id ? ` (huésped n.º ${r.checkin_id})` : ''}
-              {r.detalle?.alias && (r.accion === 'usuario_creado' || r.accion === 'usuario_editado') ? `: ${r.detalle.antes && r.detalle.antes !== r.detalle.alias ? `${r.detalle.antes} → ` : ''}${r.detalle.alias}` : ''}
-              {r.detalle?.campos?.length && (r.accion === 'editar' || r.accion === 'estadia_editar') ? `: ${r.detalle.campos.map((c) => CAMPOS[c] ?? c).join(', ')}` : ''}
-            </li>
-          ))}
-        </ul>
-      )}
-    </details>
   );
 }

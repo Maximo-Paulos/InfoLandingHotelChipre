@@ -445,38 +445,6 @@ body:has(.tabs-personal) .toast{bottom:calc(84px + env(safe-area-inset-bottom));
 .bp-item[aria-current=page]{border-color:var(--verde);background:var(--verde-claro)}
 .bp-sesion{margin:14px 0 0;text-align:center;font-size:13px;color:var(--texto-suave)}
 
-/* La lista de huéspedes en el celular: una tarjeta por persona, sin tener que deslizar hacia los costados. */
-@media (max-width:760px){
-  .planilla-scroll{overflow:visible;border:0;border-radius:0;background:transparent}
-  .planilla,.planilla tbody{display:block;min-width:0}
-  .planilla thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-  .planilla tbody{display:grid;gap:12px}
-  .planilla tbody tr{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 8px;padding:14px;border:1px solid var(--linea);border-radius:16px;background:var(--superficie)}
-  .planilla tbody tr.sin-hab .hab-boton{border-color:var(--mostaza);background:var(--mostaza-claro)}
-  .planilla tbody th,.planilla tbody td{display:block;padding:0;border:0;text-align:left;white-space:normal}
-  .planilla .fija,.planilla tr.sin-hab .fija{position:static;order:0;flex:0 0 100%;min-width:0;border:0;background:transparent}
-  .planilla .fija::before{content:"Habitación";display:block;margin-bottom:2px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto-suave)}
-  .planilla .hab-boton{margin:0;min-height:48px;padding:0 14px;border:1px solid var(--linea);border-radius:12px;background:var(--hueso);font-size:17px}
-  .planilla td.c-nom,.planilla td.c-ape{order:1;font:500 22px/1.2 var(--serif)}
-  .planilla td.c-nom{order:2}
-  .planilla td.c-ape::after{content:","}
-  .planilla td[data-label]:not(.c-nom):not(.c-ape){order:4;flex:0 0 100%;font-size:15px;line-height:1.4}
-  .planilla td[data-label]::before{content:attr(data-label) ": ";font-weight:700;color:var(--texto-suave)}
-  .planilla td.c-nom::before,.planilla td.c-ape::before{content:none}
-  .planilla td.c-nom,.planilla td.c-ape{flex:0 0 auto}
-  .planilla td.c-pago{order:3;flex:0 0 100%;margin-top:4px}
-  .planilla td.c-foto{display:flex;flex-wrap:wrap;align-items:center;gap:8px;order:8}
-  .planilla td.c-cargado{order:9;font-size:13px;color:var(--texto-suave)}
-  .planilla td.c-hab-por{order:9;font-size:13px;color:var(--texto-suave)}
-  .planilla td:empty{display:none}
-  /* en la tarjeta solo lo que se usa seguido; el resto (nacionalidad, localidad, domicilio y email) se ve al tocar Editar */
-  .planilla td.c-nac,.planilla td.c-loc,.planilla td.c-dom,.planilla td.c-email{display:none}
-  .planilla td.dom{min-width:0}
-  .planilla td.c-acciones{order:10;flex:0 0 100%;margin-top:6px}
-  .planilla td.c-acciones .btn.mini,.planilla td.c-acciones .candado{width:100%;min-height:48px;justify-content:center}
-}
-
-
 /* reservas: habitación + monto antes del código */
 .codigo-panel.con-form{max-width:520px;padding:0;background:transparent;color:inherit;text-align:left}
 .reserva-nueva h2{margin:0 0 4px;font-size:22px}
@@ -489,16 +457,11 @@ body:has(.tabs-personal) .toast{bottom:calc(84px + env(safe-area-inset-bottom));
 .planilla tr.grupo .btn.mini{margin-left:12px}
 .planilla .asignar{min-height:40px;max-width:100%;margin-right:8px;font-size:13px}
 @media (max-width:760px){
-  .planilla tbody tr.grupo{display:block;padding:12px 14px;background:var(--salvia-claro);border-color:transparent}
-  .planilla tr.grupo .btn.mini{display:flex;width:100%;margin:8px 0 0;justify-content:center}
   .fila-monto{grid-template-columns:1fr}
 }
 
 /* Estadísticas del dueño: tarjetas con gráficos hechos en SVG (ver src/admin/graficos.jsx). */
 .estad{--gr-barra:#6b8f6f;--gr-fuerte:#2f4f34;--gr-sobre:#22332a;--gr-linea:#4d7050;--gr-grilla:rgba(34,51,42,.12);--gr-eje:#6a746d;--gr-pista:#dfe7e0;--c0:#2a78d6;--c1:#eb6834;--c2:#1baf7a;--c3:#eda100;--c4:#e87ba4;--co:#9a998f;--gr-bien:#006300;--gr-mal:#a23b25}
-.periodos{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
-.periodos button{min-height:44px;padding:0 16px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie);color:var(--texto);font:700 14px var(--sans)}
-.periodos button.activa{border-color:var(--verde);background:var(--verde);color:#fff}
 .gr-cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:12px;margin:16px 0 4px}
 .gr-cifras.cinco{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))}
 .gr-cifra-card{padding:14px 16px;border:1px solid var(--linea);border-radius:16px;background:var(--superficie)}
@@ -562,11 +525,125 @@ body:has(.tabs-personal) .toast{bottom:calc(84px + env(safe-area-inset-bottom));
 .gr-numeros .der{text-align:right}
 @media (max-width:760px){
   .estad .gr-grande{font-size:30px}
+  .gr-torta{flex-direction:column;align-items:stretch}
   .gr-torta svg{width:150px;height:150px;margin:0 auto}
+  .gr-leyenda{flex:none;width:100%}
 }
 @media (max-width:760px){
-  .gr-cifras{grid-template-columns:1fr 1fr;gap:10px}
+  .gr-cifras,.gr-cifras.cinco{grid-template-columns:1fr 1fr;gap:10px}
   .gr-cifras:not(.cinco)>:first-child{grid-column:1/-1}
   .gr-cifras .gr-grande{font-size:26px}
   .gr-cifra-card{padding:12px 13px}
 }
+
+/* ---------------------------------------------------------------------------------------------------------------------------------
+   Las pantallas del personal en el celular se ven como una app: ocupan toda la pantalla (sin la «tarjeta» de la guía), el título está
+   solo en la barra de arriba, las pestañas de abajo son 5 como máximo y lo largo se acorta con listas y hojas que suben desde abajo.
+   --------------------------------------------------------------------------------------------------------------------------------- */
+html{-webkit-tap-highlight-color:transparent}
+a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
+.page.personal{--bp-alto:calc(max(8px,env(safe-area-inset-top)) + 56px)}
+@media (max-width:760px){
+  body:has(.page.personal){background:var(--hueso)}
+  .page.personal{min-height:100dvh;padding:0 0 calc(84px + env(safe-area-inset-bottom))}
+  .page.personal .barra-personal{margin:0}
+  .page.personal>.card{max-width:none;margin:0;padding:12px 16px 24px;border-radius:0;background:transparent}
+  .page.personal>.card>header{margin:0 0 4px}
+  .page.personal>.card>header .eyebrow{display:none}
+  .page.personal>.card>header h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .page.personal>.card>header .lead{margin:0;font:400 14px/1.4 var(--sans);color:var(--texto-suave)}
+  .page.personal .head-row{margin-top:14px}
+  .page.personal h2.sub{margin-top:22px}
+}
+
+/* La hoja que sube desde abajo (ficha, período, correcciones…) */
+.modal{max-height:92dvh;overscroll-behavior:contain;padding-bottom:calc(26px + env(safe-area-inset-bottom))}
+@media (max-width:639px){
+  .modal::before{content:"";display:block;width:40px;height:5px;margin:-8px auto 10px;border-radius:999px;background:rgba(34,51,42,.22)}
+  .modal{animation:hoja-sube .18s ease-out}
+}
+@keyframes hoja-sube{from{transform:translateY(24px);opacity:.4}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.modal{animation:none}}
+.hoja-lista{display:grid;gap:8px;margin:14px 0 0;padding:0;list-style:none}
+.hoja-fila{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:56px;padding:0 16px;border:1px solid var(--linea);border-radius:14px;background:var(--superficie);color:var(--texto);font:500 18px var(--serif);text-align:left}
+.hoja-fila.elegida{border-color:var(--verde);background:var(--verde-claro);color:var(--verde-oscuro)}
+.hoja-fila .svg{color:var(--verde)}
+
+/* Buscador fijo arriba de la lista de huéspedes */
+@media (max-width:760px){
+  .page.personal .buscador{position:sticky;top:var(--bp-alto);z-index:12;margin:0 -16px;padding:8px 16px;background:var(--hueso)}
+  .page.personal .buscador label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .page.personal .buscador input{width:100%}
+}
+
+/* Lista de huéspedes del celular: una reserva por bloque, una fila corta por persona */
+.lista-hue{display:grid;gap:14px;margin-top:4px}
+.rg{overflow:hidden;border:1px solid var(--linea);border-radius:16px;background:var(--superficie)}
+.rg-cab{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 10px;padding:12px 14px;border-bottom:1px solid var(--linea);background:var(--verde-claro)}
+.rg-tit{display:flex;align-items:baseline;gap:8px;min-width:0}
+.rg-hab{font:500 21px/1.1 var(--serif);color:var(--texto)}
+.rg-hab.pendiente{color:var(--terracota-texto)}
+.rg-cuenta{font-size:13px;color:var(--texto-suave)}
+.rg-plata{grid-column:1/-1;margin:2px 0 0;font-size:13px;line-height:1.4;color:var(--texto-suave)}
+.rg-editar{grid-row:1;grid-column:2;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie);color:var(--texto);font:700 13px var(--sans)}
+.rg-gente{margin:0;padding:0;list-style:none}
+.rg-gente li+li{border-top:1px solid var(--linea)}
+.hf{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:62px;padding:8px 14px;border:0;background:transparent;color:var(--texto);text-align:left}
+.hf:active{background:var(--verde-claro)}
+.hf-datos{display:grid;min-width:0;gap:1px}
+.hf-datos b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 18px/1.2 var(--serif)}
+.hf-datos small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--texto-suave)}
+.hf .svg{flex:none;color:var(--texto-suave)}
+.ficha{display:grid;margin:12px 0 0}
+.fi-dato{display:grid;grid-template-columns:112px minmax(0,1fr);gap:10px;padding:10px 0;border-bottom:1px solid var(--linea)}
+.fi-dato dt{font-size:13px;font-weight:700;color:var(--texto-suave)}
+.fi-dato dd{margin:0;overflow-wrap:anywhere;font-size:16px;line-height:1.35}
+.ficha .ver-foto{display:inline-flex;align-items:center;min-height:36px;margin-right:12px}
+
+/* Estadísticas: período en una pastilla + secciones (pestañas) en vez de una página larguísima */
+.est-periodo{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 10px}
+.est-pildora{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie);color:var(--texto);font:400 15px var(--sans)}
+.est-pildora b{font-weight:700}
+.est-fechas{font-size:13px;color:var(--texto-suave);text-align:right}
+.est-tabs{position:sticky;top:var(--bp-alto);z-index:12;display:flex;gap:4px;max-width:560px;margin:0 0 14px;padding:6px 0;background:var(--hueso)}
+.est-tabs button{flex:1 1 0;min-width:0;min-height:44px;padding:0 4px;border:1px solid transparent;border-radius:999px;background:transparent;color:var(--texto-suave);font:700 14px var(--sans);white-space:nowrap}
+.est-tabs button.activa{border-color:var(--verde);background:var(--verde);color:#fff}
+.est-panel{display:grid;gap:14px}
+.est-vacio{padding:24px 12px;text-align:center;color:var(--texto-suave)}
+.est-vacio .btn{margin:6px auto 0}
+@media (max-width:760px){
+  .est-tabs{margin:0 -16px 12px;padding:6px 16px}
+  .est-tabs button{font-size:13px}
+  .est-panel .sub{margin:8px 0 0}
+}
+
+/* Inicio del dueño */
+.inicio{max-width:560px}
+.inicio>header h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.in-saludo{margin:6px 0 0;font:500 30px/1.15 var(--serif);color:var(--texto)}
+.in-fecha{margin:2px 0 14px;font-size:15px;color:var(--texto-suave)}
+.in-fecha::first-letter{text-transform:uppercase}
+.in-accion{min-height:60px;font-size:17px}
+.in-sub{margin:22px 0 8px;font:500 21px/1.2 var(--serif)}
+.in-fila{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.in-ver{display:inline-flex;align-items:center;gap:2px;min-height:44px;font-size:14px;font-weight:700;text-decoration:none}
+.in-cifras{margin-top:0}
+.in-ultimos{display:grid;margin:0;padding:0;list-style:none;border:1px solid var(--linea);border-radius:16px;background:var(--superficie);overflow:hidden}
+.in-ultimos li+li{border-top:1px solid var(--linea)}
+.in-ultimos a{display:flex;align-items:center;gap:12px;min-height:64px;padding:8px 14px;color:var(--texto);text-decoration:none}
+.in-ultimos a:active{background:var(--verde-claro)}
+.in-hab{flex:none;min-width:58px;font:500 17px var(--serif);color:var(--verde-oscuro)}
+.in-nom{display:grid;flex:1;min-width:0}
+.in-nom b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 17px/1.2 var(--serif)}
+.in-nom small{font-size:13px;color:var(--texto-suave)}
+.in-ultimos .svg{flex:none;color:var(--texto-suave)}
+
+/* Formulario de reserva: la moneda y el medio de pago se eligen con un toque (sin desplegables) */
+.campo .etq{display:block;margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--texto-suave)}
+.seg{display:flex;gap:4px;padding:4px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie)}
+.seg button{flex:1 1 0;min-height:44px;padding:0 10px;border:0;border-radius:999px;background:transparent;color:var(--texto);font:700 14px var(--sans)}
+.seg button.activa{background:var(--verde);color:#fff}
+.fichas{display:flex;flex-wrap:wrap;gap:8px}
+.fichas button{min-height:48px;padding:0 16px;border:1px solid rgba(34,51,42,.16);border-radius:999px;background:var(--superficie);color:var(--texto);font:700 14px var(--sans)}
+.fichas button.activa{border-color:var(--verde);background:var(--verde);color:#fff}
+.seg button:disabled,.fichas button:disabled{opacity:.6}

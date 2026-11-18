@@ -81,13 +81,25 @@ export default function ReservaForm({ inicial = null, medios, onGuardar, texto =
       {campo('habitacion', 'Habitación', <input {...p('habitacion', { maxLength: 12, placeholder: 'Ej. 107', autoFocus: !inicial, enterKeyHint: 'next' })} />)}
       <div className="fila-monto">
         {campo('monto', 'Monto cobrado', <input {...p('monto', { inputMode: 'decimal', maxLength: 16, placeholder: 'Ej. 85000' })} />, 'El total de la habitación, no por persona.')}
-        {campo('moneda', 'Moneda', (
-          <select {...p('moneda')}><option value="ARS">ARS (pesos)</option><option value="USD">USD (dólares)</option></select>
-        ))}
+        <div className="campo">
+          <span className="etq" id={`${id}-moneda`}>Moneda</span>
+          <div className="seg" role="radiogroup" aria-labelledby={`${id}-moneda`}>
+            {[['ARS', 'Pesos'], ['USD', 'Dólares']].map(([k, t]) => (
+              <button key={k} type="button" role="radio" aria-checked={v.moneda === k} className={v.moneda === k ? 'activa' : ''} disabled={enviando} onClick={() => setV((x) => ({ ...x, moneda: k }))}>{t}</button>
+            ))}
+          </div>
+        </div>
       </div>
-      {campo('medio_pago', 'Medio de pago', (
-        <select {...p('medio_pago')}>{opciones.map((m) => <option key={m.id} value={String(m.id)}>{m.nombre}</option>)}</select>
-      ))}
+      <div className={`campo${errores.medio_pago ? ' error' : ''}`}>
+        <span className="etq" id={`${id}-medio`}>Medio de pago</span>
+        <div className="fichas" role="radiogroup" aria-labelledby={`${id}-medio`}>
+          {opciones.map((m) => (
+            <button key={m.id} type="button" role="radio" aria-checked={v.medio_pago === String(m.id)} className={v.medio_pago === String(m.id) ? 'activa' : ''} disabled={enviando}
+              onClick={() => { setV((x) => ({ ...x, medio_pago: String(m.id) })); setErrores((x) => ({ ...x, medio_pago: undefined })); }}>{m.nombre}</button>
+          ))}
+        </div>
+        {errores.medio_pago && <p className="msg" role="alert">{errores.medio_pago}</p>}
+      </div>
       {campo('fecha_cobro', 'Fecha del cobro', <input {...p('fecha', { type: 'date' })} />, 'Sirve para pasar el monto a dólares con la cotización de ese día.')}
       {aviso && <p className="ed-error" role="alert">{aviso}</p>}
       <div className="btns modal-pie">

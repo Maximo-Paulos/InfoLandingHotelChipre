@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { cargarTelefono } from './telefono.js';
+import { porReserva } from './agrupar.js';
+import ListaHuespedes from './ListaHuespedes.jsx';
 import { plata } from './ReservaForm.jsx';
-import { fechaHora, minSeg, urlDrive } from './util.js';
+import { fechaHora, minSeg, urlDrive, useMedia } from './util.js';
 
 // Las fotos de una fila: la lista nueva, o la única foto de antes si la base todavía no tiene la lista.
 const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_id: f.foto_id, nombre: f.foto_nombre }] : []);
@@ -11,6 +13,7 @@ const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_i
 //   filas: [{ id, creado, habitacion, datos, foto_id, foto_nombre, fotos?, editable_seg? }]
 //   puedeEditar(fila) -> segundos que quedan para editar (null = sin límite, 0 = no se puede)
 //   Los huéspedes de una misma reserva (fila.estadia_id) se muestran juntos, bajo una cabecera con la habitación y lo cobrado.
+//   En pantallas chicas (celular) se muestra como lista (ListaHuespedes.jsx) en lugar de tabla.
 //   onEditarReserva(estadia): si viene, la cabecera tiene «Corregir reserva» · reservaEditable(estadia) -> false la deja cerrada (sin esta función, siempre se puede)
 //   reservas: [{ id, habitacion, ... }] y onAsignar(fila, estadiaId): si vienen, los huéspedes sin reserva se pueden asignar a una (solo el dueño)
 //   onFotos(fila): si viene, cada fila tiene un botón para ver y agregar sus fotos (el dueño también puede quitarlas; recepción no)
@@ -27,18 +30,12 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
   };
 
   // Una cabecera por reserva, en el orden en que aparece su primer huésped; los de antes de las reservas van al final.
-  const grupos = useMemo(() => {
-    const mapa = new Map();
-    for (const f of filas) {
-      const k = f.estadia_id ?? 0;
-      if (!mapa.has(k)) mapa.set(k, { estadia: f.estadia ?? null, filas: [] });
-      mapa.get(k).filas.push(f);
-    }
-    const todos = [...mapa.entries()];
-    return [...todos.filter(([k]) => k), ...todos.filter(([k]) => !k)].map(([, g]) => g);
-  }, [filas]);
+  const grupos = useMemo(() => porReserva(filas), [filas]);
+  const celular = useMedia('(max-width:760px)');
 
   if (!filas.length) return <p className="planilla-vacia">{vacio}</p>;
+  // En el celular no hay tabla: una lista corta por reserva, y la ficha de cada persona al tocarla.
+  if (celular) return <ListaHuespedes grupos={grupos} onEditar={onEditar} onFotos={onFotos} onEditarReserva={onEditarReserva} reservaEditable={reservaEditable} reservas={reservas} onAsignar={onAsignar} restante={restante} vacio={vacio} />;
   return (
     <div className="planilla-scroll" role="region" aria-label="Planilla de huéspedes" tabIndex={0}>
       {/* En el celular cada fila se ve como una tarjeta (ver styles.css), por eso los roles explícitos: así se sigue leyendo como tabla. */}

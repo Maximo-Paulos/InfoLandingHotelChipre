@@ -38,3 +38,17 @@ export const urlDrive = (id) => `https://drive.google.com/file/d/${encodeURIComp
 export const enfocarPrimerError = (formulario) => {
   setTimeout(() => formulario?.querySelector?.('[aria-invalid="true"]')?.focus?.(), 0);
 };
+
+// ¿Se cumple esta condición de pantalla (por ejemplo «(max-width:760px)» = celular)? Se actualiza sola al girar o cambiar el tamaño.
+export function useMedia(consulta) {
+  const [cumple, setCumple] = useState(() => typeof matchMedia === 'function' && matchMedia(consulta).matches);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return undefined;
+    const m = matchMedia(consulta);
+    const alCambiar = () => setCumple(m.matches);
+    alCambiar();
+    m.addEventListener('change', alCambiar);
+    return () => m.removeEventListener('change', alCambiar);
+  }, [consulta]);
+  return cumple;
+}
