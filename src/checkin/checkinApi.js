@@ -22,15 +22,21 @@ export const recepcionEditar = (clave, id, datos, habitacion, medioPago) =>
 export const recepcionFotos = (clave, id) => rpc('recepcion_fotos', { p_clave: clave, p_id: id });
 export const recepcionFotoPermiso = (clave, id) => rpc('recepcion_foto_permiso', { p_clave: clave, p_id: id });
 
-// Reservas: habitación, categoría, noches, canal de venta + valor total + lo pagado en el hotel, antes de dar el código.
-// `r` = { habitacion, monto (total), moneda, medioPago, fecha, pagoHotel, fechaSena, noches, canal, categoria } (sin pagoHotel se toma como cobrado todo en el hotel;
-// con un canal que no cobra, como la obra social, la base ignora el monto y lo deja en 0).
+// Reservas: habitación, categoría, noches, cantidad de huéspedes, canal de venta + valor total + lo pagado en el hotel, antes de dar el código.
+// `r` = { habitacion, monto (total), moneda, medioPago, fecha, pagoHotel, fechaSena, noches, canal, categoria, huespedes } (sin pagoHotel se toma como cobrado todo en el hotel;
+// con un canal que no cobra, como la obra social, la base ignora el monto y lo deja en 0). `huespedes` = cuántos van a hacer el check-in en la habitación:
+// la reserva queda abierta hasta que entren todos.
 const deReserva = (r) => ({
   p_habitacion: r.habitacion, p_monto: r.monto, p_moneda: r.moneda, p_medio_pago: r.medioPago, p_fecha: r.fecha, p_pago_hotel: r.pagoHotel ?? null, p_fecha_sena: r.fechaSena ?? null,
-  p_noches: r.noches ?? null, p_canal: r.canal ?? null, p_categoria: r.categoria ?? null
+  p_noches: r.noches ?? null, p_canal: r.canal ?? null, p_categoria: r.categoria ?? null, p_huespedes: r.huespedes ?? null
 });
 export const recepcionReservaNueva = (clave, r) => rpc('recepcion_reserva_nueva', { p_clave: clave, ...deReserva(r) });
+// Apaga el código que se ve (no cierra la reserva: si faltan huéspedes sigue abierta) o, con extender, le da más minutos.
 export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcion_reserva_cerrar', { p_clave: clave, p_extender: extender });
+// Le vuelve a dar código a una reserva abierta (el huésped que llegó después) y anula una que no tiene huéspedes (nunca borra: queda marcada).
+export const recepcionReservaAbrir = (clave, id) => rpc('recepcion_reserva_abrir', { p_clave: clave, p_id: id });
+export const recepcionReservaAnular = (clave, id) => rpc('recepcion_reserva_anular', { p_clave: clave, p_id: id });
+export const adminReservaAnular = (clave, id, anular = true) => rpc('admin_reserva_anular', { p_clave: clave, p_id: id, p_anular: anular });
 export const recepcionEstadiaEditar = (clave, id, r) => rpc('recepcion_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
 export const adminEstadiaEditar = (clave, id, r) => rpc('admin_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
 export const adminHuespedEstadia = (clave, id, estadia) => rpc('admin_huesped_estadia', { p_clave: clave, p_id: id, p_estadia: estadia });
@@ -88,7 +94,12 @@ export const MENSAJES = {
   canal_en_uso: 'Ese canal ya tiene reservas: no se puede cambiar si cobra o no. Creá otro canal si hace falta.',
   nombre_repetido: 'Hay dos opciones con el mismo nombre.',
   nombre_invalido: 'Algún nombre no es válido: hasta 40 letras o números, sin símbolos raros.',
-  lista_invalida: 'La lista no es válida. Actualizá la pantalla y probá de nuevo.'
+  lista_invalida: 'La lista no es válida. Actualizá la pantalla y probá de nuevo.',
+  reserva_anulada: 'Esa reserva está anulada. Solo el dueño la puede restaurar.',
+  reserva_completa: 'Esa reserva ya tiene a todos sus huéspedes. Si falta alguien más, el dueño puede subir la cantidad de huéspedes.',
+  reserva_vencida: 'Esa reserva ya pasó el tiempo en que recepción la ve. Pedile al dueño que la reabra.',
+  reserva_cerrada: 'Esa reserva se cerró. Actualizá la pantalla.',
+  tiene_huespedes: 'Esa reserva ya tiene huéspedes: no se puede anular.'
 };
 
 export const textoError = (e) => (e?.codigo ? MENSAJES[e.codigo] ?? e.codigo : 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.');

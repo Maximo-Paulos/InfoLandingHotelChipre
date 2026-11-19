@@ -42,6 +42,7 @@ function Contenido({ clave, salir }) {
 
   let hoy = null;
   let mes = null;
+  const sinHuespedes = (datos?.pendientes ?? []).filter((r) => !r.anulada_en).length; // reservas cargadas en las que todavía no entró nadie: no suman
   if (datos && cotizaciones !== undefined) {
     hoy = calcular(datos, cotizaciones ?? [], { desde: datos.hoy, hasta: datos.hoy }, null);
     const r = rangoDe('mes', datos.hoy);
@@ -65,6 +66,12 @@ function Contenido({ clave, salir }) {
           <Cifra etiqueta="Habitaciones vendidas" valor={hoy ? num(hoy.actual.reservas) : '…'} />
           <Cifra etiqueta="Huéspedes" valor={hoy ? num(hoy.actual.huespedes) : '…'} />
         </div>
+
+        {sinHuespedes > 0 && (
+          <p className="in-aviso" role="note">
+            <b>{sinHuespedes} {sinHuespedes === 1 ? 'reserva sin huéspedes' : 'reservas sin huéspedes'}.</b> No suman en las cifras hasta que entre alguien. Si eran pruebas, anulalas. <a href="#/admin/caja">Verlas</a>
+          </p>
+        )}
 
         <div className="in-fila"><h2 className="in-sub">Este mes</h2><a className="in-ver" href="#/admin/estadisticas">Ver estadísticas <Icon name="adelante" size={16} sw={2} /></a></div>
         <div className="gr-cifras cinco in-cifras">

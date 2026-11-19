@@ -3,7 +3,7 @@ import Icon from '../components/Icon.jsx';
 import { cargarTelefono } from './telefono.js';
 import { porReserva } from './agrupar.js';
 import ListaHuespedes from './ListaHuespedes.jsx';
-import { cobroLinea, detalleTexto, plata } from './ReservaForm.jsx';
+import { cobroLinea, detalleTexto, huespedesTexto, plata } from './ReservaForm.jsx';
 import { fechaHora, minSeg, urlDrive, useMedia } from './util.js';
 
 // Las fotos de una fila: la lista nueva, o la única foto de antes si la base todavía no tiene la lista.
@@ -67,7 +67,7 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                   {g.estadia ? (
                     <>
                       <b>Hab. {g.estadia.habitacion}</b> · {detalleTexto(g.estadia)} · {cobroLinea(g.estadia)} · {g.estadia.canal_cobra === false ? 'estadía' : 'cobro'} {g.estadia.fecha_cobro.split('-').reverse().slice(0, 2).join('/')}
-                      <span className="muted"> · cargó {g.estadia.cargado_por} · {g.filas.length} {g.filas.length === 1 ? 'huésped' : 'huéspedes'}</span>
+                      <span className="muted"> · cargó {g.estadia.cargado_por} · {huespedesTexto(g.estadia, g.estadia.con_checkin ?? g.filas.length)}</span>
                       {onEditarReserva && (!reservaEditable || reservaEditable(g.estadia)) && (
                         <button type="button" className="btn mini claro" onClick={() => onEditarReserva(g.estadia)}><Icon name="lapiz" size={16} sw={1.8} /> Corregir reserva</button>
                       )}

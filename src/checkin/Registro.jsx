@@ -54,7 +54,7 @@ const TEXTOS = [
   ['registro.campos.foto', 'Campo: foto del documento'], ['registro.fotoAyuda', 'Foto: ayuda'], ['registro.btnSacarFoto', 'Foto: botón sacar'],
   ['registro.btnGaleria', 'Foto: botón galería'], ['registro.btnCambiarFoto', 'Foto: botón cambiar'], ['registro.btnQuitarFoto', 'Foto: botón quitar'],
   ['registro.consentimiento', 'Aceptación: texto antes del link'], ['registro.consentimientoLink', 'Aceptación: texto del link a los Términos'],
-  ['registro.btnEnviar', 'Botón de enviar'], ['registro.errCampos', 'Mensaje: campos con error'], ['registro.errSesion', 'Mensaje: se terminó el tiempo'],
+  ['registro.btnEnviar', 'Botón de enviar'], ['registro.errCampos', 'Mensaje: campos con error'], ['registro.errSesion', 'Mensaje: se terminó el tiempo'], ['registro.errCompleta', 'Mensaje: la habitación ya tiene todos sus huéspedes'],
   ['registro.okTitulo', 'Pantalla final: título'], ['registro.okTexto', 'Pantalla final: texto'], ['registro.btnInicio', 'Pantalla final: botón']
 ];
 
@@ -71,7 +71,7 @@ function RegistroTextos() {
 function RegistroHuesped() {
   const { D } = useDatos();
   const R = D.registro;
-  const [paso, setPaso] = useState('inicio'); // inicio | apagado | codigo | form | ok | vencido
+  const [paso, setPaso] = useState('inicio'); // inicio | apagado | codigo | form | ok | vencido | completa
   const [codigo, setCodigo] = useState('');
   const [errorCodigo, setErrorCodigo] = useState('');
   const [sesion, setSesion] = useState(null); // { token, venceEn, foto }
@@ -306,6 +306,10 @@ function RegistroHuesped() {
       } else if (r.error === 'sesion_invalida' || r.error === 'no_disponible') {
         borrarBorrador();
         setPaso('vencido');
+      } else if (r.error === 'reserva_completa' || r.error === 'reserva_cerrada') {
+        // La habitación ya tiene a todos sus huéspedes (o se cerró) mientras completaba el formulario: no se guarda y hay que ir a recepción.
+        borrarBorrador();
+        setPaso('completa');
       } else if (r.error === 'datos_invalidos') {
         const mapa = {};
         (r.campos ?? []).forEach((c) => { mapa[c === 'telefono' ? 'telefono' : c] = mensajeDe(c, valores.doc_tipo); });
@@ -370,6 +374,13 @@ function RegistroHuesped() {
       <>
         <p className="ed-error" role="alert">{R.errSesion}</p>
         <div className="btns"><button type="button" className="btn" onClick={nuevoCodigo}>Ingresar otro código</button></div>
+      </>
+    );
+  } else if (paso === 'completa') {
+    cuerpo = (
+      <>
+        <p className="ed-error" role="alert">{R.errCompleta}</p>
+        <div className="btns"><a className="btn claro" href="#/">Volver al inicio</a></div>
       </>
     );
   } else if (paso === 'ok') {

@@ -139,6 +139,7 @@ export async function cargarDemo(back, { log = console.log } = {}) {
       estadias.push({ id: idEst, creado: AR(fecha, hora, minuto), habitacion: hab.n, monto, moneda: medio[2], medio_pago_id: medio[0], fecha_cobro: fechaCobro, cargado_por: quien, pago_hotel: pagoHotel, fecha_sena: fechaSena, noches, canal, categoria: hab.cat });
 
       const n = Math.min(CATEGORIAS[hab.cat], ponderado([[1, 30], [2, 46], [3, 14], [4, 8], [5, 2]])[0]);
+      estadias[estadias.length - 1].esperados = n; // las reservas de demostración están completas: entraron todos los huéspedes que se esperaban
       const edadBase = obraSocial ? Math.max(45, Math.round(normal(61, 8))) : Math.max(19, Math.round(normal(38, 12)));
       for (let g = 0; g < n; g += 1) {
         // Algunos ya se habían alojado: vuelven con los mismos datos.
@@ -177,10 +178,10 @@ export async function cargarDemo(back, { log = console.log } = {}) {
     }
   }
 
-  await back.sql(`insert into private.estadias (id, creado, habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena, noches, canal_id, categoria_id)
+  await back.sql(`insert into private.estadias (id, creado, habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena, noches, huespedes_esperados, canal_id, categoria_id)
     overriding system value
     select (x->>'id')::bigint, (x->>'creado')::timestamptz, x->>'habitacion', (x->>'monto')::numeric, x->>'moneda', (x->>'medio_pago_id')::int, (x->>'fecha_cobro')::date, x->>'cargado_por',
-           (x->>'pago_hotel')::numeric, (x->>'fecha_sena')::date, (x->>'noches')::int,
+           (x->>'pago_hotel')::numeric, (x->>'fecha_sena')::date, (x->>'noches')::int, (x->>'esperados')::int,
            (select id from private.catalogo where tipo = 'canal' and nombre = x->>'canal'), (select id from private.catalogo where tipo = 'categoria' and nombre = x->>'categoria')
     from jsonb_array_elements($1::jsonb) x`, [JSON.stringify(estadias)]);
   await back.sql(`insert into private.checkins (id, creado, grupo, idioma, datos, consentimiento, habitacion, medio_pago_id, habilitado_por, estadia_id)

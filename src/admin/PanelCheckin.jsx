@@ -9,7 +9,7 @@ import codigoScript from '../../apps-script/Codigo.gs?raw';
 const NUMEROS = [
   ['codigo_seg', 'Cada cuántos segundos cambia el código', 5, 300],
   ['usos_max', 'Cuántas personas pueden usar el mismo código', 1, 20],
-  ['reserva_min', 'Minutos que sigue abierta una reserva (los códigos sirven mientras tanto)', 1, 120],
+  ['reserva_min', 'Minutos que se muestra el código de una reserva (la reserva sigue abierta hasta que entren todos sus huéspedes)', 1, 120],
   ['edicion_min', 'Minutos que recepción puede editar un huésped', 1, 1440],
   ['dias_recepcion', 'Días de huéspedes que ve recepción', 1, 365]
 ];

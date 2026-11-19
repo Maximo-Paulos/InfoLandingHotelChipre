@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import Modal from './Modal.jsx';
-import { cobroLinea, detalleTexto, plata } from './ReservaForm.jsx';
+import { cobroLinea, detalleTexto, huespedesTexto, plata } from './ReservaForm.jsx';
 import { fechaHora, urlDrive } from './util.js';
 
 const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_id: f.foto_id, nombre: f.foto_nombre }] : []);
@@ -24,7 +24,7 @@ export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarRese
                 <>
                   <div className="rg-tit">
                     <b className="rg-hab">Hab. {g.estadia.habitacion}</b>
-                    <span className="rg-cuenta">{g.filas.length} {g.filas.length === 1 ? 'huésped' : 'huéspedes'}</span>
+                    <span className="rg-cuenta">{huespedesTexto(g.estadia, g.estadia.con_checkin ?? g.filas.length)}</span>
                   </div>
                   {detalleTexto(g.estadia) && <p className="rg-det">{detalleTexto(g.estadia)}</p>}
                   <p className="rg-plata">{cobroLinea(g.estadia)} · {g.estadia.canal_cobra === false ? 'estadía' : 'cobro'} {ddmm(g.estadia.fecha_cobro)} · cargó {g.estadia.cargado_por}</p>
