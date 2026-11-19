@@ -4,17 +4,19 @@ import FotosHuesped from '../admin/FotosHuesped.jsx';
 import BarraPersonal from '../BarraPersonal.jsx';
 import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
-import { recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaEditar, recepcionEstado, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
+import { recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaEditar, recepcionEstado, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import EditarHuesped from './EditarHuesped.jsx';
 import Modal from './Modal.jsx';
 import Planilla from './Planilla.jsx';
-import ReservaForm, { cobroLinea, detalleTexto } from './ReservaForm.jsx';
-import { agruparCodigo, minSeg, useAhora } from './util.js';
+import ReservaForm, { cobroLinea, detalleTexto, huespedesTexto } from './ReservaForm.jsx';
+import { agruparCodigo, minSeg, tiempoCorto, useAhora } from './util.js';
 
 const CADA_MS = 3000;
 
 // Pantalla de recepción: ingreso con la clave propia de cada persona (o la del dueño, desde su panel). Tiene dos pestañas: «Código»
-// (el código para el huésped, que es de quien está en sesión) y «Huéspedes» (la planilla de los últimos días).
+// (las reservas abiertas y el código para el huésped, que es de quien está en sesión) y «Huéspedes» (la planilla de los últimos días).
+// «Código» tiene tres vistas: el código de una reserva (mientras dura), la lista de reservas abiertas (las que todavía esperan huéspedes,
+// de todo el equipo: así el turno de la tarde atiende al que llega tarde) y el formulario de reserva nueva.
 // La sesión queda abierta en el dispositivo (ver sesion.js).
 export default function Recepcion({ vista = 'codigo' }) {
   useNoIndexar('Recepción');
@@ -64,6 +66,7 @@ function Panel({ clave, rol, vista, salir }) {
   const [editando, setEditando] = useState(null);
   const [nuevo, setNuevo] = useState(false);
   const [otraReserva, setOtraReserva] = useState(false); // el formulario de reserva nueva, aunque haya una abierta
+  const [trabajando, setTrabajando] = useState(null); // la reserva de la lista a la que se le está dando código o que se está anulando
   const [editandoReserva, setEditandoReserva] = useState(null);
   const [fotos, setFotos] = useState(null);
   const ahora = useAhora(250);
@@ -146,6 +149,33 @@ function Panel({ clave, rol, vista, salir }) {
       setError('No se pudo conectar. Revisá tu conexión.');
     }
   };
+  // Le vuelve a dar código a una reserva abierta de la lista (por ejemplo, para el huésped que llegó más tarde).
+  const darCodigo = async (id) => {
+    setTrabajando(id);
+    try {
+      const r = await recepcionReservaAbrir(clave, id);
+      setError(r.ok ? '' : textoCodigo(r.error));
+      await refrescar();
+    } catch {
+      setError('No se pudo conectar. Revisá tu conexión.');
+    } finally {
+      setTrabajando(null);
+    }
+  };
+  // Anula una reserva que no tiene ningún huésped (una de prueba, o a la que al final no llegó nadie). No se borra: queda marcada.
+  const anular = async (est) => {
+    if (!window.confirm(`¿Anular la reserva de la habitación ${est.habitacion}? Todavía no tiene huéspedes. Deja de verse y no suma en nada.`)) return;
+    setTrabajando(est.id);
+    try {
+      const r = await recepcionReservaAnular(clave, est.id);
+      setError(r.ok ? '' : textoCodigo(r.error));
+      await refrescar();
+    } catch {
+      setError('No se pudo conectar. Revisá tu conexión.');
+    } finally {
+      setTrabajando(null);
+    }
+  };
   const guardarReserva = async (r) => {
     const res = await recepcionEstadiaEditar(clave, editandoReserva.id, r);
     if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
@@ -164,6 +194,13 @@ function Panel({ clave, rol, vista, salir }) {
 
   const activo = estado?.activo;
   const huespedes = estado?.huespedes ?? [];
+  const abiertas = estado?.reservas_abiertas ?? [];
+  const segundosReserva = (e) => (e.editable_seg == null ? Infinity : Math.max(0, e.editable_seg - (ahora - estado.recibido) / 1000));
+
+  // Si no hay nada abierto, la pantalla es el formulario. Se «fija» ahí: si mientras alguien lo está llenando un compañero abre otra reserva,
+  // la pantalla no salta a la lista (se perdería lo escrito); aparece el botón Cancelar para ir a la lista cuando quiera.
+  const sinNada = !!activo && !!estado && !estado.reserva && abiertas.length === 0;
+  useEffect(() => { if (sinNada) setOtraReserva(true); }, [sinNada]);
   const pct = Math.max(0, Math.min(100, (restanteCodigo / duracion) * 100));
 
   return (
@@ -184,6 +221,9 @@ function Panel({ clave, rol, vista, salir }) {
               estado.reserva && !otraReserva ? (
                 <>
                   <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b> · {detalleTexto(estado.reserva.estadia)}<br />{cobroLinea(estado.reserva.estadia)}</p>
+                  <p className="reserva-prog">
+                    <b>{huespedesTexto(estado.reserva.estadia, estado.reserva.huespedes.length)}</b> {estado.reserva.huespedes.length < estado.reserva.estadia.esperados ? `· faltan ${estado.reserva.estadia.esperados - estado.reserva.huespedes.length}` : ''}
+                  </p>
                   <p className="etq">Dáselo al próximo huésped de esta habitación</p>
                   {restanteCodigo > 0
                     ? <p className="codigo-grande" aria-label={`Código ${estado.codigo.valor.split('').join(' ')}`}>{agruparCodigo(estado.codigo.valor)}</p>
@@ -194,7 +234,7 @@ function Panel({ clave, rol, vista, salir }) {
                   <p className="codigo-meta">
                     Cambia en {Math.ceil(restanteCodigo)} s · Usado {estado.codigo.usos} de {estado.codigo.usos_max}
                   </p>
-                  <p className="codigo-meta">La reserva se cierra en {minSeg(restanteReserva)}.</p>
+                  <p className="codigo-meta">El código se apaga en {minSeg(restanteReserva)}. La reserva sigue abierta hasta que entren todos: si falta alguien, la encontrás en «Reservas abiertas».</p>
                   {estado.reserva.huespedes.length > 0 && (
                     <>
                       <p className="etq">Ya hicieron el check-in ({estado.reserva.huespedes.length})</p>
@@ -204,17 +244,44 @@ function Panel({ clave, rol, vista, salir }) {
                   <div className="btns reserva-btns">
                     <button type="button" className="btn mini claro" onClick={codigoNuevo} disabled={nuevo}><Icon name="refrescar" size={18} sw={1.8} /> {nuevo ? 'Generando…' : 'Código nuevo ahora'}</button>
                     <button type="button" className="btn mini claro" onClick={() => cerrarReserva(true)}>Dar {estado.config.reserva_min} min más</button>
-                    <button type="button" className="btn mini claro" onClick={() => setEditandoReserva(estado.reserva.estadia)}>Corregir reserva</button>
-                    <button type="button" className="btn mini claro" onClick={() => cerrarReserva(false)}>Terminar reserva</button>
+                    {segundosReserva(estado.reserva.estadia) > 0 && <button type="button" className="btn mini claro" onClick={() => setEditandoReserva(estado.reserva.estadia)}>Corregir reserva</button>}
+                    <button type="button" className="btn mini claro" onClick={() => cerrarReserva(false)}>Volver a la lista</button>
+                    {estado.reserva.huespedes.length === 0 && <button type="button" className="btn mini claro" onClick={() => anular(estado.reserva.estadia)} disabled={trabajando === estado.reserva.estadia.id}>Anular reserva</button>}
                     <button type="button" className="btn mini" onClick={() => setOtraReserva(true)}>Nueva reserva (otra habitación)</button>
                   </div>
+                  {segundosReserva(estado.reserva.estadia) <= 0 && <p className="codigo-quien">Para corregir esta reserva, avisale al dueño.</p>}
                   {estado.quien && <p className="codigo-quien">Es tu código: los check-ins que se hagan con él quedan a nombre de <b>{estado.quien}</b>.</p>}
                 </>
+              ) : abiertas.length > 0 && !otraReserva ? (
+                <div className="abiertas">
+                  <h2>Reservas abiertas</h2>
+                  <p className="aclara">Habitaciones a las que todavía les faltan huéspedes. Tocá <b>Dar código</b> cuando llegue alguien. Una reserva sin ningún huésped no suma en las estadísticas.</p>
+                  <ul className="ab-lista">
+                    {abiertas.map((a) => {
+                      const e = a.estadia;
+                      const con = a.huespedes.length;
+                      const quedan = Math.max(0, a.quedan_seg - (ahora - estado.recibido) / 1000);
+                      return (
+                        <li key={a.id} className={con === 0 ? 'espera' : ''}>
+                          <div className="ab-cab"><b>Hab. {e.habitacion}</b><span>{detalleTexto(e)}</span></div>
+                          <p className="ab-prog">{con === 0 ? <>Todavía sin huéspedes · <b>no suma en las estadísticas</b></> : <><b>{huespedesTexto(e, con)}</b> ya hicieron el check-in</>}</p>
+                          {con > 0 && <p className="ab-nombres">{a.huespedes.map((h) => `${h.nombre} ${h.apellido}`).join(', ')}</p>}
+                          <p className="ab-meta">Cargó {e.cargado_por} · se oculta en {tiempoCorto(quedan)}</p>
+                          <div className="btns ab-btns">
+                            <button type="button" className="btn mini" onClick={() => darCodigo(a.id)} disabled={trabajando === a.id}>{trabajando === a.id ? 'Un momento…' : 'Dar código'}</button>
+                            {con === 0 && <button type="button" className="btn mini claro" onClick={() => anular(e)} disabled={trabajando === a.id}>Anular</button>}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="btns"><button type="button" className="btn" onClick={() => setOtraReserva(true)}>Nueva reserva</button></div>
+                </div>
               ) : (
                 <div className="reserva-nueva">
                   <h2>Nueva reserva</h2>
-                  <p className="aclara">Cargá la habitación, las noches y lo que se cobró. Recién ahí aparece el código para los huéspedes.</p>
-                  <ReservaForm medios={estado.medios_pago} canales={estado.canales ?? []} categorias={estado.categorias ?? []} onGuardar={abrirReserva} texto="Generar códigos" alCancelar={estado.reserva ? () => setOtraReserva(false) : null} />
+                  <p className="aclara">Cargá todo: habitación, noches, huéspedes y lo que se cobró. Recién ahí aparece el código. Los huéspedes entran de a uno, y la reserva queda abierta hasta que estén todos.</p>
+                  <ReservaForm medios={estado.medios_pago} canales={estado.canales ?? []} categorias={estado.categorias ?? []} onGuardar={abrirReserva} texto="Generar códigos" alCancelar={estado.reserva || abiertas.length ? () => setOtraReserva(false) : null} />
                 </div>
               )
             ) : (

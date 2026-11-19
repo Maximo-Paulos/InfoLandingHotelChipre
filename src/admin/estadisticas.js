@@ -262,9 +262,13 @@ export function calcular(datos, cotizaciones, rango, anterior = null) {
 
 // La caja de un período, con plata de verdad (sin pasar a dólares): qué se facturó, cuánto entró en el hotel, cuánto fue seña, y cada reserva con su fecha.
 // Una moneda por renglón (pesos y dólares no se mezclan). Las reservas sin cobro (obra social) van aparte, con sus noches, para facturarlas.
-//   datos: { reservas } de la base · rango: { desde, hasta } (por la fecha del cobro en el hotel)
+//   datos: { reservas, pendientes? } de la base · rango: { desde, hasta } (por la fecha del cobro en el hotel)
+//   `reservas` son solo las que ya tienen algún huésped: son las únicas que suman. `pendientes` son las que todavía no tienen ninguno (en espera) o se
+//   anularon: se devuelven aparte (sinHuespedes / anuladas) para que el dueño las vea, y nunca entran en los totales.
 export function caja(datos, rango) {
   const { reservas } = recortar({ reservas: datos.reservas, huespedes: [] }, rango);
+  const pendientes = (datos.pendientes ?? []).filter((r) => r.fecha_cobro >= rango.desde && r.fecha_cobro <= rango.hasta)
+    .sort((a, b) => (a.creado < b.creado ? 1 : a.creado > b.creado ? -1 : b.id - a.id));
   const orden = [...reservas].sort((a, b) => (a.fecha_cobro < b.fecha_cobro ? 1 : a.fecha_cobro > b.fecha_cobro ? -1 : b.id - a.id));
   const monedas = new Map();
   const medios = new Map();
@@ -296,7 +300,9 @@ export function caja(datos, rango) {
     medios: [...medios.values()].sort((x, y) => porMoneda(x, y) || y.monto - x.monto),
     dias,
     reservas: reservas.length,
-    sinCobro: { reservas: aFacturar.length, noches: suma(aFacturar.map((f) => f.noches ?? 0)), filas: aFacturar }
+    sinCobro: { reservas: aFacturar.length, noches: suma(aFacturar.map((f) => f.noches ?? 0)), filas: aFacturar },
+    sinHuespedes: pendientes.filter((r) => !r.anulada_en),
+    anuladas: pendientes.filter((r) => r.anulada_en)
   };
 }
 

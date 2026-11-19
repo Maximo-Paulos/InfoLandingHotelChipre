@@ -13,14 +13,17 @@ await back.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
 const llamar = (n, a, ip = '203.0.113.7') => back.llamar(n, a, ip);
 const rec = (await llamar('sesion_entrar', { p_clave: CLAVE_RECEPCION })).token;
 const dueno = (await llamar('sesion_entrar', { p_clave: CLAVE_ADMIN })).token;
-const hoy = new Date().toISOString().slice(0, 10);
+const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date()); // el «hoy» del hotel (hora argentina), como lo usan el formulario y las estadísticas
 const idDe = async (tipo, nombre) => (await back.sql(`select id from private.catalogo where tipo = $1 and nombre = $2`, [tipo, nombre]))[0].id;
 const CANAL = await idDe('canal', 'Directo');
 const OBRA = await idDe('canal', 'Obra social');
 const CAT = await idDe('categoria', 'Doble');
-const NUEVOS = { p_noches: 2, p_canal: CANAL, p_categoria: CAT }; // lo que ahora pide toda reserva
+const NUEVOS = { p_noches: 2, p_canal: CANAL, p_categoria: CAT, p_huespedes: 4 }; // lo que ahora pide toda reserva (con lugar de sobra: los grupos de las pruebas de abajo no la completan)
 const reserva = (extra = {}) => ({ p_clave: rec, p_habitacion: '107', p_monto: 85000, p_moneda: 'ARS', p_medio_pago: 2, p_fecha: hoy, ...NUEVOS, ...extra });
 const DATOS = (n, doc, anio = 1990) => ({ nombre: n, apellido: 'Prueba', email: `${n.toLowerCase()}@correo.com`, telefono: '+541155551234', nacionalidad: 'Argentina', localidad: 'Capital Federal', domicilio: 'Av. Corrientes 1234 5° B', doc_tipo: 'DNI', doc_numero: String(doc), ...(anio ? { anio_nac: anio } : {}) });
+// Un huésped con check-in cargado directo en la base, para que una reserva «cuente» (una reserva sin huéspedes no suma en las estadísticas).
+let gN = 0;
+const conHuesped = (estadiaId) => back.sql(`insert into private.checkins (grupo, datos, consentimiento, habitacion, estadia_id) values (1, $1::jsonb, '{"aceptado":true}'::jsonb, (select habitacion from private.estadias where id = $2), $2)`, [JSON.stringify(DATOS(`Directo${++gN}`, 50000000 + gN)), estadiaId]);
 let ipN = 10;
 const checkin = async (codigo, datos) => {
   const s = await llamar('checkin_canjear', { p_codigo: String(codigo) }, `198.51.100.${ipN++}`);
@@ -123,7 +126,7 @@ lista = await llamar('admin_huespedes', { p_clave: dueno });
 ok(r.ok && lista.huespedes.find((h) => h.id === idViejo).estadia.id === id107, 'el dueño lo asigna a una reserva');
 
 console.log('\n== 8. Valor total, pago en el hotel y seña');
-const dias = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+const dias = (n) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(Date.now() - n * 864e5));
 r = await llamar('recepcion_reserva_nueva', reserva({ p_habitacion: '401', p_monto: 100000, p_pago_hotel: 70000, p_fecha_sena: dias(10) }));
 ok(r.ok === true, 'una reserva de 100.000 con 70.000 pagados en el hotel (seña de 30.000) se abre');
 let fila = (await back.sql(`select monto::float m, pago_hotel::float p, fecha_sena::text f from private.estadias where id = $1`, [r.id]))[0];
@@ -153,6 +156,7 @@ const aud2 = await back.sql(`select detalle from private.checkin_auditoria where
 ok(JSON.stringify(aud2[0].detalle.campos).includes('pago_hotel') && JSON.stringify(aud2[0].detalle.campos).includes('fecha_sena'), 'y queda en el historial qué se cambió');
 r = await llamar('admin_estadia_editar', { p_clave: dueno, p_id: id401, p_habitacion: '401', p_monto: 40000, p_moneda: 'ARS', p_medio_pago: 2, p_fecha: hoy, ...NUEVOS, p_pago_hotel: 50000 });
 ok(r.ok === false && r.campos.includes('pago_hotel'), 'bajar el total por debajo de lo pagado en el hotel se rechaza');
+await conHuesped(id401);
 const stats = await llamar('admin_estadisticas', { p_clave: dueno });
 const e401 = stats.reservas.find((x) => x.id === id401);
 ok(Number(e401.monto) === 100000 && Number(e401.pago_hotel) === 50000 && e401.fecha_sena === dias(12), 'las estadísticas reciben el total, lo pagado en el hotel y la fecha de la seña');
@@ -237,6 +241,8 @@ for (const [m, tipo, lista, error] of [
 r = await llamar('admin_catalogo_guardar', { p_clave: dueno, p_tipo: 'canal', p_lista: nombres(lc.canales).map((c) => (c.nombre === 'Agencia' ? { ...c, cobra: false, nombre: 'Convenio' } : c)) });
 ok(r.ok && r.lista.find((c) => c.nombre === 'Convenio')?.cobra === false, 'un canal sin reservas sí se puede renombrar y marcar como «sin cobro»');
 ok((await back.sql(`select count(*)::int n from private.catalogo`))[0].n === 9, 'las listas no pierden ninguna opción (4 canales + 5 categorías)');
+await conHuesped(idObra);
+await conHuesped(idCuatro);
 const st = await llamar('admin_estadisticas', { p_clave: dueno });
 const rObra = st.reservas.find((x) => x.id === idObra);
 const rCuatro = st.reservas.find((x) => x.id === idCuatro);

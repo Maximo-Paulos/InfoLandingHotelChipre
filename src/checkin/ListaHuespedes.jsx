@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import Modal from './Modal.jsx';
-import { cobroLinea, detalleTexto, plata } from './ReservaForm.jsx';
+import { cobroLinea, detalleTexto, huespedesTexto, plata } from './ReservaForm.jsx';
 import { fechaHora, urlDrive } from './util.js';
 
 const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_id: f.foto_id, nombre: f.foto_nombre }] : []);
@@ -24,7 +24,7 @@ export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarRese
                 <>
                   <div className="rg-tit">
                     <b className="rg-hab">Hab. {g.estadia.habitacion}</b>
-                    <span className="rg-cuenta">{g.filas.length} {g.filas.length === 1 ? 'huésped' : 'huéspedes'}</span>
+                    <span className="rg-cuenta">{huespedesTexto(g.estadia, g.estadia.con_checkin ?? g.filas.length)}</span>
                   </div>
                   {detalleTexto(g.estadia) && <p className="rg-det">{detalleTexto(g.estadia)}</p>}
                   <p className="rg-plata">{cobroLinea(g.estadia)} · {g.estadia.canal_cobra === false ? 'estadía' : 'cobro'} {ddmm(g.estadia.fecha_cobro)} · cargó {g.estadia.cargado_por}</p>
@@ -65,7 +65,7 @@ export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarRese
           onCerrar={() => setFicha(null)}
           onEditar={onEditar && ((f) => { setFicha(null); onEditar(f); })}
           onFotos={onFotos && ((f) => { setFicha(null); onFotos(f); })}
-          reservas={onAsignar && reservas?.length && !ficha.estadia_id ? reservas : null}
+          reservas={onAsignar && (reservas?.length || ficha.estadia_id) ? (reservas ?? []) : null}
           onAsignar={onAsignar && ((f, id) => { setFicha(null); onAsignar(f, id); })}
         />
       )}
@@ -105,10 +105,11 @@ function Ficha({ fila, puedeEditar, onCerrar, onEditar, onFotos, reservas, onAsi
       </dl>
       {reservas && (
         <div className="campo">
-          <label htmlFor="ficha-asignar">Asignar a una reserva</label>
-          <select id="ficha-asignar" value="" onChange={(e) => e.target.value && onAsignar(fila, Number(e.target.value))}>
+          <label htmlFor="ficha-asignar">{fila.estadia_id ? 'Mover a otra reserva' : 'Asignar a una reserva'}</label>
+          <select id="ficha-asignar" value="" onChange={(e) => e.target.value && onAsignar(fila, e.target.value === 'ninguna' ? null : Number(e.target.value))}>
             <option value="">Elegí una reserva…</option>
-            {reservas.map((r) => <option key={r.id} value={r.id}>Hab. {r.habitacion} · {r.canal_cobra === false ? 'sin cobro' : plata(r.monto, r.moneda)}</option>)}
+            {fila.estadia_id && <option value="ninguna">Dejar sin reserva</option>}
+            {reservas.filter((r) => r.id !== fila.estadia_id).map((r) => <option key={r.id} value={r.id}>Hab. {r.habitacion} · {r.canal_cobra === false ? 'sin cobro' : plata(r.monto, r.moneda)} · {huespedesTexto(r)}</option>)}
           </select>
         </div>
       )}

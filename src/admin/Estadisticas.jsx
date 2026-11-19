@@ -104,7 +104,7 @@ function Pantalla({ clave, salir, inicial, periodoInicial }) {
           {!error && !listo && <p className="intro" role="status">Cargando…</p>}
           {listo && cotizaciones === null && <p className="ed-error" role="alert">No se pudo traer el dólar oficial. Lo cobrado en pesos no entra en los totales en dólares hasta que vuelva a andar.</p>}
 
-          {res && res.vacio && (
+          {res && res.vacio && !(seccion === 'caja' && (datos.pendientes ?? []).some((x) => x.fecha_cobro >= r.rango.desde && x.fecha_cobro <= r.rango.hasta)) && (
             <div className="est-vacio">
               <p>No hay reservas ni huéspedes en este período.</p>
               {periodo !== 'todo' && <button type="button" className="btn mini" onClick={() => setPeriodo('todo')}>Ver todo el historial</button>}

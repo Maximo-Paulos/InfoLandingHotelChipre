@@ -687,3 +687,36 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .caja-cuerpo small.alerta{font-weight:700;color:var(--terracota-texto)}
 .caja-card dt{text-transform:none;letter-spacing:0;font-weight:400}
 .caja-card dd{white-space:nowrap}
+
+/* Reservas abiertas: la lista de recepción, el aviso del dueño y las reservas sin huéspedes de la caja */
+.reserva-prog{margin:0 0 12px;font-size:15px;color:var(--hueso)}
+.reserva-prog b{color:var(--mostaza)}
+.abiertas h2{margin:0 0 4px;font-size:22px}
+.ab-lista{display:grid;gap:12px;margin:14px 0 4px;padding:0;list-style:none}
+.ab-lista li{padding:14px 16px;border:1px solid var(--linea);border-left:4px solid var(--verde);border-radius:14px;background:var(--superficie)}
+.ab-lista li.espera{border-left-color:var(--mostaza);background:var(--mostaza-claro)}
+.ab-cab{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}
+.ab-cab b{font:500 22px/1.2 var(--serif)}
+.ab-cab span{font-size:14px;color:var(--texto-suave)}
+.ab-prog{margin:6px 0 0;font-size:15px;line-height:1.4}
+.ab-nombres{margin:2px 0 0;font-size:14px;line-height:1.4;color:var(--texto-suave)}
+.ab-meta{margin:2px 0 0;font-size:13px;color:var(--texto-suave)}
+.ab-btns{flex-direction:row;justify-content:flex-start;flex-wrap:wrap;gap:8px;margin-top:10px}
+.ab-btns .btn.mini{margin-top:0}
+.abiertas>.btns{margin-top:16px}
+.in-aviso{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(34,51,42,.16);border-left:4px solid var(--mostaza);border-radius:12px;background:var(--mostaza-claro);font-size:14px;line-height:1.45}
+.caja-espera{margin:12px 0;border-left:4px solid var(--mostaza);background:var(--mostaza-claro)}
+.caja-espera ul,.caja-anuladas ul{display:grid;margin:8px 0 0;padding:0;list-style:none}
+.caja-espera li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;border-top:1px solid var(--linea)}
+.caja-espera li .caja-fila{flex:1 1 220px;width:auto}
+.caja-espera li .btn.mini{flex:none;margin:0 14px 8px}
+.caja-anuladas{margin:16px 0;padding:10px 14px;border:1px solid var(--linea);border-radius:14px;background:var(--superficie)}
+.caja-anuladas summary{min-height:44px;display:flex;align-items:center;font-weight:700;cursor:pointer}
+.caja-anuladas li{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--linea)}
+.caja-anuladas li .caja-cuerpo{flex:1 1 auto}
+.caja-anuladas li .btn.mini{flex:none;margin:0}
+.caja-acciones{padding:0 14px 10px 74px}
+.caja-acciones .btn.mini{margin:0}
+.zona-quitar{margin-top:20px;padding-top:14px;border-top:1px solid var(--linea)}
+.zona-quitar .ayuda{margin:0 0 8px}
+.zona-quitar .btn.mini{margin-top:0}

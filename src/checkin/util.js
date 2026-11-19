@@ -16,6 +16,16 @@ export const minSeg = (seg) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
+// Cuánto falta, en la unidad más cómoda: 266400 -> "3 d 2 h", 7200 -> "2 h", 1800 -> "30 min"
+export const tiempoCorto = (seg) => {
+  const s = Math.max(0, Math.floor(seg));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  if (d >= 1) return h ? `${d} d ${h} h` : `${d} d`;
+  if (h >= 1) return `${h} h`;
+  return `${Math.max(1, Math.floor(s / 60))} min`;
+};
+
 // "570934" -> "570 934"
 export const agruparCodigo = (c) => String(c ?? '').replace(/(\d{3})(\d{3})/, '$1 $2');
 

@@ -3,7 +3,7 @@ import Icon from '../components/Icon.jsx';
 import { cargarTelefono } from './telefono.js';
 import { porReserva } from './agrupar.js';
 import ListaHuespedes from './ListaHuespedes.jsx';
-import { cobroLinea, detalleTexto, plata } from './ReservaForm.jsx';
+import { cobroLinea, detalleTexto, huespedesTexto, plata } from './ReservaForm.jsx';
 import { fechaHora, minSeg, urlDrive, useMedia } from './util.js';
 
 // Las fotos de una fila: la lista nueva, o la única foto de antes si la base todavía no tiene la lista.
@@ -15,7 +15,7 @@ const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_i
 //   Los huéspedes de una misma reserva (fila.estadia_id) se muestran juntos, bajo una cabecera con la habitación y lo cobrado.
 //   En pantallas chicas (celular) se muestra como lista (ListaHuespedes.jsx) en lugar de tabla.
 //   onEditarReserva(estadia): si viene, la cabecera tiene «Corregir reserva» · reservaEditable(estadia) -> false la deja cerrada (sin esta función, siempre se puede)
-//   reservas: [{ id, habitacion, ... }] y onAsignar(fila, estadiaId): si vienen, los huéspedes sin reserva se pueden asignar a una (solo el dueño)
+//   reservas: [{ id, habitacion, ... }] y onAsignar(fila, estadiaId | null): si vienen, cada huésped se puede mover a otra reserva, o dejar sin reserva con null (solo el dueño)
 //   onFotos(fila): si viene, cada fila tiene un botón para ver y agregar sus fotos (el dueño también puede quitarlas; recepción no)
 export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, reservaEditable, reservas, onAsignar, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
   const [lib, setLib] = useState(null);
@@ -67,7 +67,7 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                   {g.estadia ? (
                     <>
                       <b>Hab. {g.estadia.habitacion}</b> · {detalleTexto(g.estadia)} · {cobroLinea(g.estadia)} · {g.estadia.canal_cobra === false ? 'estadía' : 'cobro'} {g.estadia.fecha_cobro.split('-').reverse().slice(0, 2).join('/')}
-                      <span className="muted"> · cargó {g.estadia.cargado_por} · {g.filas.length} {g.filas.length === 1 ? 'huésped' : 'huéspedes'}</span>
+                      <span className="muted"> · cargó {g.estadia.cargado_por} · {huespedesTexto(g.estadia, g.estadia.con_checkin ?? g.filas.length)}</span>
                       {onEditarReserva && (!reservaEditable || reservaEditable(g.estadia)) && (
                         <button type="button" className="btn mini claro" onClick={() => onEditarReserva(g.estadia)}><Icon name="lapiz" size={16} sw={1.8} /> Corregir reserva</button>
                       )}
@@ -117,10 +117,11 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                   )}
                 </td>
                 <td role="cell" className="acciones c-acciones">
-                  {onAsignar && reservas?.length > 0 && !f.estadia_id && (
-                    <select className="asignar" aria-label={`Asignar a ${d.apellido ?? ''} ${d.nombre ?? ''} a una reserva`.trim()} value="" onChange={(e) => e.target.value && onAsignar(f, Number(e.target.value))}>
-                      <option value="">Asignar a reserva…</option>
-                      {reservas.map((r) => <option key={r.id} value={r.id}>Hab. {r.habitacion} · {r.canal_cobra === false ? 'sin cobro' : plata(r.monto, r.moneda)}</option>)}
+                  {onAsignar && (reservas?.length > 0 || f.estadia_id) && (
+                    <select className="asignar" aria-label={`${f.estadia_id ? 'Mover' : 'Asignar'} a ${d.apellido ?? ''} ${d.nombre ?? ''} ${f.estadia_id ? 'a otra reserva' : 'a una reserva'}`.trim()} value="" onChange={(e) => e.target.value && onAsignar(f, e.target.value === 'ninguna' ? null : Number(e.target.value))}>
+                      <option value="">{f.estadia_id ? 'Mover a otra reserva…' : 'Asignar a reserva…'}</option>
+                      {f.estadia_id && <option value="ninguna">Dejar sin reserva</option>}
+                      {(reservas ?? []).filter((r) => r.id !== f.estadia_id).map((r) => <option key={r.id} value={r.id}>Hab. {r.habitacion} · {r.canal_cobra === false ? 'sin cobro' : plata(r.monto, r.moneda)} · {huespedesTexto(r)}</option>)}
                     </select>
                   )}
                   {onEditar && (

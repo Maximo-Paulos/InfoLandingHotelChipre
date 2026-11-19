@@ -319,6 +319,7 @@ export default {
     btnEnviar: "Enviar formulario",
     errCampos: "Revisá los campos marcados en rojo.",
     errSesion: "Se terminó el tiempo para completar el formulario. Pedile un código nuevo a recepción.",
+    errCompleta: "Esta habitación ya tiene registrados a todos sus huéspedes, así que no pudimos guardar tus datos. Consultá en recepción.",
     okTitulo: "¡Check-in realizado!",
     okTexto: "Gracias. En unos segundos volvés al inicio de la guía.",
     btnInicio: "Ir al inicio ahora"
