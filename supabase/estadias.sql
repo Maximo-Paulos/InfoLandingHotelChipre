@@ -34,12 +34,13 @@
 
 --
 -- RESERVAS ANOTADAS (reservas por adelantado, las carga el dueño):
---   * El dueño anota una reserva futura: a nombre de quién (`titular`), fecha de ingreso, noches, habitación, categoría, canal, cantidad de huéspedes,
+--   * El dueño (y recepción, p. ej. para el que llega de la calle sin reserva: a su nombre, con el monto) anota una reserva futura: a nombre de quién (`titular`), fecha de ingreso, noches, habitación, categoría, canal, cantidad de huéspedes,
 --     los PRECIOS (en efectivo, en transferencia y, si quiere, en dólares), la SEÑA que ya pagó (en pesos, no importa cómo) y una nota.
 --   * Recepción ve las llegadas de los próximos `dias_recepcion` días (y las que se pasaron hasta `dias_recepcion` días) con cuánto hay que cobrar según cómo
 --     pague lo que resta. Al hacer el check-in elige cómo paga y la app arma la reserva de siempre (`estadias`) con el cobro; desde ahí sigue igual que antes
 --     (código, huéspedes de a uno, se cierra sola).
 --   * Una reserva anotada NO es una estadía: no suma en ninguna estadística hasta que se hace el check-in. Anular no borra: queda marcada.
+--   * Anotar y corregir: el dueño y recepción. CANCELAR (y restaurar): solo el dueño.
 
 -- ---------------------------------------------------------------- tablas
 
@@ -974,29 +975,29 @@ begin
 end;
 $$;
 
--- ---------------------------------------------------------------- reservas anotadas (solo el dueño las carga, las corrige y las cancela)
+-- ---------------------------------------------------------------- reservas anotadas (el dueño y recepción las anotan y las corrigen; solo el dueño las cancela)
 
 -- Anota una reserva por adelantado (p_id null) o corrige una que todavía no empezó el check-in. Devuelve { ok, id, superpuestas }: superpuestas son las
--- otras reservas anotadas de la MISMA habitación cuyas fechas se pisan con esta (es un aviso: igual se guarda; el dueño decide).
+-- otras reservas anotadas de la MISMA habitación cuyas fechas se pisan con esta (es un aviso: igual se guarda; decide quien la anota).
+--   Anotan y corrigen el DUEÑO y RECEPCIÓN (por ejemplo, para el que llega de la calle sin reserva: se anota a su nombre, con el monto, y se sigue con el check-in).
+--   Recepción corrige las que ve (las de los últimos y próximos `dias_recepcion` días); el dueño, cualquiera. Cancelar es solo del dueño (más abajo).
+--   Todo cambio queda en el historial con quién lo hizo y qué campos tocó.
 --   Precios: p_efectivo y, si quiere, p_transferencia (sin cargar = igual al efectivo) y p_usd (sin cargar = se calcula con el dólar oficial del día).
 --   p_sena: lo que ya pagó, en pesos (no importa cómo). Lo que resta es el precio de cada método menos la seña.
-create or replace function public.admin_anotada_guardar(p_clave text, p_id bigint, p_titular text, p_ingreso date, p_habitacion text, p_noches int, p_categoria int, p_canal int, p_huespedes int,
-                                                         p_efectivo numeric, p_transferencia numeric default null, p_usd numeric default null, p_sena numeric default 0, p_fecha_sena date default null, p_nota text default null)
+create or replace function private.anotada_guardar(p_quien text, p_dueno boolean, p_id bigint, p_titular text, p_ingreso date, p_habitacion text, p_noches int, p_categoria int, p_canal int, p_huespedes int,
+                                                    p_efectivo numeric, p_transferencia numeric, p_usd numeric, p_sena numeric, p_fecha_sena date, p_nota text)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
-  r text;
+  cfg private.checkin_config;
   a private.reservas_anotadas;
   v jsonb;
-  v_quien text;
+  v_quien text := p_quien;
+  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
   v_id bigint;
   v_cambios text[] := array[]::text[];
   v_pisan json;
 begin
-  r := private.comprobar_clave(p_clave);
-  if r <> 'ok' then
-    return json_build_object('ok', false, 'error', r);
-  end if;
-  v_quien := coalesce(private.actor(p_clave) ->> 'alias', 'Dueño');
+  select * into cfg from private.checkin_config where id = 1;
   if p_id is not null then
     select * into a from private.reservas_anotadas where id = p_id for update;
     if not found then
@@ -1008,6 +1009,9 @@ begin
     if a.estadia_id is not null then
       return json_build_object('ok', false, 'error', 'anotada_ya_empezo');
     end if;
+    if not p_dueno and a.fecha_ingreso not between v_hoy - cfg.dias_recepcion and v_hoy + cfg.dias_recepcion then
+      return json_build_object('ok', false, 'error', 'llegada_fuera_de_fecha');
+    end if;
   end if;
   v := private.anotada_validar(p_titular, p_ingreso, p_habitacion, p_noches, p_categoria, p_canal, p_huespedes, p_efectivo, p_transferencia, p_usd, p_sena, p_fecha_sena, p_nota, a);
   if not (v ->> 'ok')::boolean then
@@ -1018,7 +1022,7 @@ begin
       values (v_quien, v ->> 'titular', (v ->> 'ingreso')::date, (v ->> 'noches')::int, v ->> 'habitacion', (v ->> 'categoria')::int, (v ->> 'canal')::int, (v ->> 'huespedes')::int,
               (v ->> 'efectivo')::numeric, (v ->> 'transf')::numeric, (v ->> 'usd')::numeric, (v ->> 'sena')::numeric, (v ->> 'fecha_sena')::date, v ->> 'nota')
       returning id into v_id;
-    perform private.auditar('admin', 'anotada_guardar', null, jsonb_build_object('anotada', v_id, 'por', v_quien, 'nueva', true));
+    perform private.auditar(case when p_dueno then 'admin' else 'recepcion' end, 'anotada_guardar', null, jsonb_build_object('anotada', v_id, 'por', v_quien, 'nueva', true));
   else
     v_id := p_id;
     if (v ->> 'titular') <> a.titular then v_cambios := array_append(v_cambios, 'titular'); end if;
@@ -1037,7 +1041,7 @@ begin
            precio_efectivo = (v ->> 'efectivo')::numeric, precio_transferencia = (v ->> 'transf')::numeric, precio_usd = (v ->> 'usd')::numeric,
            sena = (v ->> 'sena')::numeric, fecha_sena = (v ->> 'fecha_sena')::date, nota = v ->> 'nota', editado_en = now(), editado_por = v_quien
      where id = v_id;
-    perform private.auditar('admin', 'anotada_guardar', null, jsonb_build_object('anotada', v_id, 'por', v_quien, 'campos', to_jsonb(v_cambios)));
+    perform private.auditar(case when p_dueno then 'admin' else 'recepcion' end, 'anotada_guardar', null, jsonb_build_object('anotada', v_id, 'por', v_quien, 'campos', to_jsonb(v_cambios)));
   end if;
   select coalesce(json_agg(json_build_object('id', o.id, 'titular', o.titular, 'fecha_ingreso', o.fecha_ingreso, 'salida', o.fecha_ingreso + o.noches) order by o.fecha_ingreso), '[]'::json) into v_pisan
     from private.reservas_anotadas o, private.reservas_anotadas n
@@ -1047,7 +1051,37 @@ begin
 end;
 $$;
 
--- Cancela una reserva anotada que todavía no empezó el check-in (no se borra: queda marcada y se puede restaurar). Una que ya empezó el check-in es una
+-- Las dos puertas: el dueño (clave del dueño) y recepción (clave o sesión de recepción; si quien entra es el dueño, vale como dueño).
+create or replace function public.admin_anotada_guardar(p_clave text, p_id bigint, p_titular text, p_ingreso date, p_habitacion text, p_noches int, p_categoria int, p_canal int, p_huespedes int,
+                                                         p_efectivo numeric, p_transferencia numeric default null, p_usd numeric default null, p_sena numeric default 0, p_fecha_sena date default null, p_nota text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare r text;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  return private.anotada_guardar(coalesce(private.actor(p_clave) ->> 'alias', 'Dueño'), true, p_id, p_titular, p_ingreso, p_habitacion, p_noches, p_categoria, p_canal, p_huespedes,
+                                 p_efectivo, p_transferencia, p_usd, p_sena, p_fecha_sena, p_nota);
+end;
+$$;
+
+create or replace function public.recepcion_anotada_guardar(p_clave text, p_id bigint, p_titular text, p_ingreso date, p_habitacion text, p_noches int, p_categoria int, p_canal int, p_huespedes int,
+                                                             p_efectivo numeric, p_transferencia numeric default null, p_usd numeric default null, p_sena numeric default 0, p_fecha_sena date default null, p_nota text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare r text;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  return private.anotada_guardar(private.actor(p_clave) ->> 'alias', coalesce((private.actor(p_clave) ->> 'dueno')::boolean, false), p_id, p_titular, p_ingreso, p_habitacion, p_noches, p_categoria, p_canal, p_huespedes,
+                                 p_efectivo, p_transferencia, p_usd, p_sena, p_fecha_sena, p_nota);
+end;
+$$;
+
+-- Cancela una reserva anotada que todavía no empezó el check-in (no se borra: queda marcada y se puede restaurar). SOLO EL DUEÑO: recepción anota y corrige,
+-- pero no cancela (si se equivocó al anotar, lo corrige; si no hay que cancelarla, avisa al dueño). Una que ya empezó el check-in es una
 -- reserva con su cobro: se corrige o se elimina como cualquier reserva.
 create or replace function public.admin_anotada_cancelar(p_clave text, p_id bigint, p_cancelar boolean default true)
 returns json language plpgsql security definer set search_path = '' as $$
@@ -1511,6 +1545,7 @@ revoke all on function private.estadia_ultima(bigint) from public, anon, authent
 revoke all on function private.estadia_cerrar_codigos(bigint) from public, anon, authenticated;
 revoke all on function private.estadia_abierta(bigint) from public, anon, authenticated;
 revoke all on function private.anotada_json(bigint) from public, anon, authenticated;
+revoke all on function private.anotada_guardar(text, boolean, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) from public, anon, authenticated;
 revoke all on function private.anotada_validar(text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text, private.reservas_anotadas) from public, anon, authenticated;
 revoke all on function private.estadia_crear(jsonb, text, numeric, text, int, date, numeric, date, int, int, int, int, text, text) from public, anon, authenticated;
 revoke all on function private.estadia_reabrir(bigint) from public, anon, authenticated;
@@ -1526,6 +1561,7 @@ revoke all on function public.recepcion_reserva_anular(text, bigint) from public
 revoke all on function public.admin_reserva_anular(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.recepcion_llegada_iniciar(text, bigint, text, numeric, text, int, date, numeric, date, int, int, int, int) from public, anon, authenticated;
 revoke all on function public.admin_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) from public, anon, authenticated;
+revoke all on function public.recepcion_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) from public, anon, authenticated;
 revoke all on function public.admin_anotada_cancelar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.admin_anotadas(text) from public, anon, authenticated;
 revoke all on function public.admin_huesped_quitar(text, bigint, boolean) from public, anon, authenticated;
@@ -1541,6 +1577,7 @@ grant execute on function public.recepcion_reserva_anular(text, bigint) to anon,
 grant execute on function public.admin_reserva_anular(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.recepcion_llegada_iniciar(text, bigint, text, numeric, text, int, date, numeric, date, int, int, int, int) to anon, authenticated;
 grant execute on function public.admin_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) to anon, authenticated;
+grant execute on function public.recepcion_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) to anon, authenticated;
 grant execute on function public.admin_anotada_cancelar(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.admin_anotadas(text) to anon, authenticated;
 grant execute on function public.admin_huesped_quitar(text, bigint, boolean) to anon, authenticated;

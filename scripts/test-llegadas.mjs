@@ -1,4 +1,4 @@
-// Reservas anotadas (por adelantado): las carga el dueño con precios (efectivo, transferencia, dólares), seña y nota; recepción ve las llegadas de los
+// Reservas anotadas (por adelantado): las cargan el dueño y recepción con precios (efectivo, transferencia, dólares), seña y nota; recepción ve las llegadas de los
 // próximos 3 días y hace el check-in eligiendo cómo paga; la reserva sigue como siempre (código, huéspedes de a uno, se cierra sola).
 //   node scripts/test-llegadas.mjs
 // Usa la base de prueba en memoria con schema.sql + checkin.sql + estadias.sql y llama a las funciones como lo hace la guía (rol "anon").
@@ -49,9 +49,9 @@ const cobro = (id, extra = {}, quien = rec) => llamar('recepcion_llegada_iniciar
   p_noches: 2, p_canal: DIRECTO, p_categoria: DOBLE, p_huespedes: 3, ...extra
 });
 
-console.log('\n== 1. Solo el dueño anota, corrige y cancela');
+console.log('\n== 1. Las puertas del dueño no las abre recepción (recepción anota por la suya: ver 10b)');
 let r = await anotar({}, rec);
-ok(r.ok === false, 'recepción no puede anotar una reserva');
+ok(r.ok === false, 'con la clave de recepción no se abre la puerta del dueño');
 ok((await anotar({}, 'clave-mala')).ok === false, 'ni con una clave mala');
 ok((await llamar('admin_anotadas', { p_clave: rec })).ok === false, 'ni ver la lista completa del dueño');
 ok(await n('select count(*)::int n from private.reservas_anotadas') === 0, 'no se creó nada');
@@ -201,7 +201,7 @@ a = (await anotadas()).find((x) => x.id === D);
 ok(r.ok && a.titular === 'Después (corregido)' && a.habitacion === '111' && a.noches === 3 && a.esperados === 2 && Number(a.precio_efectivo) === 90000 && Number(a.precio_usd) === 95 && Number(a.sena) === 20000 && a.nota === null, 'cambia titular, habitación, noches, huéspedes, precios, seña y nota');
 ok((await back.sql(`select editado_por, editado_en is not null e from private.reservas_anotadas where id = $1`, [D]))[0].e === true, 'queda anotado quién y cuándo la corrigió');
 ok(await n(`select count(*)::int n from private.checkin_auditoria where accion = 'anotada_guardar' and detalle::text like '%precios%'`) >= 1, 'y el historial dice qué campos se cambiaron');
-ok((await llamar('admin_anotada_guardar', { p_clave: rec, p_id: D, p_titular: 'X', p_ingreso: AR(1), p_habitacion: '111', p_noches: 1, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 1, p_efectivo: 5 })).ok === false, 'recepción no corrige');
+ok((await llamar('admin_anotada_guardar', { p_clave: rec, p_id: D, p_titular: 'X', p_ingreso: AR(1), p_habitacion: '111', p_noches: 1, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 1, p_efectivo: 5 })).ok === false, 'por la puerta del dueño, recepción no corrige (lo hace por la suya)');
 ok((await llamar('admin_anotada_guardar', { p_clave: dueno, p_id: D, p_titular: 'X', p_ingreso: AR(1), p_habitacion: '111', p_noches: 1, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 1, p_efectivo: 5, p_sena: 6 })).campos?.includes('sena'), 'al corregir también se controla que la seña no pase del precio');
 
 console.log('\n== 10. Si el cobro se cargó mal y se anula la reserva sin huéspedes, vuelve a las llegadas');
@@ -217,6 +217,52 @@ ok(r.ok === true, 'y se hace de nuevo');
 r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: EA });
 ok(r.ok === true && (await fila(A)).estadia_id === EA, 'si el dueño elimina una reserva con huéspedes, la anotada sigue enlazada (no vuelve a las llegadas)');
 await llamar('admin_reserva_anular', { p_clave: dueno, p_id: EA, p_anular: false });
+
+console.log('\n== 10b. Recepción también anota y corrige, pero no cancela');
+const anotarRec = (extra = {}, quien = rec) => llamar('recepcion_anotada_guardar', {
+  p_clave: quien, p_id: null, p_titular: 'Del Mostrador', p_ingreso: hoy, p_habitacion: '305', p_noches: 1, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 2,
+  p_efectivo: 80000, p_transferencia: 88000, p_usd: null, p_sena: 0, p_fecha_sena: null, p_nota: 'Llegó sin reserva', ...extra
+});
+r = await anotarRec();
+const M = r.id;
+ok(r.ok === true && Array.isArray(r.superpuestas), 'Lucía anota a nombre de alguien que llegó de la calle: hoy, hab. 305, con el monto');
+a = (await anotadas()).find((x) => x.id === M);
+ok(a.titular === 'Del Mostrador' && a.cargado_por === 'Recepción' && a.estado === 'anotada' && Number(a.precio_efectivo) === 80000 && Number(a.precio_transferencia) === 88000, 'queda a nombre del cliente, con los dos precios y anotada por «Recepción»');
+ok((await llegadas()).some((x) => x.id === M && x.dias_para === 0), 'y aparece enseguida en las llegadas de hoy');
+r = await anotarRec({ p_titular: '  ' });
+ok(r.ok === false && r.error === 'datos_invalidos' && r.campos.includes('titular'), 'recepción también tiene que cargar todo (sin titular no se anota)');
+r = await anotarRec({ p_sena: 90000 });
+ok(r.ok === false && r.campos.includes('sena'), 'y la seña no puede pasar del precio más bajo');
+ok((await anotarRec({}, 'clave-mala')).ok === false, 'sin clave de recepción no se anota');
+r = await llamar('admin_anotada_cancelar', { p_clave: rec, p_id: M });
+ok(r.ok === false && !(await fila(M)).cancelada_en, 'recepción NO puede cancelar, ni la que ella anotó');
+// corregir: es de ellos
+r = await anotarRec({ p_id: M, p_huespedes: 3, p_efectivo: 85000, p_transferencia: 93500, p_nota: 'Llegó sin reserva; son 3' }, martin);
+a = (await anotadas()).find((x) => x.id === M);
+ok(r.ok && a.esperados === 3 && Number(a.precio_efectivo) === 85000 && a.nota.includes('son 3') && a.cargado_por === 'Recepción', 'Martín corrige la de Lucía: huéspedes, precios y nota (el resto del editado es de recepción)');
+ok((await back.sql(`select editado_por from private.reservas_anotadas where id = $1`, [M]))[0].editado_por === 'Martín', 'queda anotado que la corrigió Martín');
+ok(await n(`select count(*)::int n from private.checkin_auditoria where accion = 'anotada_guardar' and detalle::text like '%Martín%'`) >= 1, 'y en el historial');
+const DEL = (await anotar({ p_habitacion: '401', p_titular: 'Del dueño', p_ingreso: AR(1) })).id;
+r = await anotarRec({ p_id: DEL, p_titular: 'Del dueño (corregido)', p_huespedes: 4 });
+ok(r.ok === true && (await anotadas()).find((x) => x.id === DEL).titular === 'Del dueño (corregido)', 'recepción también corrige una que cargó el dueño, si llega en los próximos días');
+const LEJOS = (await anotar({ p_habitacion: '402', p_titular: 'Lejana', p_ingreso: AR(20) })).id;
+r = await anotarRec({ p_id: LEJOS, p_titular: 'No debería' });
+ok(r.ok === false && r.error === 'llegada_fuera_de_fecha', 'pero una que llega en 20 días no la ve ni la corrige (como pasa con el check-in)');
+r = await anotarRec({ p_id: LEJOS, p_titular: 'Lejana (el dueño por la puerta de recepción)' }, dueno);
+ok(r.ok === true, 'el dueño sí, también entrando por la pantalla de recepción');
+ok((await llamar('admin_anotada_cancelar', { p_clave: dueno, p_id: DEL })).ok === true, 'el dueño cancela la «Del dueño»');
+r = await anotarRec({ p_id: DEL, p_titular: 'X' });
+ok(r.ok === false && r.error === 'anotada_cancelada', 'recepción no corrige una cancelada (y no la puede restaurar)');
+ok((await llamar('admin_anotada_cancelar', { p_clave: rec, p_id: DEL, p_cancelar: false })).ok === false, 'restaurar también es solo del dueño');
+// el cliente que llegó de la calle: anotar a su nombre y seguir con todos los pasos
+r = await cobro(M, { p_habitacion: '305', p_monto: 93500, p_medio_pago: TRANSF, p_pago_hotel: 93500, p_fecha_sena: null, p_noches: 1, p_huespedes: 3 });
+ok(r.ok === true, 'recepción hace el check-in de la reserva que acaba de anotar (paga 93.500 en transferencia)');
+est = (await back.sql(`select titular, nota, monto::float m, pago_hotel::float p, medio_pago_id from private.estadias where id = $1`, [r.id]))[0];
+ok(est.titular === 'Del Mostrador' && est.nota.includes('son 3') && est.m === 93500 && est.p === 93500 && est.medio_pago_id === TRANSF, 'la reserva queda a nombre del cliente, con la nota y lo cobrado');
+r = await anotarRec({ p_id: M, p_titular: 'Tarde' });
+ok(r.ok === false && r.error === 'anotada_ya_empezo', 'ya empezó el check-in: la anotada no se corrige más (se corrige la reserva)');
+const stM = await llamar('admin_estadisticas', { p_clave: dueno });
+ok(!stM.reservas.some((x) => x.titular === 'Del Mostrador'), 'y mientras no entre ningún huésped no suma en las estadísticas');
 
 console.log('\n== 11. Pasar de la versión publicada hoy a esta');
 const viejo = await iniciarBackend({ puerto: 54391, estadias: false });

@@ -6,6 +6,7 @@ import { enfocarPrimerError } from './util.js';
 // El formulario con el que el dueño anota una reserva por adelantado (o la corrige): a nombre de quién, cuándo llega, habitación, categoría, cuántos son, los
 // precios (efectivo, transferencia y, si quiere, dólares), la seña que ya pagó y una nota. Abajo se ve cuánto queda por cobrar de cada manera.
 //   inicial: la reserva anotada (null = nueva) · cotizaciones: la lista del dólar oficial (o null) · canales / categorias: las listas del dueño
+//   ingresoInicial: la fecha de ingreso con la que arranca una reserva nueva (recepción: hoy, para el que llega de la calle; el dueño la elige)
 //   onGuardar({ titular, ingreso, habitacion, noches, categoria, canal, huespedes, efectivo, transferencia, usd, sena, fechaSena, nota }) -> { ok, mensaje?, campos? }
 const MENSAJES = {
   titular: 'Escribí a nombre de quién está la reserva (hasta 60 letras).',
@@ -24,12 +25,12 @@ const MENSAJES = {
 };
 const texto = (x) => (x == null ? '' : String(Number(x)).replace('.', ','));
 
-export default function AnotadaForm({ inicial = null, canales = [], categorias = [], cotizaciones = null, onGuardar, alCancelar }) {
+export default function AnotadaForm({ inicial = null, ingresoInicial = '', canales = [], categorias = [], cotizaciones = null, onGuardar, alCancelar }) {
   const id = useId();
   const opcionesCanal = inicial?.canal_id != null && !canales.some((c) => c.id === inicial.canal_id) ? [...canales, { id: inicial.canal_id, nombre: `${inicial.canal} (ya no se ofrece)`, cobra: inicial.canal_cobra !== false }] : canales;
   const opcionesCat = inicial?.categoria_id != null && !categorias.some((c) => c.id === inicial.categoria_id) ? [...categorias, { id: inicial.categoria_id, nombre: `${inicial.categoria} (ya no se ofrece)` }] : categorias;
   const [v, setV] = useState(() => ({
-    titular: inicial?.titular ?? '', ingreso: inicial?.fecha_ingreso ?? '', noches: inicial ? String(inicial.noches) : '', habitacion: inicial?.habitacion ?? '',
+    titular: inicial?.titular ?? '', ingreso: inicial?.fecha_ingreso ?? ingresoInicial, noches: inicial ? String(inicial.noches) : '', habitacion: inicial?.habitacion ?? '',
     huespedes: inicial ? String(inicial.esperados) : '', categoria: inicial?.categoria_id != null ? String(inicial.categoria_id) : '',
     canal: String(inicial?.canal_id ?? (canales.find((c) => c.base) ?? canales[0])?.id ?? ''),
     efectivo: inicial && inicial.canal_cobra !== false ? texto(inicial.precio_efectivo) : '', transferencia: texto(inicial?.precio_transferencia), usd: texto(inicial?.precio_usd),
