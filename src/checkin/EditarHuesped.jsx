@@ -22,7 +22,8 @@ function NotaTiempo({ venceEn }) {
 //   venceEn: hora (ms) hasta la que se puede editar, o null si no hay límite
 //   medios: los medios de pago que se ofrecen hoy [{ id, nombre }] (null = todavía no se cargaron: no se pide)
 //   onGuardar(datos, habitacion, medioPago) -> { ok, mensaje?, campos? }
-export default function EditarHuesped({ fila, venceEn = null, medios = null, onGuardar, onCerrar }) {
+//   onQuitar() -> { ok, mensaje? }: si viene (solo el dueño), aparece «Eliminar huésped». No borra: el huésped deja de verse y de contar y se puede restaurar.
+export default function EditarHuesped({ fila, venceEn = null, medios = null, onGuardar, onQuitar = null, onCerrar }) {
   const [valores, setValores] = useState(() => valoresDesdeDatos(fila.datos, fila.habitacion, fila.medio_pago_id));
   // Opciones del selector: lo que se ofrece hoy + el medio que el huésped ya tiene, si después lo quitaron de la lista.
   // Los huéspedes de una reserva toman la habitación y el medio de pago de ella: se corrigen en la reserva, no en cada persona.
@@ -103,6 +104,21 @@ export default function EditarHuesped({ fila, venceEn = null, medios = null, onG
   };
 
   const nombre = `${fila.datos.nombre ?? ''} ${fila.datos.apellido ?? ''}`.trim();
+  const quitar = async () => {
+    if (guardando || !window.confirm(`¿Eliminar a ${nombre || 'este huésped'}? Deja de verse y de contar en las estadísticas. No se borra: lo podés restaurar desde «Huéspedes eliminados».`)) return;
+    setGuardando(true);
+    setAviso('');
+    try {
+      const res = await onQuitar();
+      if (cerrado.current) return;
+      if (res.ok) { onCerrar(true); return; }
+      setAviso(res.mensaje || 'No se pudo eliminar.');
+    } catch {
+      if (!cerrado.current) setAviso('No se pudo conectar. Revisá tu conexión e intentá de nuevo.');
+    } finally {
+      if (!cerrado.current) setGuardando(false);
+    }
+  };
   return (
     <Modal titulo={`Editar a ${nombre}`} onCerrar={() => onCerrar(false)}>
       {venceEn != null && <NotaTiempo venceEn={venceEn} />}
@@ -114,6 +130,12 @@ export default function EditarHuesped({ fila, venceEn = null, medios = null, onG
           <button type="button" className="btn claro" onClick={() => onCerrar(false)}>Cancelar</button>
         </div>
       </form>
+      {onQuitar && (
+        <div className="zona-quitar">
+          <p className="ayuda">Si esta persona se cargó por error o no corresponde a esta reserva, la podés eliminar. No se borra: queda guardada y la podés restaurar.</p>
+          <button type="button" className="btn mini claro" onClick={quitar} disabled={guardando}>Eliminar huésped</button>
+        </div>
+      )}
     </Modal>
   );
 }

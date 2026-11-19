@@ -40,14 +40,17 @@ export default function Caja({ datos, rango, clave, alGuardar }) {
     return { ok: true };
   };
 
-  // Anular (una reserva sin huéspedes) o restaurar una anulada. No borra nada.
+  // Eliminar (anular) una reserva, con o sin huéspedes, o restaurar una anulada. No borra nada: los huéspedes se van y vuelven con ella.
   const cambiar = async (f, anular) => {
-    if (anular && !window.confirm(`¿Anular la reserva de la habitación ${f.habitacion}? No tiene huéspedes: deja de verse en recepción y no suma en nada. Podés restaurarla después.`)) return;
+    const n = f.huespedes ?? 0;
+    if (anular && !window.confirm(n
+      ? `¿Eliminar la reserva de la habitación ${f.habitacion}? Se eliminan también sus ${n} ${n === 1 ? 'huésped' : 'huéspedes'}: dejan de verse y de contar en las estadísticas. No se borra nada: la podés restaurar desde «Reservas anuladas», acá abajo.`
+      : `¿Anular la reserva de la habitación ${f.habitacion}? No tiene huéspedes: deja de verse en recepción y no suma en nada. Podés restaurarla después.`)) return;
     setTrabajando(f.id);
     setError('');
     try {
       const res = await adminReservaAnular(clave, f.id, anular);
-      if (res.ok) alGuardar?.(); else setError(textoCodigo(res.error));
+      if (res.ok) { setEditando(null); alGuardar?.(); } else setError(textoCodigo(res.error));
     } catch {
       setError('No se pudo conectar. Revisá tu conexión.');
     } finally {
@@ -174,14 +177,14 @@ export default function Caja({ datos, rango, clave, alGuardar }) {
       {c.anuladas.length > 0 && (
         <details className="caja-anuladas">
           <summary>Reservas anuladas ({c.anuladas.length})</summary>
-          <p className="ayuda">No suman ni se ven en recepción. Si anulaste una por error, restaurala.</p>
+          <p className="ayuda">No suman ni se ven en recepción. Si eliminaste una por error, restaurala: vuelven también sus huéspedes.</p>
           <ul>
             {c.anuladas.map((f) => (
               <li key={f.id}>
                 <span className="caja-hab">{f.habitacion}</span>
                 <span className="caja-cuerpo">
                   <b>{detalleTexto(f) || 'Reserva anulada'}</b>
-                  <small>{`cargó ${f.cargado_por} · anulada por ${f.anulada_por ?? '—'}`}</small>
+                  <small>{`cargó ${f.cargado_por} · eliminada por ${f.anulada_por ?? '—'}${f.quitados ? ` · tenía ${f.quitados} ${f.quitados === 1 ? 'huésped' : 'huéspedes'}, vuelven al restaurarla` : ''}`}</small>
                 </span>
                 <button type="button" className="btn mini claro" onClick={() => cambiar(f, false)} disabled={trabajando === f.id}>Restaurar</button>
               </li>
@@ -193,6 +196,10 @@ export default function Caja({ datos, rango, clave, alGuardar }) {
       {editando && (
         <Modal titulo={`Reserva de la ${editando.habitacion}`} onCerrar={() => setEditando(null)}>
           <ReservaForm inicial={editando} medios={medios} canales={catalogos.canales} categorias={catalogos.categorias} onGuardar={guardar} texto="Guardar cambios" alCancelar={() => setEditando(null)} />
+          <div className="zona-quitar">
+            <p className="ayuda">Si la reserva no corresponde (una prueba, o se cargó por error), la podés eliminar{editando.huespedes ? `: se van con ella sus ${editando.huespedes} ${editando.huespedes === 1 ? 'huésped' : 'huéspedes'}` : ''}. No se borra nada: queda en «Reservas anuladas» y la podés restaurar.</p>
+            <button type="button" className="btn mini claro" onClick={() => cambiar(editando, true)} disabled={trabajando === editando.id}>Eliminar reserva</button>
+          </div>
         </Modal>
       )}
     </>

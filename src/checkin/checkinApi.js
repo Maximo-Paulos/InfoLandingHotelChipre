@@ -36,7 +36,11 @@ export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcio
 // Le vuelve a dar código a una reserva abierta (el huésped que llegó después) y anula una que no tiene huéspedes (nunca borra: queda marcada).
 export const recepcionReservaAbrir = (clave, id) => rpc('recepcion_reserva_abrir', { p_clave: clave, p_id: id });
 export const recepcionReservaAnular = (clave, id) => rpc('recepcion_reserva_anular', { p_clave: clave, p_id: id });
+// El dueño elimina una reserva (con huéspedes también: se van con ella) o la restaura. Nunca borra: queda guardada y se puede restaurar.
 export const adminReservaAnular = (clave, id, anular = true) => rpc('admin_reserva_anular', { p_clave: clave, p_id: id, p_anular: anular });
+// El dueño elimina a un huésped (deja de verse y de contar, queda guardado) o lo restaura. Y la lista de los eliminados.
+export const adminHuespedQuitar = (clave, id, quitar = true) => rpc('admin_huesped_quitar', { p_clave: clave, p_id: id, p_quitar: quitar });
+export const adminHuespedesQuitados = (clave) => rpc('admin_huespedes_quitados', { p_clave: clave });
 export const recepcionEstadiaEditar = (clave, id, r) => rpc('recepcion_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
 export const adminEstadiaEditar = (clave, id, r) => rpc('admin_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
 export const adminHuespedEstadia = (clave, id, estadia) => rpc('admin_huesped_estadia', { p_clave: clave, p_id: id, p_estadia: estadia });

@@ -150,8 +150,7 @@ ok(!st.reservas.some((x) => x.id === R3) && st.pendientes.find((x) => x.id === R
 ok((await numero(`select count(*)::int n from private.checkin_auditoria where accion = 'reserva_anular'`)) === 1, 'queda en el historial');
 r = await llamar('recepcion_reserva_anular', { p_clave: lucia, p_id: R1 });
 ok(r.ok === false && r.error === 'tiene_huespedes', 'una reserva con huéspedes no se puede anular');
-r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: R1 });
-ok(r.ok === false && r.error === 'tiene_huespedes', 'ni siquiera el dueño: son personas registradas');
+// (el dueño sí puede anular una reserva con huéspedes: ver scripts/test-quitar.mjs)
 ok((await llamar('admin_reserva_anular', { p_clave: lucia, p_id: R3, p_anular: false })).ok === false, 'recepción no puede restaurar una anulada (puerta del dueño)');
 ok((await llamar('recepcion_reserva_abrir', { p_clave: lucia, p_id: R3 })).error === 'reserva_anulada', 'ni darle código a una anulada');
 r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: R3, p_anular: false });

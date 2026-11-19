@@ -717,3 +717,6 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .caja-anuladas li .btn.mini{flex:none;margin:0}
 .caja-acciones{padding:0 14px 10px 74px}
 .caja-acciones .btn.mini{margin:0}
+.zona-quitar{margin-top:20px;padding-top:14px;border-top:1px solid var(--linea)}
+.zona-quitar .ayuda{margin:0 0 8px}
+.zona-quitar .btn.mini{margin-top:0}
