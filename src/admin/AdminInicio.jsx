@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import BarraPersonal from '../BarraPersonal.jsx';
-import { adminEstadisticas, adminHuespedes } from '../checkin/checkinApi.js';
+import { adminAnotadas, adminEstadisticas, adminHuespedes } from '../checkin/checkinApi.js';
+import { cuando, fechaCorta } from '../checkin/Llegadas.jsx';
 import { fechaHora } from '../checkin/util.js';
 import Icon from '../components/Icon.jsx';
 import { useNoIndexar } from '../personal.js';
@@ -29,6 +30,7 @@ function Contenido({ clave, salir }) {
   const [datos, setDatos] = useState(null);
   const [cotizaciones, setCotizaciones] = useState(undefined);
   const [ultimos, setUltimos] = useState(null);
+  const [anotadas, setAnotadas] = useState(null); // las reservas anotadas por adelantado
   const alias = perfilGuardado()?.alias;
 
   useEffect(() => {
@@ -37,9 +39,11 @@ function Contenido({ clave, salir }) {
     adminEstadisticas(clave, primeroDelMesAnterior(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date()))).then((r) => { if (vivo && r.ok) setDatos(r); }).catch(() => {});
     cargarCotizaciones().then((c) => { if (vivo) setCotizaciones(c); }).catch(() => { if (vivo) setCotizaciones(null); });
     adminHuespedes(clave, '', 5).then((r) => { if (vivo && r.ok) setUltimos(r.huespedes); }).catch(() => {});
+    adminAnotadas(clave).then((r) => { if (vivo && r.ok) setAnotadas(r.anotadas); }).catch(() => {});
     return () => { vivo = false; };
   }, [clave]);
 
+  const proximas = (anotadas ?? []).filter((a) => a.estado === 'anotada' && a.dias_para >= 0);
   let hoy = null;
   let mes = null;
   const sinHuespedes = (datos?.pendientes ?? []).filter((r) => !r.anulada_en).length; // reservas cargadas en las que todavía no entró nadie: no suman
@@ -60,6 +64,24 @@ function Contenido({ clave, salir }) {
         <p className="in-fecha">{fechaLarga()}</p>
 
         <a className="btn in-accion" href="#/recepcion"><Icon name="llave" size={22} sw={1.8} /> Nueva reserva y código</a>
+        <a className="btn claro in-accion" href="#/admin/llegadas"><Icon name="calendario" size={22} sw={1.8} /> Anotar una reserva por adelantado</a>
+
+        {proximas.length > 0 && (
+          <>
+            <div className="in-fila"><h2 className="in-sub">Próximas llegadas</h2><a className="in-ver" href="#/admin/llegadas">Ver todas <Icon name="adelante" size={16} sw={2} /></a></div>
+            <ul className="in-ultimos">
+              {proximas.slice(0, 4).map((a) => (
+                <li key={a.id}>
+                  <a href="#/admin/llegadas">
+                    <span className="in-hab">Hab. {a.habitacion}</span>
+                    <span className="in-nom"><b>{a.titular}</b><small>{cuando(a.dias_para)} · {fechaCorta(a.fecha_ingreso)} · {a.esperados} {a.esperados === 1 ? 'huésped' : 'huéspedes'}</small></span>
+                    <Icon name="adelante" size={18} sw={1.8} />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
 
         <div className="in-fila"><h2 className="in-sub">Hoy</h2><a className="in-ver" href="#/admin/caja">Ver cobros y reservas <Icon name="adelante" size={16} sw={2} /></a></div>
         <div className="gr-cifras cinco in-cifras">

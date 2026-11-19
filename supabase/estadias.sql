@@ -32,6 +32,15 @@
 --     también la puede restaurar). Anular no borra: la fila queda, marcada, con quién y cuándo.
 --   * Las reservas de antes quedan con tantos huéspedes esperados como check-ins tenían (están completas), o 1 si no tenían ninguno.
 
+--
+-- RESERVAS ANOTADAS (reservas por adelantado, las carga el dueño):
+--   * El dueño anota una reserva futura: a nombre de quién (`titular`), fecha de ingreso, noches, habitación, categoría, canal, cantidad de huéspedes,
+--     los PRECIOS (en efectivo, en transferencia y, si quiere, en dólares), la SEÑA que ya pagó (en pesos, no importa cómo) y una nota.
+--   * Recepción ve las llegadas de los próximos `dias_recepcion` días (y las que se pasaron hasta `dias_recepcion` días) con cuánto hay que cobrar según cómo
+--     pague lo que resta. Al hacer el check-in elige cómo paga y la app arma la reserva de siempre (`estadias`) con el cobro; desde ahí sigue igual que antes
+--     (código, huéspedes de a uno, se cierra sola).
+--   * Una reserva anotada NO es una estadía: no suma en ninguna estadística hasta que se hace el check-in. Anular no borra: queda marcada.
+
 -- ---------------------------------------------------------------- tablas
 
 alter table private.checkin_config add column if not exists reserva_min int not null default 10 check (reserva_min between 1 and 120);
@@ -90,6 +99,11 @@ alter table private.checkins add column if not exists quitado_por text;
 create or replace view private.checkins_activos as select * from private.checkins where quitado_en is null;
 revoke all on private.checkins_activos from public, anon, authenticated;
 
+-- A nombre de quién está la reserva y una nota (los trae la reserva anotada al hacer el check-in).
+alter table private.estadias add column if not exists titular text;
+alter table private.estadias add column if not exists nota text;
+
+
 -- ---------------------------------------------------------------- noches, canal de venta y categoría
 
 -- Dos listas que edita el dueño: las categorías de habitación (Single, Doble...) y los canales de venta (Directo, Obra social...).
@@ -125,6 +139,35 @@ alter table private.estadias add column if not exists categoria_id int reference
 -- Las reservas de antes son del canal «Directo» (con su monto, como siempre). Sin noches ni categoría hasta que alguien las corrija.
 update private.estadias set canal_id = (select id from private.catalogo where tipo = 'canal' and es_base) where canal_id is null;
 alter table private.estadias alter column canal_id set not null;
+
+-- Las reservas por adelantado. precio_transferencia null = igual al efectivo · precio_usd null = se calcula con el dólar oficial · sena en pesos.
+-- estadia_id: la estadía que armó recepción al hacer el check-in (la reserva anotada ya no se ve en las llegadas).
+create table if not exists private.reservas_anotadas (
+  id bigint generated always as identity primary key,
+  creado timestamptz not null default now(),
+  cargado_por text not null,
+  titular text not null check (length(titular) between 1 and 60),
+  fecha_ingreso date not null,
+  noches int not null check (noches between 1 and 365),
+  habitacion text not null check (length(habitacion) between 1 and 12),
+  categoria_id int references private.catalogo (id),
+  canal_id int not null references private.catalogo (id),
+  huespedes_esperados int not null check (huespedes_esperados between 1 and 12),
+  precio_efectivo numeric(14, 2) not null check (precio_efectivo >= 0),
+  precio_transferencia numeric(14, 2) check (precio_transferencia >= 0),
+  precio_usd numeric(14, 2) check (precio_usd >= 0),
+  sena numeric(14, 2) not null default 0 check (sena >= 0),
+  fecha_sena date,
+  nota text check (length(nota) <= 500),
+  editado_en timestamptz,
+  editado_por text,
+  cancelada_en timestamptz,
+  cancelada_por text,
+  estadia_id bigint references private.estadias (id)
+);
+alter table private.reservas_anotadas enable row level security;
+create index if not exists anotadas_ingreso_idx on private.reservas_anotadas (fecha_ingreso);
+create index if not exists anotadas_estadia_idx on private.reservas_anotadas (estadia_id);
 
 -- ---------------------------------------------------------------- ayudas
 
@@ -226,7 +269,7 @@ returns json language sql stable security definer set search_path = '' as $$
     'noches', e.noches, 'canal_id', e.canal_id, 'canal', ca.nombre, 'canal_cobra', ca.cobra, 'categoria_id', e.categoria_id, 'categoria', cg.nombre,
     'medio_pago_id', e.medio_pago_id, 'medio_pago', m.nombre, 'fecha_cobro', e.fecha_cobro,
     'esperados', e.huespedes_esperados, 'con_checkin', (select count(*)::int from private.checkins_activos c where c.estadia_id = e.id), 'anulada', e.anulada_en is not null,
-    'cargado_por', e.cargado_por, 'creado', e.creado,
+    'cargado_por', e.cargado_por, 'creado', e.creado, 'titular', e.titular, 'nota', e.nota,
     'editable_seg', case when p_edicion_min is null then null
                          else greatest(0, floor(extract(epoch from (e.creado + make_interval(mins => p_edicion_min) - now()))))::int end)
     from private.estadias e
@@ -302,6 +345,91 @@ begin
   end if;
   return jsonb_build_object('ok', true, 'habitacion', h, 'monto', v_monto, 'moneda', v_moneda, 'medio', v_medio, 'pago', v_pago,
                             'fecha_sena', v_sena_fecha, 'noches', p_noches, 'canal', p_canal, 'categoria', v_cat, 'huespedes', v_hues);
+end;
+$$;
+
+-- La reserva anotada como la ven las pantallas. dias_para: cuántos días faltan para el ingreso (negativo = ya pasó). estado: anotada | en_curso | cancelada.
+create or replace function private.anotada_json(p_id bigint)
+returns json language sql stable security definer set search_path = '' as $$
+  select json_build_object(
+    'id', a.id, 'titular', a.titular, 'fecha_ingreso', a.fecha_ingreso, 'noches', a.noches, 'salida', a.fecha_ingreso + a.noches,
+    'dias_para', a.fecha_ingreso - (now() at time zone 'America/Argentina/Buenos_Aires')::date,
+    'habitacion', a.habitacion, 'categoria_id', a.categoria_id, 'categoria', cg.nombre, 'canal_id', a.canal_id, 'canal', ca.nombre, 'canal_cobra', ca.cobra,
+    'esperados', a.huespedes_esperados, 'precio_efectivo', a.precio_efectivo, 'precio_transferencia', a.precio_transferencia, 'precio_usd', a.precio_usd,
+    'sena', a.sena, 'fecha_sena', a.fecha_sena, 'nota', a.nota, 'cargado_por', a.cargado_por, 'creado', a.creado,
+    'estado', case when a.cancelada_en is not null then 'cancelada' when a.estadia_id is not null then 'en_curso' else 'anotada' end,
+    'cancelada_por', a.cancelada_por, 'estadia_id', a.estadia_id,
+    'con_checkin', case when a.estadia_id is null then 0 else (select count(*)::int from private.checkins_activos c where c.estadia_id = a.estadia_id) end)
+    from private.reservas_anotadas a
+    join private.catalogo ca on ca.id = a.canal_id
+    left join private.catalogo cg on cg.id = a.categoria_id
+   where a.id = p_id;
+$$;
+
+-- Revisa los datos de una reserva anotada. Devuelve { ok, ...valores limpios } o { ok:false, campos:[...] }.
+--   Un canal que no cobra (obra social) no lleva precios ni seña (se facturan aparte): lo que mande la pantalla se ignora.
+--   La seña no puede ser más que el precio más bajo (si el efectivo sale 100.000 y la transferencia 110.000, la seña llega hasta 100.000).
+--   p_actual: la reserva tal como está hoy (al corregirla): acepta el canal o la categoría que ya tenía aunque el dueño los haya quitado de la lista.
+create or replace function private.anotada_validar(p_titular text, p_ingreso date, p_hab text, p_noches int, p_categoria int, p_canal int, p_huespedes int,
+                                                    p_efectivo numeric, p_transf numeric, p_usd numeric, p_sena numeric, p_fecha_sena date, p_nota text,
+                                                    p_actual private.reservas_anotadas default null)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_err text[] := array[]::text[];
+  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
+  t text := btrim(regexp_replace(coalesce(p_titular, ''), '\s+', ' ', 'g'));
+  h text := private.habitacion_normal(p_hab);
+  n text := nullif(btrim(coalesce(p_nota, '')), '');
+  ca private.catalogo;
+  v_cobra boolean := true;
+  v_cat int := null;
+  v_ef numeric := p_efectivo;
+  v_tr numeric := p_transf;
+  v_us numeric := p_usd;
+  v_se numeric := coalesce(p_sena, 0);
+  v_fs date := null;
+begin
+  if length(t) not between 1 and 60 or t ~ '[[:cntrl:]]' then v_err := array_append(v_err, 'titular'); end if;
+  if p_ingreso is null or p_ingreso not between v_hoy - 60 and v_hoy + 730 then v_err := array_append(v_err, 'fecha_ingreso'); end if;
+  if h is null or not private.habitacion_ok(h) then v_err := array_append(v_err, 'habitacion'); end if;
+  if p_noches is null or p_noches not between 1 and 365 then v_err := array_append(v_err, 'noches'); end if;
+  if p_huespedes is null or p_huespedes not between 1 and 12 then v_err := array_append(v_err, 'huespedes'); end if;
+  if n is not null and (length(n) > 500 or regexp_replace(n, '[\n\r\t]', ' ', 'g') ~ '[[:cntrl:]]') then v_err := array_append(v_err, 'nota'); end if;
+  select * into ca from private.catalogo where id = p_canal and tipo = 'canal' and (activo or id = p_actual.canal_id);
+  if not found then
+    v_err := array_append(v_err, 'canal');
+  else
+    v_cobra := ca.cobra;
+  end if;
+  if p_categoria is null then
+    if exists (select 1 from private.catalogo where tipo = 'categoria' and activo) and (p_actual.id is null or p_actual.categoria_id is not null) then
+      v_err := array_append(v_err, 'categoria');
+    end if;
+  elsif exists (select 1 from private.catalogo where id = p_categoria and tipo = 'categoria' and (activo or id = p_actual.categoria_id)) then
+    v_cat := p_categoria;
+  else
+    v_err := array_append(v_err, 'categoria');
+  end if;
+  if not v_cobra then
+    v_ef := 0; v_tr := null; v_us := null; v_se := 0;
+  else
+    if p_efectivo is null or p_efectivo <= 0 or p_efectivo >= 1e12 then v_err := array_append(v_err, 'precio_efectivo'); end if;
+    if p_transf is not null and (p_transf <= 0 or p_transf >= 1e12) then v_err := array_append(v_err, 'precio_transferencia'); end if;
+    if p_usd is not null and (p_usd <= 0 or p_usd >= 1e9) then v_err := array_append(v_err, 'precio_usd'); end if;
+    if p_sena is not null and (p_sena < 0 or p_sena >= 1e12) then
+      v_err := array_append(v_err, 'sena');
+    elsif p_efectivo is not null and p_efectivo > 0 and v_se > least(p_efectivo, coalesce(p_transf, p_efectivo)) then
+      v_err := array_append(v_err, 'sena');
+    end if;
+    if v_se > 0 and p_fecha_sena is not null then
+      if p_fecha_sena not between v_hoy - 800 and v_hoy + 1 then v_err := array_append(v_err, 'fecha_sena'); else v_fs := p_fecha_sena; end if;
+    end if;
+  end if;
+  if array_length(v_err, 1) is not null then
+    return jsonb_build_object('ok', false, 'campos', to_jsonb(v_err));
+  end if;
+  return jsonb_build_object('ok', true, 'titular', t, 'ingreso', p_ingreso, 'habitacion', h, 'noches', p_noches, 'categoria', v_cat, 'canal', p_canal,
+                            'huespedes', p_huespedes, 'efectivo', v_ef, 'transf', v_tr, 'usd', v_us, 'sena', v_se, 'fecha_sena', v_fs, 'nota', n);
 end;
 $$;
 
@@ -453,6 +581,8 @@ declare
   v_categorias json;
   v_canales json;
   v_abiertas json;
+  v_llegadas json;
+  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
   v_reserva json := null;
   v_codigo json := null;
 begin
@@ -475,6 +605,13 @@ begin
        and private.estadia_ultima(e.id) > now() - make_interval(days => cfg.dias_recepcion)
      order by e.creado desc
      limit 50
+  ) t;
+  -- Las reservas anotadas que llegan en los próximos días (o se pasaron hace poco) y todavía no empezaron el check-in.
+  select coalesce(json_agg(private.anotada_json(t.id) order by t.fecha_ingreso, t.id), '[]'::json) into v_llegadas from (
+    select a.id, a.fecha_ingreso from private.reservas_anotadas a
+     where a.cancelada_en is null and a.estadia_id is null
+       and a.fecha_ingreso between v_hoy - cfg.dias_recepcion and v_hoy + cfg.dias_recepcion
+     order by a.fecha_ingreso, a.id limit 100
   ) t;
   select coalesce(json_agg(row_to_json(t) order by t.creado desc), '[]'::json) into v_lista from (
     select k.id, k.creado, k.habitacion, k.datos, k.habilitado_por,
@@ -502,7 +639,7 @@ begin
   select coalesce(json_agg(json_build_object('id', k.id, 'nombre', k.nombre, 'cobra', k.cobra, 'base', k.es_base) order by k.orden, k.id), '[]'::json)
     into v_canales from private.catalogo k where k.tipo = 'canal' and k.activo;
   if not cfg.activo then
-    return json_build_object('ok', true, 'activo', false, 'codigo', null, 'reserva', null, 'reservas_abiertas', v_abiertas, 'quien', v_actor ->> 'alias', 'config', v_config, 'huespedes', v_lista, 'medios_pago', v_medios,
+    return json_build_object('ok', true, 'activo', false, 'codigo', null, 'reserva', null, 'reservas_abiertas', v_abiertas, 'llegadas', v_llegadas, 'quien', v_actor ->> 'alias', 'config', v_config, 'huespedes', v_lista, 'medios_pago', v_medios,
       'categorias', v_categorias, 'canales', v_canales);
   end if;
   select * into c from private.codigos_usuario where usuario_id = v_uid;
@@ -517,22 +654,45 @@ begin
       'huespedes', (select coalesce(json_agg(json_build_object('id', k.id, 'nombre', k.datos ->> 'nombre', 'apellido', k.datos ->> 'apellido') order by k.id), '[]'::json)
                       from private.checkins_activos k where k.estadia_id = c.estadia_id));
   end if;
-  return json_build_object('ok', true, 'activo', true, 'quien', v_actor ->> 'alias', 'codigo', v_codigo, 'reserva', v_reserva, 'reservas_abiertas', v_abiertas,
+  return json_build_object('ok', true, 'activo', true, 'quien', v_actor ->> 'alias', 'codigo', v_codigo, 'reserva', v_reserva, 'reservas_abiertas', v_abiertas, 'llegadas', v_llegadas,
     'config', v_config, 'huespedes', v_lista, 'medios_pago', v_medios, 'categorias', v_categorias, 'canales', v_canales);
 end;
 $$;
 
--- Abre una reserva nueva y deja a esta persona con su primer código. La reserva que tuviera a la vista no se pierde: sigue abierta,
+-- Arma una reserva (estadía) y deja a quien la arma con su primer código. La usan «Nueva reserva» (sin anotar antes) y «Hacer el check-in» de una reserva
+-- anotada: las dos pasan por las mismas validaciones. p_actor = private.actor(clave). Devuelve { ok, id } o { ok:false, error, campos? }.
+create or replace function private.estadia_crear(p_actor jsonb, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date, p_pago_hotel numeric,
+                                                  p_fecha_sena date, p_noches int, p_canal int, p_categoria int, p_huespedes int, p_titular text default null, p_nota text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  cfg private.checkin_config;
+  v jsonb;
+  v_id bigint;
+  v_uid bigint := (p_actor ->> 'id')::bigint;
+begin
+  select * into cfg from private.checkin_config where id = 1;
+  -- Sin huéspedes esperados no hay reserva: p_actual es null, así que la cantidad es obligatoria.
+  v := private.estadia_validar(p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, p_pago_hotel, p_fecha_sena, p_noches, p_canal, p_categoria, p_huespedes);
+  if not (v ->> 'ok')::boolean then
+    return json_build_object('ok', false, 'error', 'datos_invalidos', 'campos', v -> 'campos');
+  end if;
+  insert into private.estadias (habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena, noches, canal_id, categoria_id, huespedes_esperados, titular, nota)
+    values (v ->> 'habitacion', (v ->> 'monto')::numeric, v ->> 'moneda', (v ->> 'medio')::int, p_fecha, p_actor ->> 'alias', (v ->> 'pago')::numeric, (v ->> 'fecha_sena')::date,
+            (v ->> 'noches')::int, (v ->> 'canal')::int, (v ->> 'categoria')::int, (v ->> 'huespedes')::int, nullif(btrim(p_titular), ''), nullif(btrim(p_nota), '')) returning id into v_id;
+  perform private.codigo_usuario(v_uid, true);
+  update private.codigos_usuario set estadia_id = v_id, estadia_vence = now() + make_interval(mins => cfg.reserva_min) where usuario_id = v_uid;
+  perform private.auditar('recepcion', 'reserva_nueva', null, jsonb_build_object('estadia', v_id, 'alias', p_actor ->> 'alias'));
+  return json_build_object('ok', true, 'id', v_id);
+end;
+$$;
+
+-- Abre una reserva nueva (sin anotar antes) y deja a esta persona con su primer código. La reserva que tuviera a la vista no se pierde: sigue abierta,
 -- en la lista de reservas abiertas, si todavía le faltan huéspedes. Todo es obligatorio, incluida la cantidad de huéspedes.
 create or replace function public.recepcion_reserva_nueva(p_clave text, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date, p_pago_hotel numeric default null, p_fecha_sena date default null, p_noches int default null, p_canal int default null, p_categoria int default null, p_huespedes int default null)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
   r text;
   cfg private.checkin_config;
-  v_actor jsonb;
-  v_uid bigint;
-  v jsonb;
-  v_id bigint;
 begin
   r := private.comprobar_recepcion(p_clave);
   if r <> 'ok' then
@@ -542,20 +702,52 @@ begin
   if not cfg.activo then
     return json_build_object('ok', false, 'error', 'no_disponible');
   end if;
-  -- Sin huéspedes esperados no hay reserva: p_actual es null, así que la cantidad es obligatoria.
-  v := private.estadia_validar(p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, p_pago_hotel, p_fecha_sena, p_noches, p_canal, p_categoria, p_huespedes);
-  if not (v ->> 'ok')::boolean then
-    return json_build_object('ok', false, 'error', 'datos_invalidos', 'campos', v -> 'campos');
+  return private.estadia_crear(private.actor(p_clave), p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, p_pago_hotel, p_fecha_sena, p_noches, p_canal, p_categoria, p_huespedes);
+end;
+$$;
+
+-- Hace el check-in de una reserva anotada: recepción elige cómo paga lo que resta y la app arma la reserva con ese cobro (los mismos datos y controles que
+-- «Nueva reserva»; la pantalla los trae completados con los precios anotados y se pueden corregir, por ejemplo si en el mostrador se negoció otro monto).
+-- Recepción solo ve las llegadas de los últimos y próximos `dias_recepcion` días; el dueño, cualquiera. La reserva anotada queda enlazada a la estadía.
+create or replace function public.recepcion_llegada_iniciar(p_clave text, p_id bigint, p_habitacion text, p_monto numeric, p_moneda text, p_medio_pago int, p_fecha date, p_pago_hotel numeric default null, p_fecha_sena date default null, p_noches int default null, p_canal int default null, p_categoria int default null, p_huespedes int default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  cfg private.checkin_config;
+  a private.reservas_anotadas;
+  v_actor jsonb;
+  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
+  res json;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  select * into cfg from private.checkin_config where id = 1;
+  if not cfg.activo then
+    return json_build_object('ok', false, 'error', 'no_disponible');
   end if;
   v_actor := private.actor(p_clave);
-  v_uid := (v_actor ->> 'id')::bigint;
-  insert into private.estadias (habitacion, monto, moneda, medio_pago_id, fecha_cobro, cargado_por, pago_hotel, fecha_sena, noches, canal_id, categoria_id, huespedes_esperados)
-    values (v ->> 'habitacion', (v ->> 'monto')::numeric, v ->> 'moneda', (v ->> 'medio')::int, p_fecha, v_actor ->> 'alias', (v ->> 'pago')::numeric, (v ->> 'fecha_sena')::date,
-            (v ->> 'noches')::int, (v ->> 'canal')::int, (v ->> 'categoria')::int, (v ->> 'huespedes')::int) returning id into v_id;
-  perform private.codigo_usuario(v_uid, true);
-  update private.codigos_usuario set estadia_id = v_id, estadia_vence = now() + make_interval(mins => cfg.reserva_min) where usuario_id = v_uid;
-  perform private.auditar('recepcion', 'reserva_nueva', null, jsonb_build_object('estadia', v_id, 'alias', v_actor ->> 'alias'));
-  return json_build_object('ok', true, 'id', v_id);
+  select * into a from private.reservas_anotadas where id = p_id for update;
+  if not found then
+    return json_build_object('ok', false, 'error', 'no_existe');
+  end if;
+  if a.cancelada_en is not null then
+    return json_build_object('ok', false, 'error', 'anotada_cancelada');
+  end if;
+  if a.estadia_id is not null then
+    return json_build_object('ok', false, 'error', 'anotada_ya_empezo');
+  end if;
+  if not coalesce((v_actor ->> 'dueno')::boolean, false) and a.fecha_ingreso not between v_hoy - cfg.dias_recepcion and v_hoy + cfg.dias_recepcion then
+    return json_build_object('ok', false, 'error', 'llegada_fuera_de_fecha');
+  end if;
+  res := private.estadia_crear(v_actor, p_habitacion, p_monto, p_moneda, p_medio_pago, p_fecha, p_pago_hotel, p_fecha_sena, p_noches, p_canal, p_categoria, p_huespedes, a.titular, a.nota);
+  if not (res ->> 'ok')::boolean then
+    return res;
+  end if;
+  update private.reservas_anotadas set estadia_id = (res ->> 'id')::bigint where id = a.id;
+  perform private.auditar('recepcion', 'llegada_iniciar', null, jsonb_build_object('anotada', a.id, 'estadia', (res ->> 'id')::bigint, 'alias', v_actor ->> 'alias'));
+  return res;
 end;
 $$;
 
@@ -734,6 +926,9 @@ begin
       return json_build_object('ok', false, 'error', 'reserva_vencida');
     end if;
     update private.estadias set anulada_en = now(), anulada_por = p_quien where id = e.id;
+    if v_n = 0 then
+      update private.reservas_anotadas set estadia_id = null where estadia_id = e.id; -- si venía de una reserva anotada, vuelve a las llegadas (se cargó mal el cobro)
+    end if;
     update private.checkins set quitado_en = now(), quitado_por = p_quien where estadia_id = e.id and quitado_en is null;
     perform private.estadia_cerrar_codigos(e.id);
     perform private.auditar(case when p_dueno then 'admin' else 'recepcion' end, 'reserva_anular', null, jsonb_build_object('estadia', e.id, 'por', p_quien, 'huespedes', v_n));
@@ -776,6 +971,131 @@ begin
     return json_build_object('ok', false, 'error', r);
   end if;
   return private.estadia_anular(coalesce(private.actor(p_clave) ->> 'alias', 'Dueño'), true, p_id, coalesce(p_anular, true));
+end;
+$$;
+
+-- ---------------------------------------------------------------- reservas anotadas (solo el dueño las carga, las corrige y las cancela)
+
+-- Anota una reserva por adelantado (p_id null) o corrige una que todavía no empezó el check-in. Devuelve { ok, id, superpuestas }: superpuestas son las
+-- otras reservas anotadas de la MISMA habitación cuyas fechas se pisan con esta (es un aviso: igual se guarda; el dueño decide).
+--   Precios: p_efectivo y, si quiere, p_transferencia (sin cargar = igual al efectivo) y p_usd (sin cargar = se calcula con el dólar oficial del día).
+--   p_sena: lo que ya pagó, en pesos (no importa cómo). Lo que resta es el precio de cada método menos la seña.
+create or replace function public.admin_anotada_guardar(p_clave text, p_id bigint, p_titular text, p_ingreso date, p_habitacion text, p_noches int, p_categoria int, p_canal int, p_huespedes int,
+                                                         p_efectivo numeric, p_transferencia numeric default null, p_usd numeric default null, p_sena numeric default 0, p_fecha_sena date default null, p_nota text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  a private.reservas_anotadas;
+  v jsonb;
+  v_quien text;
+  v_id bigint;
+  v_cambios text[] := array[]::text[];
+  v_pisan json;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  v_quien := coalesce(private.actor(p_clave) ->> 'alias', 'Dueño');
+  if p_id is not null then
+    select * into a from private.reservas_anotadas where id = p_id for update;
+    if not found then
+      return json_build_object('ok', false, 'error', 'no_existe');
+    end if;
+    if a.cancelada_en is not null then
+      return json_build_object('ok', false, 'error', 'anotada_cancelada');
+    end if;
+    if a.estadia_id is not null then
+      return json_build_object('ok', false, 'error', 'anotada_ya_empezo');
+    end if;
+  end if;
+  v := private.anotada_validar(p_titular, p_ingreso, p_habitacion, p_noches, p_categoria, p_canal, p_huespedes, p_efectivo, p_transferencia, p_usd, p_sena, p_fecha_sena, p_nota, a);
+  if not (v ->> 'ok')::boolean then
+    return json_build_object('ok', false, 'error', 'datos_invalidos', 'campos', v -> 'campos');
+  end if;
+  if p_id is null then
+    insert into private.reservas_anotadas (cargado_por, titular, fecha_ingreso, noches, habitacion, categoria_id, canal_id, huespedes_esperados, precio_efectivo, precio_transferencia, precio_usd, sena, fecha_sena, nota)
+      values (v_quien, v ->> 'titular', (v ->> 'ingreso')::date, (v ->> 'noches')::int, v ->> 'habitacion', (v ->> 'categoria')::int, (v ->> 'canal')::int, (v ->> 'huespedes')::int,
+              (v ->> 'efectivo')::numeric, (v ->> 'transf')::numeric, (v ->> 'usd')::numeric, (v ->> 'sena')::numeric, (v ->> 'fecha_sena')::date, v ->> 'nota')
+      returning id into v_id;
+    perform private.auditar('admin', 'anotada_guardar', null, jsonb_build_object('anotada', v_id, 'por', v_quien, 'nueva', true));
+  else
+    v_id := p_id;
+    if (v ->> 'titular') <> a.titular then v_cambios := array_append(v_cambios, 'titular'); end if;
+    if (v ->> 'ingreso')::date <> a.fecha_ingreso then v_cambios := array_append(v_cambios, 'fecha_ingreso'); end if;
+    if (v ->> 'habitacion') <> a.habitacion then v_cambios := array_append(v_cambios, 'habitacion'); end if;
+    if (v ->> 'noches')::int <> a.noches then v_cambios := array_append(v_cambios, 'noches'); end if;
+    if (v ->> 'huespedes')::int <> a.huespedes_esperados then v_cambios := array_append(v_cambios, 'huespedes'); end if;
+    if (v ->> 'efectivo')::numeric <> a.precio_efectivo or (v ->> 'transf')::numeric is distinct from a.precio_transferencia or (v ->> 'usd')::numeric is distinct from a.precio_usd then
+      v_cambios := array_append(v_cambios, 'precios');
+    end if;
+    if (v ->> 'sena')::numeric <> a.sena or (v ->> 'fecha_sena')::date is distinct from a.fecha_sena then v_cambios := array_append(v_cambios, 'sena'); end if;
+    if (v ->> 'nota') is distinct from a.nota then v_cambios := array_append(v_cambios, 'nota'); end if;
+    if (v ->> 'categoria')::int is distinct from a.categoria_id or (v ->> 'canal')::int <> a.canal_id then v_cambios := array_append(v_cambios, 'categoria_canal'); end if;
+    update private.reservas_anotadas set titular = v ->> 'titular', fecha_ingreso = (v ->> 'ingreso')::date, noches = (v ->> 'noches')::int, habitacion = v ->> 'habitacion',
+           categoria_id = (v ->> 'categoria')::int, canal_id = (v ->> 'canal')::int, huespedes_esperados = (v ->> 'huespedes')::int,
+           precio_efectivo = (v ->> 'efectivo')::numeric, precio_transferencia = (v ->> 'transf')::numeric, precio_usd = (v ->> 'usd')::numeric,
+           sena = (v ->> 'sena')::numeric, fecha_sena = (v ->> 'fecha_sena')::date, nota = v ->> 'nota', editado_en = now(), editado_por = v_quien
+     where id = v_id;
+    perform private.auditar('admin', 'anotada_guardar', null, jsonb_build_object('anotada', v_id, 'por', v_quien, 'campos', to_jsonb(v_cambios)));
+  end if;
+  select coalesce(json_agg(json_build_object('id', o.id, 'titular', o.titular, 'fecha_ingreso', o.fecha_ingreso, 'salida', o.fecha_ingreso + o.noches) order by o.fecha_ingreso), '[]'::json) into v_pisan
+    from private.reservas_anotadas o, private.reservas_anotadas n
+   where n.id = v_id and o.id <> n.id and o.cancelada_en is null and o.habitacion = n.habitacion
+     and o.fecha_ingreso < n.fecha_ingreso + n.noches and n.fecha_ingreso < o.fecha_ingreso + o.noches;
+  return json_build_object('ok', true, 'id', v_id, 'superpuestas', v_pisan);
+end;
+$$;
+
+-- Cancela una reserva anotada que todavía no empezó el check-in (no se borra: queda marcada y se puede restaurar). Una que ya empezó el check-in es una
+-- reserva con su cobro: se corrige o se elimina como cualquier reserva.
+create or replace function public.admin_anotada_cancelar(p_clave text, p_id bigint, p_cancelar boolean default true)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  a private.reservas_anotadas;
+  v_quien text;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  v_quien := coalesce(private.actor(p_clave) ->> 'alias', 'Dueño');
+  select * into a from private.reservas_anotadas where id = p_id for update;
+  if not found then
+    return json_build_object('ok', false, 'error', 'no_existe');
+  end if;
+  if coalesce(p_cancelar, true) then
+    if a.estadia_id is not null then
+      return json_build_object('ok', false, 'error', 'anotada_ya_empezo');
+    end if;
+    if a.cancelada_en is null then
+      update private.reservas_anotadas set cancelada_en = now(), cancelada_por = v_quien where id = a.id;
+      perform private.auditar('admin', 'anotada_cancelar', null, jsonb_build_object('anotada', a.id, 'por', v_quien));
+    end if;
+  elsif a.cancelada_en is not null then
+    update private.reservas_anotadas set cancelada_en = null, cancelada_por = null where id = a.id;
+    perform private.auditar('admin', 'anotada_restaurar', null, jsonb_build_object('anotada', a.id, 'por', v_quien));
+  end if;
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Las reservas anotadas del dueño: las que todavía esperan al huésped (también las que ya pasaron de fecha), las que ya empezaron el check-in y las canceladas,
+-- desde hace 60 días en adelante.
+create or replace function public.admin_anotadas(p_clave text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  return json_build_object('ok', true, 'hoy', v_hoy, 'anotadas', (
+    select coalesce(json_agg(private.anotada_json(t.id) order by t.fecha_ingreso, t.id), '[]'::json)
+      from (select a.id, a.fecha_ingreso from private.reservas_anotadas a where a.fecha_ingreso >= v_hoy - 60 order by a.fecha_ingreso, a.id limit 500) t));
 end;
 $$;
 
@@ -1122,7 +1442,7 @@ begin
   from (
     select e.id, e.habitacion, e.monto, e.moneda, e.pago_hotel, e.fecha_sena, m.nombre as medio_pago, e.fecha_cobro, e.cargado_por,
            e.noches, ca.nombre as canal, ca.cobra as canal_cobra, cg.nombre as categoria,
-           e.medio_pago_id, e.canal_id, e.categoria_id, e.creado, e.huespedes_esperados as esperados,
+           e.medio_pago_id, e.canal_id, e.categoria_id, e.creado, e.huespedes_esperados as esperados, e.titular,
            (select count(*)::int from private.checkins_activos c where c.estadia_id = e.id) as huespedes
     from private.estadias e
     join private.medios_pago m on m.id = e.medio_pago_id
@@ -1139,7 +1459,7 @@ begin
   from (
     select e.id, e.habitacion, e.monto, e.moneda, e.pago_hotel, e.fecha_sena, m.nombre as medio_pago, e.fecha_cobro, e.cargado_por,
            e.noches, ca.nombre as canal, ca.cobra as canal_cobra, cg.nombre as categoria,
-           e.medio_pago_id, e.canal_id, e.categoria_id, e.creado, e.huespedes_esperados as esperados,
+           e.medio_pago_id, e.canal_id, e.categoria_id, e.creado, e.huespedes_esperados as esperados, e.titular,
            0 as huespedes, e.anulada_en, e.anulada_por,
            (select count(*)::int from private.checkins c where c.estadia_id = e.id and c.quitado_en is not null) as quitados
     from private.estadias e
@@ -1190,6 +1510,9 @@ revoke all on function private.estadia_json(bigint, int) from public, anon, auth
 revoke all on function private.estadia_ultima(bigint) from public, anon, authenticated;
 revoke all on function private.estadia_cerrar_codigos(bigint) from public, anon, authenticated;
 revoke all on function private.estadia_abierta(bigint) from public, anon, authenticated;
+revoke all on function private.anotada_json(bigint) from public, anon, authenticated;
+revoke all on function private.anotada_validar(text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text, private.reservas_anotadas) from public, anon, authenticated;
+revoke all on function private.estadia_crear(jsonb, text, numeric, text, int, date, numeric, date, int, int, int, int, text, text) from public, anon, authenticated;
 revoke all on function private.estadia_reabrir(bigint) from public, anon, authenticated;
 revoke all on function private.huesped_quitar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function private.estadia_anular(text, boolean, bigint, boolean) from public, anon, authenticated;
@@ -1201,6 +1524,10 @@ revoke all on function public.recepcion_reserva_nueva(text, text, numeric, text,
 revoke all on function public.recepcion_reserva_abrir(text, bigint) from public, anon, authenticated;
 revoke all on function public.recepcion_reserva_anular(text, bigint) from public, anon, authenticated;
 revoke all on function public.admin_reserva_anular(text, bigint, boolean) from public, anon, authenticated;
+revoke all on function public.recepcion_llegada_iniciar(text, bigint, text, numeric, text, int, date, numeric, date, int, int, int, int) from public, anon, authenticated;
+revoke all on function public.admin_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) from public, anon, authenticated;
+revoke all on function public.admin_anotada_cancelar(text, bigint, boolean) from public, anon, authenticated;
+revoke all on function public.admin_anotadas(text) from public, anon, authenticated;
 revoke all on function public.admin_huesped_quitar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.admin_huespedes_quitados(text) from public, anon, authenticated;
 revoke all on function public.recepcion_reserva_cerrar(text, boolean) from public, anon, authenticated;
@@ -1212,6 +1539,10 @@ grant execute on function public.recepcion_reserva_nueva(text, text, numeric, te
 grant execute on function public.recepcion_reserva_abrir(text, bigint) to anon, authenticated;
 grant execute on function public.recepcion_reserva_anular(text, bigint) to anon, authenticated;
 grant execute on function public.admin_reserva_anular(text, bigint, boolean) to anon, authenticated;
+grant execute on function public.recepcion_llegada_iniciar(text, bigint, text, numeric, text, int, date, numeric, date, int, int, int, int) to anon, authenticated;
+grant execute on function public.admin_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) to anon, authenticated;
+grant execute on function public.admin_anotada_cancelar(text, bigint, boolean) to anon, authenticated;
+grant execute on function public.admin_anotadas(text) to anon, authenticated;
 grant execute on function public.admin_huesped_quitar(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.admin_huespedes_quitados(text) to anon, authenticated;
 grant execute on function public.recepcion_reserva_cerrar(text, boolean) to anon, authenticated;

@@ -100,6 +100,14 @@ export default function BarraPersonal({ titulo, actual, atras, salir, confirmar,
             )}
             {rol === 'admin' && (
               <li>
+                <a className="bp-item" href="#/admin/llegadas" onClick={ir} aria-current={actual === 'llegadas' ? 'page' : undefined}>
+                  <Icon name="calendario" size={26} sw={1.6} />
+                  <span><b>Reservas anotadas</b><small>Cargar llegadas por adelantado, con precios y seña</small></span>
+                </a>
+              </li>
+            )}
+            {rol === 'admin' && (
+              <li>
                 <a className="bp-item" href="#/admin/ajustes" onClick={ir} aria-current={actual === 'ajustes' ? 'page' : undefined}>
                   <Icon name="ajustes" size={26} sw={1.6} />
                   <span><b>Ajustes</b><small>Check-in, medios de pago, Drive e historial</small></span>
