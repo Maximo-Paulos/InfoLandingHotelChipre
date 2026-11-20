@@ -1184,11 +1184,11 @@ begin
 end;
 $$;
 
--- «Próximas reservas» de recepción: TODAS las reservas anotadas que todavía esperan al huésped (no canceladas, sin check-in empezado), desde hace `dias_recepcion`
--- días (las que se pasaron hace poco y el huésped llega tarde) en adelante, de la más cercana a la más lejana. Es lo que se busca por nombre en la pantalla.
---   en_ventana: se puede hacer el check-in (y corregirla) ahora: recepción, solo de `dias_recepcion` días antes a `dias_recepcion` días después de la fecha de
---     ingreso; el dueño, siempre. checkin_desde: el primer día en que recepción puede hacer el check-in (ingreso menos esos días).
---   Devuelve hasta 300 (`mas` dice cuántas quedaron afuera: las más lejanas).
+-- «Próximas reservas» de recepción: las reservas anotadas que todavía esperan al huésped (no canceladas, sin check-in empezado) y que llegan entre `dias_recepcion`
+-- días atrás y `dias_recepcion` días adelante (el dueño lo cambia en Ajustes). Es lo que se busca por nombre en la pantalla.
+--   Lo que está fuera de esos días NO se devuelve: recepción no lo ve ni lo encuentra buscando (una reserva de hace 7 días o de dentro de 7 no aparece, con 5 de ventana).
+--   El dueño ve todas, desde hace 60 días en adelante (para eso también tiene su propia pantalla).
+--   Devuelve hasta 300, de la más cercana a la más lejana (`mas` dice cuántas quedaron afuera).
 create or replace function public.recepcion_proximas(p_clave text)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
@@ -1196,6 +1196,8 @@ declare
   cfg private.checkin_config;
   v_dueno boolean;
   v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
+  v_desde date;
+  v_hasta date;
   v_total int;
 begin
   r := private.comprobar_recepcion(p_clave);
@@ -1204,14 +1206,14 @@ begin
   end if;
   select * into cfg from private.checkin_config where id = 1;
   v_dueno := coalesce((private.actor(p_clave) ->> 'dueno')::boolean, false);
+  v_desde := case when v_dueno then v_hoy - 60 else v_hoy - cfg.dias_recepcion end;
+  v_hasta := case when v_dueno then null else v_hoy + cfg.dias_recepcion end;
   select count(*)::int into v_total from private.reservas_anotadas a
-   where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_hoy - cfg.dias_recepcion;
-  return json_build_object('ok', true, 'activo', cfg.activo, 'hoy', v_hoy, 'dias', cfg.dias_recepcion, 'mas', greatest(0, v_total - 300), 'reservas', (
-    select coalesce(json_agg((private.anotada_json(t.id)::jsonb
-             || jsonb_build_object('en_ventana', v_dueno or t.fecha_ingreso between v_hoy - cfg.dias_recepcion and v_hoy + cfg.dias_recepcion,
-                                   'checkin_desde', t.fecha_ingreso - cfg.dias_recepcion))::json order by t.fecha_ingreso, t.id), '[]'::json)
+   where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_desde and (v_hasta is null or a.fecha_ingreso <= v_hasta);
+  return json_build_object('ok', true, 'activo', cfg.activo, 'hoy', v_hoy, 'dias', cfg.dias_recepcion, 'limitada', not v_dueno, 'mas', greatest(0, v_total - 300), 'reservas', (
+    select coalesce(json_agg(private.anotada_json(t.id) order by t.fecha_ingreso, t.id), '[]'::json)
       from (select a.id, a.fecha_ingreso from private.reservas_anotadas a
-             where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_hoy - cfg.dias_recepcion
+             where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_desde and (v_hasta is null or a.fecha_ingreso <= v_hasta)
              order by a.fecha_ingreso, a.id limit 300) t));
 end;
 $$;

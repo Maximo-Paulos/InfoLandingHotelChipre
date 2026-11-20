@@ -396,7 +396,7 @@ function Panel({ clave, rol, vista, salir }) {
       )}
 
       {haciendoCheckin && (
-        <CobroLlegada a={haciendoCheckin} venta={venta} medios={estado?.medios_pago ?? []} canales={estado?.canales ?? []} categorias={estado?.categorias ?? []} apagado={estado?.activo === false}
+        <CobroLlegada a={haciendoCheckin} venta={venta} medios={estado?.medios_pago ?? []} apagado={estado?.activo === false}
           onIniciar={iniciarLlegada} onEditar={(a) => { setHaciendoCheckin(null); setAviso(''); setAnotando(a); }} onCerrar={() => setHaciendoCheckin(null)} />
       )}
 

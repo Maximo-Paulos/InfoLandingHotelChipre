@@ -761,7 +761,6 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .pp-dia-tit b{font-weight:700}
 .pp-dia .ll-lista{margin-top:8px}
 .pp-fila{display:flex;align-items:center;gap:10px;width:100%;min-height:72px;padding:12px 14px;border:1px solid var(--linea);border-left:4px solid var(--verde);border-radius:14px;background:var(--superficie);color:var(--texto);font:inherit;text-align:left;cursor:pointer}
-.pp-fila.espera{border-left-color:var(--linea)}
 .pp-fila.pasada{border-left-color:var(--mostaza);background:var(--mostaza-claro)}
 .pp-fila:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
 .pp-datos{display:grid;flex:1 1 auto;gap:2px;min-width:0}
@@ -770,8 +769,9 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .pp-titular{font-size:16px;font-weight:700;overflow-wrap:anywhere}
 .pp-det{font-size:14px;line-height:1.4;color:var(--texto-suave)}
 .pp-estado{font-size:13px;font-weight:700}
-.pp-estado.lista{color:var(--verde-oscuro)}
-.pp-estado.espera{color:var(--texto-suave);font-weight:400}
+.pp-rango{margin:0 0 8px;font-size:13px;color:var(--texto-suave)}
+.pp-rango b{color:var(--texto)}
+.pp-estado{color:var(--terracota-texto)}
 .paso{margin:0 0 18px;padding:0 0 16px;border-bottom:1px solid var(--linea)}
 .paso:last-child{margin-bottom:0;padding-bottom:0;border-bottom:0}
 .paso-tit{display:flex;align-items:center;gap:10px;margin:0 0 10px;font:500 19px/1.2 var(--serif)}
@@ -783,6 +783,10 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .confirma.si{border-color:var(--verde);background:var(--verde-claro)}
 .confirma input{flex:none;width:24px;height:24px;margin:0;accent-color:var(--verde)}
 .paso .btn.mini{margin-top:10px}
+.enlace{display:inline-block;min-height:44px;margin:4px 0 0;padding:0;border:0;background:none;color:var(--verde-oscuro);font:700 14px var(--sans);text-decoration:underline;cursor:pointer}
+.enlace:disabled{opacity:.6}
+.resumen-checkin{margin:0 0 10px;padding:12px 14px;border:1px solid var(--linea);border-radius:12px;background:var(--superficie);font-size:15px;line-height:1.45}
+.resumen-checkin b{font-weight:700}
 
 /* Avisos en el celular */
 .avisos{margin:0 0 14px;padding:12px 14px;border:1px solid var(--linea);border-radius:14px;background:var(--verde-claro)}

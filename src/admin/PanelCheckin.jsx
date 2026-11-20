@@ -11,8 +11,10 @@ const NUMEROS = [
   ['usos_max', 'Cuántas personas pueden usar el mismo código', 1, 20],
   ['reserva_min', 'Minutos que se muestra el código de una reserva (la reserva sigue abierta hasta que entren todos sus huéspedes)', 1, 120],
   ['edicion_min', 'Minutos que recepción puede editar un huésped', 1, 1440],
-  ['dias_recepcion', 'Días de huéspedes que ve recepción', 1, 365]
+  ['dias_recepcion', 'Días que ve recepción, hacia atrás y hacia adelante', 1, 365]
 ];
+// Una explicación debajo de algunos campos.
+const AYUDAS = { dias_recepcion: 'Vale para los huéspedes, las reservas abiertas y las próximas reservas: con 5, recepción ve lo de hace 5 días hasta dentro de 5 días. Lo que queda fuera de esos días no lo ve (tampoco buscando) ni lo puede atender. Recomendado: 5.' };
 
 // Estado compartido de la configuración (se lee una vez y se vuelve a leer al guardar).
 export function useConfigCheckin(clave) {
@@ -104,6 +106,7 @@ export function ConfigCheckin({ clave, config, recargar }) {
           <div className="campo" key={k}>
             <label htmlFor={`cfg-${k}`}>{etq}</label>
             <input id={`cfg-${k}`} type="number" inputMode="numeric" min={min} max={max} step="1" value={f[k]} onChange={(e) => cambia(k, e.target.value)} disabled={k === 'edicion_min' && !f.edicion_activa} />
+            {AYUDAS[k] && <p className="ayuda">{AYUDAS[k]}</p>}
           </div>
         ))}
         <div className="campo">

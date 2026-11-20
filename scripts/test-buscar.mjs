@@ -1,6 +1,6 @@
 // El buscador y la agrupación de «Próximas reservas» de recepción (cuentas puras, sin pantalla ni red).
 //   node scripts/test-buscar.mjs
-import { agruparPorDia, filtrarProximas, normalizar, puedeHacerCheckin } from '../src/checkin/proximas.js';
+import { agruparPorDia, filtrarProximas, normalizar } from '../src/checkin/proximas.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -34,10 +34,6 @@ const g = agruparPorDia(lista);
 ok(g.length === 3 && g[0].fecha === '2026-11-21' && ids(g[0].items).join() === '1,2' && g[1].fecha === '2026-11-25' && g[2].fecha === '2026-12-30', 'las que llegan el mismo día quedan juntas, en el orden en que vienen');
 ok(g[0].dias === 1 && g[1].dias === 5 && g[2].dias === 40, 'cada grupo trae cuántos días faltan');
 ok(agruparPorDia([]).length === 0, 'sin reservas no hay grupos');
-
-console.log('\n== 4. Si se puede hacer el check-in');
-ok(puedeHacerCheckin({ en_ventana: true }) && !puedeHacerCheckin({ en_ventana: false }), 'lo que dice la base');
-ok(puedeHacerCheckin({}) && puedeHacerCheckin({ dias_para: 0 }), 'una reserva que no trae el dato (recién anotada para hoy) está lista para atender');
 
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);

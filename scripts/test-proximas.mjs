@@ -1,9 +1,9 @@
-// «Próximas reservas» de recepción: todas las reservas anotadas que todavía esperan al huésped (no solo las de los próximos días), para buscarlas por nombre,
-// ver cuánto hay que cobrar y recién ahí hacer el check-in. Esto prueba lo que decide la base: qué reservas aparecen, en qué orden y cuándo se puede hacer el
-// check-in (recepción solo `dias_recepcion` días antes y después de la fecha de ingreso; el dueño, siempre).
+// «Próximas reservas» de recepción: las reservas anotadas que todavía esperan al huésped, para buscarlas por nombre, ver cuánto hay que cobrar y recién ahí hacer
+// el check-in. Recepción solo ve (y solo encuentra buscando) las que llegan entre N días atrás y N días adelante: N lo cambia el dueño en Ajustes (`dias_recepcion`).
+// Lo que está fuera de esos días no se le muestra a nadie: no existe para recepción. El dueño ve todo.
 //   node scripts/test-proximas.mjs
 // Usa la base de prueba en memoria con schema.sql + checkin.sql + estadias.sql y llama a las funciones como lo hace la guía (rol "anon").
-// La parte 7 arma una base como la publicada hoy (scripts/fixtures/estadias-v5.sql) y le aplica el archivo nuevo dos veces.
+// La parte 8 arma una base como la publicada hoy (scripts/fixtures/estadias-v5.sql) y le aplica el archivo nuevo dos veces.
 import fs from 'node:fs';
 import { CLAVE_ADMIN, CLAVE_RECEPCION, SQL_RECEPCION, iniciarBackend } from './backend-local.mjs';
 
@@ -30,7 +30,9 @@ const anotar = (extra = {}, quien = dueno) => llamar('admin_anotada_guardar', {
 });
 const proximas = (quien = rec) => llamar('recepcion_proximas', { p_clave: quien });
 const lista = async (quien = rec) => (await proximas(quien)).reservas;
+const nombres = async (quien = rec) => (await lista(quien)).map((x) => x.titular);
 const por = (reservas, titular) => reservas.find((x) => x.titular === titular);
+const dias = (d) => llamar('admin_checkin_config_guardar', { p_clave: dueno, p_config: { dias_recepcion: d } });
 const cobro = (id, extra = {}, quien = rec) => llamar('recepcion_llegada_iniciar', {
   p_clave: quien, p_id: id, p_habitacion: '107', p_monto: 100000, p_moneda: 'ARS', p_medio_pago: EFECTIVO, p_fecha: hoy, p_pago_hotel: 70000, p_fecha_sena: AR(-5),
   p_noches: 2, p_canal: DIRECTO, p_categoria: DOBLE, p_huespedes: 3, ...extra
@@ -43,77 +45,93 @@ r = await proximas('');
 ok(r.ok === false, 'ni sin clave');
 r = await proximas(rec);
 ok(r.ok === true && Array.isArray(r.reservas) && r.reservas.length === 0, 'recepción la ve (vacía si no hay reservas anotadas)');
-ok(r.dias === 3 && r.hoy === hoy && r.mas === 0 && r.activo === true, 'y trae los días de recepción (3), la fecha de hoy y que el check-in digital está prendido');
+ok(r.hoy === hoy && r.mas === 0 && r.activo === true, 'y trae la fecha de hoy y que el check-in digital está prendido');
 r = await proximas(dueno);
 ok(r.ok === true, 'el dueño también la puede ver');
 
-console.log('\n== 2. Qué reservas aparecen (todas las que esperan al huésped, cerca o lejos)');
-const ids = {};
-for (const [nombre, dias] of [['Tarde', -2], ['Muy vieja', -20], ['Hoy', 0], ['Mañana', 1], ['En una semana', 7], ['En dos meses', 60], ['En un año', 365]]) {
-  const a = await anotar({ p_titular: nombre, p_ingreso: AR(dias), p_habitacion: `H${Math.abs(dias)}` });
-  ids[nombre] = a.id;
-  ok(a.ok === true, `se anotó «${nombre}» (${dias} días)`);
+console.log('\n== 2. El dueño elige cuántos días ve recepción (5 hacia atrás y 5 hacia adelante)');
+r = await llamar('admin_checkin_config_guardar', { p_clave: rec, p_config: { dias_recepcion: 30 } });
+ok(r.ok === false, 'recepción no puede cambiar esos días');
+for (const malo of [0, -1, 366, 'cinco']) {
+  r = await llamar('admin_checkin_config_guardar', { p_clave: dueno, p_config: { dias_recepcion: malo } });
+  ok(r.ok === false, `el dueño no puede poner ${JSON.stringify(malo)} (de 1 a 365)`);
 }
-let l = await lista();
-const titulares = l.map((x) => x.titular);
-ok(['Tarde', 'Hoy', 'Mañana', 'En una semana', 'En dos meses', 'En un año'].every((t) => titulares.includes(t)), 'aparecen las de hoy, las que llegan tarde y también las lejanas (una semana, dos meses, un año)');
-ok(!titulares.includes('Muy vieja'), 'las que se pasaron hace más de 3 días ya no se ofrecen a recepción');
-ok((await lista(dueno)).length === l.length, 'el dueño ve la misma lista');
-ok(JSON.stringify(titulares) === JSON.stringify(['Tarde', 'Hoy', 'Mañana', 'En una semana', 'En dos meses', 'En un año']), 'van de la más cercana a la más lejana');
-const x = por(l, 'Mañana');
-ok(x.habitacion === 'H1' && x.esperados === 3 && x.noches === 2 && x.precio_efectivo === 100000 && x.precio_transferencia === 110000 && x.sena === 30000 && x.nota === 'Llega a la tarde', 'cada una trae los datos para atender: habitación, huéspedes, noches, precios, seña y nota');
+ok((await dias(5)).ok === true && (await proximas(rec)).dias === 5, 'el dueño los pone en 5 y la lista lo informa');
+
+console.log('\n== 3. Qué reservas ve recepción: solo las de esos días');
+const ids = {};
+const CASOS = [['Lucas Fuentes', -7], ['Hace cinco', -5], ['Hace cuatro', -4], ['Tarde', -2], ['Hoy', 0], ['Mañana', 1], ['En cuatro', 4], ['En cinco', 5], ['En seis', 6], ['En siete', 7], ['En dos meses', 60], ['En un año', 365], ['Muy vieja', -59]];
+for (const [nombre, d] of CASOS) {
+  const a = await anotar({ p_titular: nombre, p_ingreso: AR(d), p_habitacion: `H${Math.abs(d)}${d < 0 ? 'a' : 'b'}` });
+  ids[nombre] = a.id;
+  ok(a.ok === true, `se anotó «${nombre}» (${d} días)`);
+}
+let l = await nombres();
+ok(JSON.stringify(l) === JSON.stringify(['Hace cinco', 'Hace cuatro', 'Tarde', 'Hoy', 'Mañana', 'En cuatro', 'En cinco']), `recepción ve de 5 días atrás a 5 adelante, de la más cercana a la más lejana (${l.join(', ')})`);
+ok(!l.includes('Lucas Fuentes'), 'una reserva de hace 7 días (Lucas Fuentes) no aparece: ni listada ni buscando por su nombre');
+ok(!l.includes('En seis') && !l.includes('En siete') && !l.includes('En dos meses') && !l.includes('En un año'), 'las que llegan a partir de 6 días tampoco');
+ok(['Hace cuatro', 'En cuatro'].every((t) => l.includes(t)), 'las de hace 4 días y de dentro de 4 días sí');
+const x = por(await lista(), 'Mañana');
+ok(x.habitacion === 'H1b' && x.esperados === 3 && x.noches === 2 && x.precio_efectivo === 100000 && x.precio_transferencia === 110000 && x.sena === 30000 && x.nota === 'Llega a la tarde', 'cada una trae los datos para atender: habitación, huéspedes, noches, precios, seña y nota');
 ok(x.estado === 'anotada' && x.dias_para === 1 && x.canal === 'Directo' && x.canal_cobra === true && x.categoria === 'Doble', 'y su estado, los días que faltan, el canal (y si cobra) y la categoría');
+ok(!('en_ventana' in x) && !('checkin_desde' in x), 'y nada de «todavía no»: lo que se ve es lo que se puede atender');
+l = await nombres(dueno);
+ok(l.includes('Lucas Fuentes') && l.includes('En un año') && l.includes('Muy vieja') && l.length === CASOS.length, 'el dueño ve todas, las lejanas y las viejas también');
 
-console.log('\n== 3. Cuándo se puede hacer el check-in');
-const dentro = (t) => por(l, t).en_ventana;
-ok(dentro('Tarde') && dentro('Hoy') && dentro('Mañana'), 'recepción puede hacer el check-in de la que llega tarde, de hoy y de mañana');
-ok(dentro('En una semana') === false && dentro('En dos meses') === false && dentro('En un año') === false, 'pero no de las que llegan más allá de los 3 días: se ven, no se atienden todavía');
-ok(por(l, 'En una semana').checkin_desde === AR(4) && por(l, 'En dos meses').checkin_desde === AR(57), 'cada una dice desde qué día se puede (3 días antes de la fecha de ingreso)');
-ok((await lista(dueno)).every((a) => a.en_ventana === true), 'el dueño puede en todas, sin límite de días');
-r = await cobro(ids['En una semana']);
-ok(r.ok === false && r.error === 'llegada_fuera_de_fecha', 'y la base lo confirma: recepción no puede hacer el check-in de una fuera de la ventana');
-r = await llamar('recepcion_anotada_guardar', { p_clave: rec, p_id: ids['En una semana'], p_titular: 'Cambiada', p_ingreso: AR(7), p_habitacion: 'H7', p_noches: 2, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 3, p_efectivo: 100000 });
+console.log('\n== 4. Cambiar los días cambia lo que ve recepción');
+await dias(10);
+l = await nombres();
+ok(l.includes('Lucas Fuentes') && l.includes('En siete') && !l.includes('En dos meses') && !l.includes('Muy vieja'), 'con 10 días: ya ve la de hace 7 y la de dentro de 7 (pero no las de dos meses ni la de hace 59 días)');
+await dias(2);
+l = await nombres();
+ok(JSON.stringify(l) === JSON.stringify(['Tarde', 'Hoy', 'Mañana']), `con 2 días: solo de hace 2 a dentro de 2 (${l.join(', ')})`);
+await dias(1);
+l = await nombres();
+ok(JSON.stringify(l) === JSON.stringify(['Hoy', 'Mañana']), `con 1 día: hoy y mañana (${l.join(', ')})`);
+await dias(5);
+
+console.log('\n== 5. Lo que no se ve tampoco se puede atender ni corregir (la base lo frena aunque se llame a mano)');
+r = await cobro(ids['En seis']);
+ok(r.ok === false && r.error === 'llegada_fuera_de_fecha', 'recepción no puede hacer el check-in de una que llega en 6 días');
+r = await cobro(ids['Lucas Fuentes']);
+ok(r.ok === false && r.error === 'llegada_fuera_de_fecha', 'ni de la de hace 7 días');
+r = await llamar('recepcion_anotada_guardar', { p_clave: rec, p_id: ids['En seis'], p_titular: 'Cambiada', p_ingreso: AR(6), p_habitacion: 'H6b', p_noches: 2, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 3, p_efectivo: 100000 });
 ok(r.ok === false && r.error === 'llegada_fuera_de_fecha', 'ni corregirla');
-await back.sql(`update private.checkin_config set dias_recepcion = 10 where id = 1`);
-l = await lista();
-ok(por(l, 'En una semana').en_ventana === true && por(l, 'En dos meses').en_ventana === false && por(l, 'En una semana').checkin_desde === AR(-3), 'si el dueño amplía los días de recepción a 10, la de una semana pasa a poder atenderse (y se agrega alguna más vieja)');
-await back.sql(`update private.checkin_config set dias_recepcion = 3 where id = 1`);
-r = await cobro(ids['En una semana'], {}, dueno);
-ok(r.ok === true, 'el dueño sí puede hacer el check-in de una lejana');
+ok(await n(`select count(*)::int n from private.estadias`) === 0, 'y no se creó ninguna reserva');
+r = await cobro(ids['En cinco']);
+ok(r.ok === true, 'la de dentro de 5 días sí se puede atender');
+r = await cobro(ids['En siete'], {}, dueno);
+ok(r.ok === true, 'el dueño sí puede hacer el check-in de cualquiera, aunque llegue en 7 días');
 
-console.log('\n== 4. Qué sale de la lista');
-l = await lista();
-ok(!por(l, 'En una semana'), 'cuando empieza el check-in de una reserva, deja de estar en próximas (pasa a las reservas abiertas)');
-r = await cobro(ids['Hoy']);
-ok(r.ok === true && !por(await lista(), 'Hoy'), 'lo mismo al hacer el check-in recepción');
+console.log('\n== 6. Qué sale de la lista');
+l = await nombres();
+ok(!l.includes('En cinco'), 'cuando empieza el check-in de una reserva, deja de estar en próximas (pasa a las reservas abiertas)');
 await llamar('admin_anotada_cancelar', { p_clave: dueno, p_id: ids['Mañana'], p_cancelar: true });
-ok(!por(await lista(), 'Mañana'), 'una reserva cancelada no aparece');
+ok(!(await nombres()).includes('Mañana'), 'una reserva cancelada no aparece');
 await llamar('admin_anotada_cancelar', { p_clave: dueno, p_id: ids['Mañana'], p_cancelar: false });
-ok(!!por(await lista(), 'Mañana'), 'y si el dueño la restaura, vuelve a aparecer');
+ok((await nombres()).includes('Mañana'), 'y si el dueño la restaura, vuelve a aparecer');
 const nueva = await llamar('recepcion_anotada_guardar', { p_clave: rec, p_id: null, p_titular: 'De la calle', p_ingreso: hoy, p_habitacion: '55', p_noches: 1, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 2, p_efectivo: 80000 });
-ok(nueva.ok === true && !!por(await lista(), 'De la calle'), 'una anotada por recepción aparece enseguida en la lista de todos');
-l = await lista();
-ok(l.every((a) => a.estado === 'anotada'), 'solo hay reservas que esperan al huésped (ninguna en curso ni cancelada)');
+ok(nueva.ok === true && (await nombres()).includes('De la calle'), 'una anotada por recepción aparece enseguida en la lista de todos');
+ok((await lista()).every((a) => a.estado === 'anotada'), 'solo hay reservas que esperan al huésped (ninguna en curso ni cancelada)');
 
-console.log('\n== 5. El límite de la lista');
+console.log('\n== 7. El límite de la lista, y que solo lee');
 await back.sql(`insert into private.reservas_anotadas (cargado_por, titular, fecha_ingreso, noches, habitacion, categoria_id, canal_id, huespedes_esperados, precio_efectivo)
-                select 'Dueño', 'Masiva ' || g, current_date + 100 + (g % 50), 1, 'M' || g, $1, $2, 1, 1000 from generate_series(1, 310) g`, [DOBLE, DIRECTO]);
-const total = await n(`select count(*)::int n from private.reservas_anotadas where cancelada_en is null and estadia_id is null and fecha_ingreso >= current_date - 3`);
+                select 'Dueño', 'Masiva ' || g, $3::date + (g % 5), 1, 'M' || g, $1, $2, 1, 1000 from generate_series(1, 310) g`, [DOBLE, DIRECTO, hoy]);
+const total = await n(`select count(*)::int n from private.reservas_anotadas where cancelada_en is null and estadia_id is null and fecha_ingreso between $1::date - 5 and $1::date + 5`, [hoy]);
 r = await proximas();
-ok(r.reservas.length === 300 && r.mas === total - 300 && r.mas > 0, `con ${total} reservas esperando trae 300 (las más cercanas) y avisa cuántas quedaron afuera (${r.mas})`);
-ok(r.reservas[0].titular === 'Tarde' && r.reservas.every((a, i, v) => i === 0 || v[i - 1].fecha_ingreso <= a.fecha_ingreso), 'y las 300 son las más cercanas, en orden');
+ok(r.reservas.length === 300 && r.mas === total - 300 && r.mas > 0, `con ${total} reservas en los días que ve recepción trae 300 y avisa cuántas quedaron afuera (${r.mas})`);
+ok(r.reservas.every((a, i, v) => i === 0 || v[i - 1].fecha_ingreso <= a.fecha_ingreso), 'y vienen en orden de fecha');
 await back.sql(`delete from private.reservas_anotadas where titular like 'Masiva %'`);
-
-console.log('\n== 6. No toca nada, solo lee');
 const antes = await n(`select count(*)::int n from private.reservas_anotadas`);
+const estadias = await n(`select count(*)::int n from private.estadias`);
 await proximas(); await proximas(dueno);
-ok(await n(`select count(*)::int n from private.reservas_anotadas`) === antes && await n(`select count(*)::int n from private.estadias`) === 2, 'mirar la lista no crea ni cambia ninguna reserva');
+ok(await n(`select count(*)::int n from private.reservas_anotadas`) === antes && await n(`select count(*)::int n from private.estadias`) === estadias, 'mirar la lista no crea ni cambia ninguna reserva');
 await back.sql(`update private.checkin_config set activo = false where id = 1`);
 r = await proximas();
 ok(r.ok === true && r.activo === false && r.reservas.length > 0, 'con el check-in apagado se sigue viendo la lista (y avisa que está apagado)');
 await back.sql(`update private.checkin_config set activo = true where id = 1`);
 
-console.log('\n== 7. Pasar de la versión publicada hoy a esta');
+console.log('\n== 8. Pasar de la versión publicada hoy a esta');
 const viejo = await iniciarBackend({ puerto: 54397, estadias: false });
 await viejo.sql(`update private.checkin_config set activo = true, usos_max = 20 where id = 1`);
 await viejo.sql(SQL_RECEPCION, [CLAVE_RECEPCION]);
@@ -128,13 +146,14 @@ const sql = fs.readFileSync(new URL('../supabase/estadias.sql', import.meta.url)
 await viejo.exec(sql);
 await viejo.exec(sql);
 ok(JSON.stringify(await huella()) === JSON.stringify(h0), 'las reservas anotadas quedan idénticas, aun aplicando el archivo dos veces');
+ok((await viejo.sql(`select dias_recepcion from private.checkin_config`))[0].dias_recepcion === 3, 'y los días que ve recepción siguen como estaban (el dueño los cambia en Ajustes)');
 const rV = await llamarV('recepcion_proximas', { p_clave: recV });
-ok(rV.ok === true && rV.reservas.length === 1 && rV.reservas[0].titular === 'Antes' && rV.reservas[0].en_ventana === true, 'sobre la base migrada recepción ya ve la reserva que estaba anotada');
+ok(rV.ok === true && rV.reservas.length === 1 && rV.reservas[0].titular === 'Antes', 'sobre la base migrada recepción ya ve la reserva que estaba anotada');
 const bV = await llamarV('admin_anotada_guardar', { p_clave: duenoV, p_id: null, p_titular: 'Después', p_ingreso: AR(30), p_habitacion: '202', p_noches: 1, p_categoria: DOBLE, p_canal: DIRECTO, p_huespedes: 1, p_efectivo: 50000 });
-const rV2 = await llamarV('recepcion_proximas', { p_clave: recV });
-ok(bV.ok && rV2.reservas.length === 2 && rV2.reservas[1].en_ventana === false, 'y una anotada para dentro de un mes se ve, todavía sin poder hacer el check-in');
+ok(bV.ok && (await llamarV('recepcion_proximas', { p_clave: recV })).reservas.length === 1, 'una anotada para dentro de un mes no la ve recepción (queda fuera de sus días)');
+ok((await llamarV('recepcion_proximas', { p_clave: duenoV })).reservas.length === 2, 'pero el dueño sí');
 const iV = await llamarV('recepcion_llegada_iniciar', { p_clave: recV, p_id: aV.id, p_habitacion: '201', p_monto: 50000, p_moneda: 'ARS', p_medio_pago: EFECTIVO, p_fecha: hoy, p_pago_hotel: 50000, p_noches: 1, p_canal: DIRECTO, p_categoria: DOBLE, p_huespedes: 1 });
-ok(iV.ok === true && (await llamarV('recepcion_proximas', { p_clave: recV })).reservas.length === 1, 'el check-in sigue funcionando y la reserva sale de la lista');
+ok(iV.ok === true && (await llamarV('recepcion_proximas', { p_clave: recV })).reservas.length === 0, 'el check-in sigue funcionando y la reserva sale de la lista');
 await viejo.cerrar();
 
 await back.cerrar();

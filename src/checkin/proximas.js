@@ -24,7 +24,3 @@ export function agruparPorDia(reservas) {
   }
   return grupos;
 }
-
-// Cuándo se puede hacer el check-in de una reserva, para el cartelito de la lista. `en_ventana` viene de la base (recepción: de 3 días antes a 3 después de la
-// fecha de ingreso; el dueño, siempre). Una reserva que no trae el dato (la que se acaba de anotar) se considera lista para atender.
-export const puedeHacerCheckin = (a) => a.en_ventana !== false;

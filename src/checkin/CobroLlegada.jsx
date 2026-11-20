@@ -1,28 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { aCobrar, medioSugerido, prefillDe, reservaDeLlegada } from './cobro.js';
+import { aCobrar, medioSugerido, reservaDeLlegada } from './cobro.js';
 import { ACobrar, cuando, fechaCorta } from './Llegadas.jsx';
 import Modal from './Modal.jsx';
-import { puedeHacerCheckin } from './proximas.js';
-import ReservaForm, { hoyAR, nochesTexto, plata } from './ReservaForm.jsx';
+import { leerMonto, hoyAR, nochesTexto, plata } from './ReservaForm.jsx';
 
-// El check-in de una reserva anotada, en tres pasos y en este orden, para que nadie dé el código sin haber cobrado:
-//   1. La reserva: la habitación (lo primero), cuándo llega y sale, cuántos son, la nota.
-//   2. El cobro: cuánto hay que cobrar según cómo pague lo que resta (efectivo, transferencia o dólares; la seña ya está descontada), con qué medio de pago
-//      entra la plata y la confirmación «Ya cobré…». Sin confirmar el cobro no se puede seguir.
-//   3. El check-in: recién ahí el botón arma la reserva con ese cobro y se genera el código para el huésped.
-// Si en el mostrador se negoció otro monto o hay que corregir algo, «Cobró otro monto» abre el formulario completo de la reserva (ya completado y editable).
-//   a: la reserva anotada (de la base: trae `en_ventana` / `checkin_desde`) · venta: dólar oficial de hoy (o null) · medios / canales / categorías: las listas de siempre
-//   apagado: el check-in digital está apagado (no se puede dar código) · onIniciar(r) -> { ok, mensaje?, campos? } · onEditar(a): corregir los datos anotados (si viene)
+// El check-in de una reserva anotada: tres pasos, en este orden, y cada uno habilita al siguiente. No hay forma de saltearse el cobro ni de dar el código por error.
+//   1. La reserva: la habitación (lo primero), cuándo llega y sale, cuántos son, la nota. Es lo que está anotado: acá no se cambia nada.
+//   2. El cobro, de a una cosa por vez: (a) cómo paga lo que resta —efectivo, transferencia o dólares; arranca SIN elegir—, (b) con qué medio de pago entra la plata y
+//      (c) la confirmación «Ya cobré…». Si cambia la forma o el medio, hay que volver a confirmar. Si en el mostrador se cobró otro monto, «Cobré otro monto» deja
+//      escribir SOLO cuánto se cobró (la habitación, las noches y los huéspedes no se tocan: eso se corrige en la reserva, con «Corregir los datos de la reserva»).
+//   3. El check-in: un resumen de lo que se va a registrar y el botón, que sigue apagado hasta que el cobro esté confirmado y dice qué falta.
+//   a: la reserva anotada · venta: dólar oficial de hoy (o null) · medios: los medios de pago [{ id, nombre }] · apagado: el check-in digital está apagado
+//   onIniciar(r) -> { ok, mensaje? }: arma la reserva con ese cobro (ver reservaDeLlegada) · onEditar(a): corregir los datos anotados (si viene)
 const FORMAS = [['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ['usd', 'Dólares']];
 const COMO = { efectivo: 'en efectivo', transferencia: 'por transferencia', usd: 'en dólares' };
 
-export default function CobroLlegada({ a, venta, medios, canales, categorias, apagado = false, onIniciar, onEditar = null, onCerrar }) {
+export default function CobroLlegada({ a, venta, medios, apagado = false, onIniciar, onEditar = null, onCerrar }) {
   const cobra = a.canal_cobra !== false;
-  const enVentana = puedeHacerCheckin(a);
-  const [forma, setForma] = useState('efectivo');
-  const [medio, setMedio] = useState(() => String(medioSugerido(medios, 'efectivo') ?? ''));
+  const [forma, setForma] = useState(null);
+  const [medio, setMedio] = useState('');
+  const [otroMonto, setOtroMonto] = useState(false);
+  const [texto, setTexto] = useState('');
   const [confirmado, setConfirmado] = useState(false);
-  const [corrigiendo, setCorrigiendo] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState('');
   const vivo = useRef(true);
@@ -30,18 +29,32 @@ export default function CobroLlegada({ a, venta, medios, canales, categorias, ap
   useEffect(() => { vivo.current = true; return () => { vivo.current = false; }; }, []);
 
   const c = useMemo(() => (cobra ? aCobrar(a, venta) : null), [a, venta, cobra]);
-  const x = c?.[forma] ?? null; // lo que se cobra de esta forma (null: dólares sin cotización)
-  const nadaQueCobrar = cobra && !!x && x.resta === 0; // la seña ya pagó todo
+  const x = forma ? c?.[forma] ?? null : null; // lo anotado para esta forma de pago
+  const moneda = forma === 'usd' ? 'USD' : 'ARS';
+  const nadaQueCobrar = cobra && !!x && x.resta === 0; // la seña ya pagó todo: no hay nada para cobrar ni para corregir
+  const montoLeido = otroMonto ? leerMonto(texto) : null;
+  const montoValido = !otroMonto || (montoLeido != null && montoLeido > 0 && montoLeido < 1e9);
+  const cobrado = otroMonto && montoValido ? montoLeido : null; // null = se cobra lo anotado
+  const aCobrarTexto = x ? plata(otroMonto && montoValido ? montoLeido : x.resta, moneda) : '';
   const monto = (f) => (c?.[f] ? plata(c[f].resta, f === 'usd' ? 'USD' : 'ARS') : 'sin cotización');
-  const elegirForma = (f) => { setForma(f); setMedio(String(medioSugerido(medios, f) ?? '')); setConfirmado(false); setAviso(''); };
+
+  const elegirForma = (f) => { setForma(f); setMedio(String(medioSugerido(medios, f) ?? '')); setOtroMonto(false); setTexto(''); setConfirmado(false); setAviso(''); };
   const elegirMedio = (id) => { setMedio(id); setConfirmado(false); setAviso(''); };
-  const cobroListo = !cobra || (!!x && !!medio && (nadaQueCobrar || confirmado));
-  const puede = enVentana && !apagado && cobroListo && !enviando;
+  const cambiarMonto = (t) => { setTexto(t); setConfirmado(false); setAviso(''); };
+  const activarOtroMonto = (si) => { setOtroMonto(si); setTexto(''); setConfirmado(false); setAviso(''); };
+
+  // Qué falta para poder hacer el check-in (en este orden): lo que dice el cartel de abajo.
+  const falta = !cobra ? null
+    : !forma ? 'Elegí cómo paga lo que resta (paso 2).'
+      : !medio ? 'Elegí el medio de pago (paso 2).'
+        : !montoValido ? 'Escribí cuánto cobraste (paso 2).'
+          : !nadaQueCobrar && !confirmado ? 'Tildá «Ya cobré…» para confirmar el cobro (paso 2).' : null;
+  const puede = !apagado && !falta && !enviando;
 
   const hacer = async () => {
     if (!puede) return;
-    const r = reservaDeLlegada(a, forma, venta, medio ? Number(medio) : null, hoyAR());
-    if (!r) { setAviso('No se pudo calcular el cobro. Probá con otra forma de pago.'); return; }
+    const r = reservaDeLlegada(a, forma ?? 'efectivo', venta, medio ? Number(medio) : null, hoyAR(), cobrado);
+    if (!r) { setAviso('No se pudo calcular el cobro. Revisá el monto o probá con otra forma de pago.'); return; }
     setEnviando(true);
     setAviso('');
     try {
@@ -54,6 +67,7 @@ export default function CobroLlegada({ a, venta, medios, canales, categorias, ap
     }
   };
 
+  const medioNombre = medios.find((m) => String(m.id) === medio)?.nombre;
   return (
     <Modal titulo={a.titular} onCerrar={onCerrar}>
       <section className="paso" aria-labelledby="paso-1">
@@ -62,7 +76,7 @@ export default function CobroLlegada({ a, venta, medios, canales, categorias, ap
         <p className="ll-cuando"><b>{cuando(a.dias_para)}</b> · llega {fechaCorta(a.fecha_ingreso)} · sale {fechaCorta(a.salida)}</p>
         <p className="ll-det">{[a.categoria, nochesTexto(a.noches), `${a.esperados} ${a.esperados === 1 ? 'huésped' : 'huéspedes'}`, a.canal].filter(Boolean).join(' · ')}</p>
         {a.nota && <p className="ll-nota"><span>Nota</span> {a.nota}</p>}
-        {onEditar && enVentana && <button type="button" className="btn mini claro" onClick={() => onEditar(a)}>Corregir los datos de la reserva</button>}
+        {onEditar && <button type="button" className="btn mini claro" onClick={() => onEditar(a)} disabled={enviando}>Corregir los datos de la reserva</button>}
       </section>
 
       <section className="paso" aria-labelledby="paso-2">
@@ -73,14 +87,15 @@ export default function CobroLlegada({ a, venta, medios, canales, categorias, ap
             <div className="campo">
               <span className="etq" id="forma-etq">¿Cómo paga lo que resta?</span>
               <div className="fichas" role="radiogroup" aria-labelledby="forma-etq">
-                {FORMAS.map(([id, texto]) => (
+                {FORMAS.map(([id, t]) => (
                   <button key={id} type="button" role="radio" aria-checked={forma === id} className={forma === id ? 'activa' : ''} disabled={enviando || !c?.[id]} onClick={() => elegirForma(id)}>
-                    {texto}<small>{monto(id)}</small>
+                    {t}<small>{monto(id)}</small>
                   </button>
                 ))}
               </div>
+              {!forma && <p className="ayuda">Elegí una para seguir.</p>}
             </div>
-            {!corrigiendo && (
+            {forma && (
               <>
                 <div className="campo">
                   <span className="etq" id="medio-etq">Medio de pago con el que entra la plata</span>
@@ -91,14 +106,23 @@ export default function CobroLlegada({ a, venta, medios, canales, categorias, ap
                   </div>
                   {!medio && <p className="ayuda">Elegí con qué medio de pago se cobró.</p>}
                 </div>
-                {nadaQueCobrar
-                  ? <p className="paso-ok" role="status">Con la seña ya está todo pagado: no hay nada para cobrar.</p>
-                  : (
+                {nadaQueCobrar ? <p className="paso-ok" role="status">Con la seña ya está todo pagado: no hay nada para cobrar.</p> : medio && (
+                  <>
+                    {otroMonto && (
+                      <div className={`campo${montoValido ? '' : ' error'}`}>
+                        <label htmlFor="otro-monto">Cuánto cobraste en el hotel ({moneda})</label>
+                        <input id="otro-monto" inputMode="decimal" autoComplete="off" maxLength={14} placeholder={`Anotado: ${x.resta}`} value={texto} disabled={enviando} onChange={(e) => cambiarMonto(e.target.value)} />
+                        <p className="ayuda">Solo lo que cobraste ahora, sin la seña. La reserva queda registrada con este monto.</p>
+                        {texto.trim() !== '' && !montoValido && <p className="msg" role="alert">Escribí solo números, mayor que cero. Por ejemplo 80000.</p>}
+                      </div>
+                    )}
                     <label className={`confirma${confirmado ? ' si' : ''}`}>
-                      <input type="checkbox" checked={confirmado} disabled={enviando || !x || !medio} onChange={(e) => setConfirmado(e.target.checked)} />
-                      <span>Ya cobré <b>{monto(forma)}</b> {COMO[forma]}{Number(a.sena) > 0 ? ' (la seña ya estaba pagada)' : ''}</span>
+                      <input type="checkbox" checked={confirmado} disabled={enviando || !montoValido || (otroMonto && texto.trim() === '')} onChange={(e) => setConfirmado(e.target.checked)} />
+                      <span>Ya cobré <b>{aCobrarTexto}</b> {COMO[forma]}{otroMonto && montoValido && montoLeido !== x.resta ? ` (lo anotado era ${plata(x.resta, moneda)})` : ''}{Number(a.sena) > 0 ? ' · la seña ya estaba pagada' : ''}</span>
                     </label>
-                  )}
+                    <button type="button" className="enlace" onClick={() => activarOtroMonto(!otroMonto)} disabled={enviando}>{otroMonto ? 'Volver al monto anotado' : 'Cobré otro monto'}</button>
+                  </>
+                )}
               </>
             )}
           </>
@@ -108,23 +132,14 @@ export default function CobroLlegada({ a, venta, medios, canales, categorias, ap
       <section className="paso" aria-labelledby="paso-3">
         <h3 className="paso-tit" id="paso-3"><span className="paso-n">3</span>Check-in</h3>
         {apagado && <p className="in-aviso" role="status">El check-in digital está apagado. Lo prende el dueño desde su panel.</p>}
-        {!apagado && !enVentana && <p className="in-aviso" role="status">Todavía no se puede hacer el check-in de esta reserva: recepción lo hace desde {a.checkin_desde ? `el ${fechaCorta(a.checkin_desde)}` : 'unos días antes de la llegada'}. Podés mirar los datos y el cobro.</p>}
-        {corrigiendo ? (
-          <>
-            <p className="ayuda">Corregí lo que haga falta: el cobro de abajo viene completado con lo anotado.</p>
-            <ReservaForm key={forma} prefill={prefillDe(a, forma, venta, medios)} medios={medios} canales={canales} categorias={categorias} onGuardar={onIniciar} texto="Generar códigos" alCancelar={() => setCorrigiendo(false)} />
-          </>
-        ) : (
-          <>
-            {!cobroListo && enVentana && !apagado && <p className="ayuda">{!x ? 'Elegí otra forma de pago: dólares no se puede calcular ahora.' : !medio ? 'Elegí el medio de pago y confirmá el cobro para seguir.' : 'Confirmá que ya cobraste para seguir.'}</p>}
-            {aviso && <p className="ed-error" role="alert">{aviso}</p>}
-            <div className="btns modal-pie">
-              <button type="button" className="btn" onClick={hacer} disabled={!puede}>{enviando ? 'Un momento…' : 'Hacer el check-in y dar el código'}</button>
-              {cobra && enVentana && !apagado && <button type="button" className="btn claro" onClick={() => setCorrigiendo(true)} disabled={enviando}>Cobró otro monto o hay que corregir algo</button>}
-              <button type="button" className="btn claro" onClick={onCerrar} disabled={enviando}>Volver</button>
-            </div>
-          </>
-        )}
+        <p className="resumen-checkin">Se va a registrar: <b>Hab. {a.habitacion} · {a.titular}</b> · {a.esperados} {a.esperados === 1 ? 'huésped' : 'huéspedes'}
+          {cobra ? (falta ? ' · cobro: todavía sin confirmar' : nadaQueCobrar ? ` · cobro: ya pagado con la seña (${medioNombre ?? 'medio de pago'})` : ` · cobro: ${aCobrarTexto} ${COMO[forma]} (${medioNombre ?? 'medio de pago'})`) : ' · sin cobro'}.</p>
+        {!apagado && falta && <p className="ayuda" role="status">{falta}</p>}
+        {aviso && <p className="ed-error" role="alert">{aviso}</p>}
+        <div className="btns modal-pie">
+          <button type="button" className="btn" onClick={hacer} disabled={!puede}>{enviando ? 'Un momento…' : 'Hacer el check-in y dar el código'}</button>
+          <button type="button" className="btn claro" onClick={onCerrar} disabled={enviando}>Volver</button>
+        </div>
       </section>
     </Modal>
   );
