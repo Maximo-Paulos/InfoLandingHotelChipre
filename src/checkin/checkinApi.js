@@ -58,6 +58,12 @@ export const recepcionEstadiaEditar = (clave, id, r) => rpc('recepcion_estadia_e
 export const adminEstadiaEditar = (clave, id, r) => rpc('admin_estadia_editar', { p_clave: clave, p_id: id, ...deReserva(r) });
 export const adminHuespedEstadia = (clave, id, estadia) => rpc('admin_huesped_estadia', { p_clave: clave, p_id: id, p_estadia: estadia });
 export const adminEstadisticas = (clave, desde = null, hasta = null) => rpc('admin_estadisticas', { p_clave: clave, p_desde: desde, p_hasta: hasta });
+// Avisos en el celular (notificaciones push): cada celular activa los suyos; el dueño decide si el aviso lleva el nombre y si el check-in le llega también a recepción.
+export const pushSuscribir = (clave, endpoint, llave, auth, agente) => rpc('push_suscribir', { p_clave: clave, p_endpoint: endpoint, p_llave: llave, p_auth: auth, p_agente: agente ?? null });
+export const pushDesuscribir = (clave, endpoint) => rpc('push_desuscribir', { p_clave: clave, p_endpoint: endpoint });
+export const pushEstado = (clave, endpoint) => rpc('push_estado', { p_clave: clave, p_endpoint: endpoint ?? null });
+export const pushPrueba = (clave, endpoint) => rpc('push_prueba', { p_clave: clave, p_endpoint: endpoint });
+export const adminPushConfig = (clave, nombre = null, checkinRecepcion = null) => rpc('admin_push_config', { p_clave: clave, p_nombre: nombre, p_checkin_recepcion: checkinRecepcion });
 export const adminReservaMin = (clave, minutos) => rpc('admin_reserva_min', { p_clave: clave, p_min: minutos });
 
 // Admin general
@@ -116,6 +122,7 @@ export const MENSAJES = {
   reserva_completa: 'Esa reserva ya tiene a todos sus huéspedes. Si falta alguien más, el dueño puede subir la cantidad de huéspedes.',
   reserva_vencida: 'Esa reserva ya pasó el tiempo en que recepción la ve. Pedile al dueño que la reabra.',
   reserva_cerrada: 'Esa reserva se cerró. Actualizá la pantalla.',
+  sesion_requerida: 'Para activar los avisos tenés que entrar con tu clave (no con una sesión vieja). Salí y volvé a entrar.',
   anotada_cancelada: 'Esa reserva anotada está cancelada. Solo el dueño la puede restaurar.',
   anotada_ya_empezo: 'Esa reserva ya empezó el check-in. Actualizá la pantalla.',
   llegada_fuera_de_fecha: 'Esa reserva llega fuera de los días que ve recepción. Pedile al dueño que haga el check-in.',

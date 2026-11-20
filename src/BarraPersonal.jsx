@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import Icon from './components/Icon.jsx';
 import Modal from './checkin/Modal.jsx';
+import { AvisosPanel } from './components/Avisos.jsx';
+import { iniciarAvisos } from './push.js';
 import { perfilGuardado, refrescarSesion } from './sesion.js';
 
 // Lo que ve el personal en todas sus pantallas, como una app: una barra de arriba con el nombre de la pantalla y de quién entró, y
@@ -26,6 +28,8 @@ const ROL = { admin: 'dueño', recepcion: 'recepción' };
 export default function BarraPersonal({ titulo, actual, atras, salir, confirmar, ancha, children }) {
   const [abierto, setAbierto] = useState(false);
   const [perfil, setPerfil] = useState(perfilGuardado);
+  // Si los avisos ya estaban activos en este celular, se vuelven a atar a la sesión de ahora (una sola vez por carga).
+  useEffect(() => { iniciarAvisos(); }, []);
   // Las sesiones abiertas antes del equipo no saben cómo se llama su dueño: se le pregunta una vez a la base.
   useEffect(() => {
     let vivo = true;
@@ -89,6 +93,7 @@ export default function BarraPersonal({ titulo, actual, atras, salir, confirmar,
 
       {abierto && (
         <Modal titulo="Más" onCerrar={() => setAbierto(false)}>
+          <AvisosPanel />
           <ul className="bp-lista">
             {rol === 'admin' && dueno && (
               <li>

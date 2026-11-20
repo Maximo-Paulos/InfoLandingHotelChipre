@@ -3,6 +3,7 @@ import BarraPersonal from '../BarraPersonal.jsx';
 import { adminAnotadas, adminEstadisticas, adminHuespedes } from '../checkin/checkinApi.js';
 import { cuando, fechaCorta } from '../checkin/Llegadas.jsx';
 import { fechaHora } from '../checkin/util.js';
+import { AvisosBanner } from '../components/Avisos.jsx';
 import Icon from '../components/Icon.jsx';
 import { useNoIndexar } from '../personal.js';
 import { perfilGuardado } from '../sesion.js';
@@ -62,6 +63,7 @@ function Contenido({ clave, salir }) {
         </header>
         <p className="in-saludo">Hola{alias ? `, ${alias}` : ''}</p>
         <p className="in-fecha">{fechaLarga()}</p>
+        <AvisosBanner />
 
         <a className="btn in-accion" href="#/recepcion"><Icon name="llave" size={22} sw={1.8} /> Nueva reserva y código</a>
         <a className="btn claro in-accion" href="#/admin/llegadas"><Icon name="calendario" size={22} sw={1.8} /> Anotar una reserva por adelantado</a>

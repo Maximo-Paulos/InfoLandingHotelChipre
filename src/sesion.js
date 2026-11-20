@@ -45,6 +45,8 @@ export async function entrarConClave(clave) {
 export async function cerrarSesion() {
   const s = leerSesion();
   borrarSesion();
+  // Mientras no haya sesión, este celular no recibe avisos (en la base se saca de la lista; el permiso del navegador queda: al volver a entrar se vuelve a atar solo).
+  if (s) { try { const { apagarAlSalir } = await import('./push.js'); await apagarAlSalir(s.token); } catch { /* sin conexión o sin avisos: no importa */ } }
   if (s) { try { await rpc('sesion_cerrar', { p_token: s.token }); } catch { /* sin conexión: igual se cerró acá */ } }
 }
 
