@@ -1,6 +1,6 @@
 // Las cuentas de cobro de una reserva anotada: cuánto resta en efectivo, en transferencia y en dólares, y lo que se le completa al formulario del check-in.
 //   node scripts/test-cobro.mjs
-import { aCobrar, medioSugerido, prefillDe, redondear } from '../src/checkin/cobro.js';
+import { aCobrar, medioSugerido, prefillDe, redondear, reservaDeLlegada } from '../src/checkin/cobro.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -58,6 +58,31 @@ p = prefillDe(A(), 'usd', null, medios);
 ok(p.moneda === 'USD' && p.monto === null && p.pago === null, 'dólares sin dólar oficial: el formulario queda para escribir el monto a mano');
 p = prefillDe(A({ canal_cobra: false, precio_efectivo: 0 }), 'efectivo', 1000, medios);
 ok(p.monto === undefined && p.habitacion === '107' && p.huespedes === 3, 'obra social: sin montos, con los datos de la estadía');
+
+console.log('\n== La reserva que sale al confirmar el cobro tal cual está anotado (sin abrir el formulario)');
+const HOY = '2026-11-20';
+let q = reservaDeLlegada(A(), 'efectivo', 1000, 2, HOY);
+ok(q.habitacion === '107' && q.noches === 2 && q.huespedes === 3 && q.canal === 1 && q.categoria === 6 && q.fecha === HOY, 'lleva la habitación, noches, huéspedes, canal, categoría y el día del cobro');
+ok(q.monto === 100000 && q.moneda === 'ARS' && q.medioPago === 2 && q.pagoHotel === 70000 && q.fechaSena === '2026-11-10', 'efectivo con seña: total 100.000, en el hotel 70.000 (lo que resta) y la fecha de la seña');
+q = reservaDeLlegada(A(), 'transferencia', 1000, 3, HOY);
+ok(q.monto === 110000 && q.pagoHotel === 80000 && q.moneda === 'ARS' && q.medioPago === 3, 'transferencia: total 110.000 y en el hotel 80.000');
+q = reservaDeLlegada(A({ sena: 0 }), 'efectivo', 1000, 2, HOY);
+ok(q.monto === 100000 && q.pagoHotel === 100000 && q.fechaSena === null, 'sin seña: pagó todo en el hotel y no hay fecha de seña');
+q = reservaDeLlegada(A({ sena: 100000 }), 'efectivo', 1000, 2, HOY);
+ok(q.monto === 100000 && q.pagoHotel === 0 && q.fechaSena === '2026-11-10', 'con una seña que cubre todo: en el hotel 0');
+q = reservaDeLlegada(A(), 'usd', 1000, 4, HOY);
+ok(q.moneda === 'USD' && cerca(q.monto, 100) && cerca(q.pagoHotel, 70) && q.medioPago === 4, 'dólares sin precio en dólares: se calcula con el oficial (US$ 100 en total, US$ 70 en el hotel)');
+q = reservaDeLlegada(A({ precio_usd: 80 }), 'usd', 1250, 4, HOY);
+ok(q.moneda === 'USD' && q.monto === 80 && cerca(q.pagoHotel, 80 - 24), 'dólares con precio en dólares cargado: US$ 80 menos la seña pasada a dólares');
+ok(reservaDeLlegada(A(), 'usd', null, 4, HOY) === null, 'dólares sin cotización y con seña: no se puede calcular (null)');
+q = reservaDeLlegada(A({ canal_cobra: false, precio_efectivo: 0, sena: 0 }), 'efectivo', 1000, null, HOY);
+ok(q.monto === 0 && q.medioPago === null && q.pagoHotel === 0 && q.fechaSena === null && q.habitacion === '107', 'obra social: sin monto ni medio de pago, con los datos de la estadía');
+q = reservaDeLlegada(A({ categoria_id: null }), 'efectivo', 1000, 2, HOY);
+ok(q.categoria === null, 'una reserva anotada sin categoría sigue sin categoría');
+// Es lo mismo que daría el formulario completado: monto total, lo pagado en el hotel y la fecha de la seña (ver ReservaForm)
+const pf = prefillDe(A(), 'efectivo', 1000, [{ id: 2, nombre: 'Efectivo' }]);
+q = reservaDeLlegada(A(), 'efectivo', 1000, 2, HOY);
+ok(q.monto === pf.monto && q.pagoHotel === pf.pago && q.fechaSena === pf.fecha_sena && q.medioPago === pf.medio_pago, 'y coincide con lo que traería el formulario completado');
 
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);

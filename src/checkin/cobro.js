@@ -40,6 +40,19 @@ const PARECE = {
 };
 export const medioSugerido = (medios, forma) => (medios ?? []).find((m) => PARECE[forma]?.(m.nombre))?.id ?? null;
 
+// La reserva que se arma al hacer el check-in cuando recepción confirma el cobro tal cual está anotado, sin tocar montos: es lo mismo que haría el formulario
+// completado con prefillDe y apretado «Generar códigos». `medioPago`: el medio con el que paga (id). `hoy`: la fecha del cobro (YYYY-MM-DD).
+// Con un canal que no cobra no hay monto ni medio de pago. null si esa forma de pagar no se puede calcular (dólares sin cotización).
+export function reservaDeLlegada(a, forma, venta, medioPago, hoy) {
+  const base = { habitacion: a.habitacion, noches: a.noches, canal: a.canal_id, categoria: a.categoria_id ?? null, huespedes: a.esperados, fecha: hoy };
+  if (a.canal_cobra === false) return { ...base, monto: 0, moneda: 'ARS', medioPago: null, pagoHotel: 0, fechaSena: null };
+  const x = aCobrar(a, venta)[forma] ?? null;
+  if (!x) return null;
+  const conSena = Number(a.sena) > 0;
+  const pagoHotel = conSena ? x.resta : x.total;
+  return { ...base, monto: x.total, moneda: forma === 'usd' ? 'USD' : 'ARS', medioPago, pagoHotel, fechaSena: conSena && pagoHotel < x.total ? (a.fecha_sena ?? null) : null };
+}
+
 // Lo que se le pone ya completado al formulario de la reserva al hacer el check-in, para cada forma de cobrar ('efectivo' | 'transferencia' | 'usd').
 // Todo se puede corregir: por ejemplo, si en el mostrador se negoció otro monto. Con un canal que no cobra solo van los datos de la estadía.
 export function prefillDe(a, forma, venta, medios) {

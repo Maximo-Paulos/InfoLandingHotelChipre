@@ -1184,6 +1184,38 @@ begin
 end;
 $$;
 
+-- «Próximas reservas» de recepción: TODAS las reservas anotadas que todavía esperan al huésped (no canceladas, sin check-in empezado), desde hace `dias_recepcion`
+-- días (las que se pasaron hace poco y el huésped llega tarde) en adelante, de la más cercana a la más lejana. Es lo que se busca por nombre en la pantalla.
+--   en_ventana: se puede hacer el check-in (y corregirla) ahora: recepción, solo de `dias_recepcion` días antes a `dias_recepcion` días después de la fecha de
+--     ingreso; el dueño, siempre. checkin_desde: el primer día en que recepción puede hacer el check-in (ingreso menos esos días).
+--   Devuelve hasta 300 (`mas` dice cuántas quedaron afuera: las más lejanas).
+create or replace function public.recepcion_proximas(p_clave text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  cfg private.checkin_config;
+  v_dueno boolean;
+  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
+  v_total int;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  select * into cfg from private.checkin_config where id = 1;
+  v_dueno := coalesce((private.actor(p_clave) ->> 'dueno')::boolean, false);
+  select count(*)::int into v_total from private.reservas_anotadas a
+   where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_hoy - cfg.dias_recepcion;
+  return json_build_object('ok', true, 'activo', cfg.activo, 'hoy', v_hoy, 'dias', cfg.dias_recepcion, 'mas', greatest(0, v_total - 300), 'reservas', (
+    select coalesce(json_agg((private.anotada_json(t.id)::jsonb
+             || jsonb_build_object('en_ventana', v_dueno or t.fecha_ingreso between v_hoy - cfg.dias_recepcion and v_hoy + cfg.dias_recepcion,
+                                   'checkin_desde', t.fecha_ingreso - cfg.dias_recepcion))::json order by t.fecha_ingreso, t.id), '[]'::json)
+      from (select a.id, a.fecha_ingreso from private.reservas_anotadas a
+             where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_hoy - cfg.dias_recepcion
+             order by a.fecha_ingreso, a.id limit 300) t));
+end;
+$$;
+
 -- ---------------------------------------------------------------- avisos en el celular (notificaciones push)
 
 -- Quién es esa persona del equipo (0 = el dueño), por su nombre. null si no hay nadie activo con ese nombre.
@@ -1842,6 +1874,7 @@ revoke all on function public.admin_anotada_guardar(text, bigint, text, date, te
 revoke all on function public.recepcion_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) from public, anon, authenticated;
 revoke all on function public.admin_anotada_cancelar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.admin_anotadas(text) from public, anon, authenticated;
+revoke all on function public.recepcion_proximas(text) from public, anon, authenticated;
 revoke all on function public.push_suscribir(text, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.push_desuscribir(text, text) from public, anon, authenticated;
 revoke all on function public.push_estado(text, text) from public, anon, authenticated;
@@ -1864,6 +1897,7 @@ grant execute on function public.admin_anotada_guardar(text, bigint, text, date,
 grant execute on function public.recepcion_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) to anon, authenticated;
 grant execute on function public.admin_anotada_cancelar(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.admin_anotadas(text) to anon, authenticated;
+grant execute on function public.recepcion_proximas(text) to anon, authenticated;
 grant execute on function public.push_suscribir(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.push_desuscribir(text, text) to anon, authenticated;
 grant execute on function public.push_estado(text, text) to anon, authenticated;

@@ -46,6 +46,8 @@ export const adminAnotadas = (clave) => rpc('admin_anotadas', { p_clave: clave }
 export const adminAnotadaGuardar = (clave, id, r) => rpc('admin_anotada_guardar', { p_clave: clave, p_id: id, ...deAnotada(r) });
 // Recepción también anota y corrige (por ejemplo, al que llega de la calle sin reserva: a su nombre, con el monto, y sigue con el check-in). Cancelar es solo del dueño.
 export const recepcionAnotadaGuardar = (clave, id, r) => rpc('recepcion_anotada_guardar', { p_clave: clave, p_id: id, ...deAnotada(r) });
+// «Próximas reservas» de recepción: todas las anotadas que esperan al huésped (cerca o lejos), cada una con si ya se puede hacer su check-in.
+export const recepcionProximas = (clave) => rpc('recepcion_proximas', { p_clave: clave });
 export const adminAnotadaCancelar = (clave, id, cancelar = true) => rpc('admin_anotada_cancelar', { p_clave: clave, p_id: id, p_cancelar: cancelar });
 // Hace el check-in de una reserva anotada: arma la reserva con el cobro que se eligió (mismos datos que «Nueva reserva») y da el primer código.
 export const recepcionLlegadaIniciar = (clave, id, r) => rpc('recepcion_llegada_iniciar', { p_clave: clave, p_id: id, ...deReserva(r) });
