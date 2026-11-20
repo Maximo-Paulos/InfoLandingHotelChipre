@@ -720,3 +720,32 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .zona-quitar{margin-top:20px;padding-top:14px;border-top:1px solid var(--linea)}
 .zona-quitar .ayuda{margin:0 0 8px}
 .zona-quitar .btn.mini{margin-top:0}
+
+/* Reservas anotadas (llegadas) */
+.reserva-nota{margin:0 0 12px;font-size:14px;line-height:1.4;color:var(--mostaza)}
+.ll-lista{display:grid;gap:12px;margin:12px 0 4px;padding:0;list-style:none}
+.ll-card{padding:14px 16px;border:1px solid var(--linea);border-left:4px solid var(--verde);border-radius:14px;background:var(--superficie)}
+.ll-card.pasada{border-left-color:var(--mostaza);background:var(--mostaza-claro)}
+.ll-card.cancelada{border-left-color:var(--linea);opacity:.78}
+.ll-card.en_curso{border-left-color:var(--salvia)}
+.ll-cab{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}
+.ll-cab b{font:500 22px/1.2 var(--serif)}
+.ll-titular{font-size:16px;font-weight:700}
+.ll-estado{margin-left:auto;font-size:12px;font-style:normal;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--texto-suave)}
+.ll-cuando{margin:6px 0 0;font-size:15px}
+.ll-det{margin:2px 0 0;font-size:14px;line-height:1.4;color:var(--texto-suave)}
+.ll-nota{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:var(--mostaza-claro);font-size:14px;line-height:1.4}
+.ll-nota span{margin-right:4px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--terracota-texto)}
+.ll-hab{margin:0 0 4px;font-size:15px;color:var(--texto-suave)}
+.ll-cobrar{margin:10px 0 0;padding:10px 12px;border:1px solid var(--linea);border-radius:12px;background:var(--verde-claro)}
+.ll-tit{margin:0 0 6px;font-size:13px;color:var(--texto-suave)}
+.ll-cobrar dl{display:grid;gap:4px;margin:0}
+.ll-cobrar dl>div{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.ll-cobrar dt{font-size:14px;color:var(--texto-suave);text-transform:none;letter-spacing:0;font-weight:400}
+.ll-cobrar dd{margin:0;font-size:17px;font-weight:700;white-space:nowrap}
+.ll-total{margin:8px 0 0;font-size:12px;line-height:1.4;color:var(--texto-suave)}
+.ll-ayuda{margin:6px 0 0;font-size:12px;line-height:1.4;color:var(--texto-suave)}
+.ll-sin{margin:8px 0 0;font-size:14px;color:var(--texto-suave)}
+.fichas button small{display:block;margin-top:2px;font-size:12px;font-weight:400;opacity:.85}
+.sub-form{margin:18px 0 0;font:500 19px/1.2 var(--serif)}
+

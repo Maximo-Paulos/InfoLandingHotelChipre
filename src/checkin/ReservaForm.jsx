@@ -42,16 +42,18 @@ export const nochesTexto = (n) => (n == null ? null : `${n} ${n === 1 ? 'noche' 
 export const huespedesTexto = (e, cuantos = e.con_checkin ?? 0) => (e.esperados != null && cuantos < e.esperados
   ? `${cuantos} de ${e.esperados} huéspedes`
   : `${cuantos} ${cuantos === 1 ? 'huésped' : 'huéspedes'}`);
-// Qué es la reserva: «Doble · 4 noches · Directo» (lo que falte, no se muestra).
-export const detalleTexto = (e) => [e.categoria, nochesTexto(e.noches), e.canal].filter(Boolean).join(' · ');
+// Qué es la reserva: «Juan Pérez · Doble · 4 noches · Directo» (el titular, si lo tiene; lo que falte, no se muestra).
+export const detalleTexto = (e) => [e.titular, e.categoria, nochesTexto(e.noches), e.canal].filter(Boolean).join(' · ');
 
 // Habitación, categoría, noches, canal de venta y, si el canal cobra, monto, moneda, medio de pago y fecha. Se usa para abrir una reserva y para corregirla.
 //   inicial: la reserva (o null para una nueva) · medios: [{ id, nombre }] · canales: [{ id, nombre, cobra, base }] · categorias: [{ id, nombre }]
 //   onGuardar({ habitacion, monto, moneda, medioPago, fecha, pagoHotel, fechaSena, noches, canal, categoria, huespedes }) -> { ok, mensaje?, campos? }
 //   huespedes = cuántos van a hacer el check-in en la habitación (obligatorio): la reserva queda abierta hasta que entren todos.
+//   prefill: datos con los que arranca una reserva NUEVA ya completada (el check-in de una reserva anotada): { habitacion, categoria_id, noches, huespedes, canal_id,
+//     moneda, monto, sena, pago, fecha_sena, medio_pago } (ver cobro.js). Todo se puede corregir. No es una reserva que se corrige: no cambia los textos ni exige menos.
 //   monto = valor TOTAL de la habitación · pagoHotel = lo que pagó en el hotel (con seña es menos que el total; la seña es la diferencia)
 //   Un canal que no cobra (obra social) no pide monto: la reserva se guarda en 0 y se factura aparte.
-export default function ReservaForm({ inicial = null, medios, canales = [], categorias = [], onGuardar, texto = 'Guardar', alCancelar = null }) {
+export default function ReservaForm({ inicial = null, prefill = null, medios, canales = [], categorias = [], onGuardar, texto = 'Guardar', alCancelar = null }) {
   const id = useId();
   const opciones = inicial && !medios.some((m) => m.id === inicial.medio_pago_id)
     ? [...medios, { id: inicial.medio_pago_id, nombre: `${inicial.medio_pago} (ya no se ofrece)` }]
@@ -64,12 +66,15 @@ export default function ReservaForm({ inicial = null, medios, canales = [], cate
     ? [...categorias, { id: inicial.categoria_id, nombre: `${inicial.categoria} (ya no se ofrece)` }]
     : categorias;
   const conSenaInicial = inicial != null && Number(inicial.pago_hotel ?? inicial.monto) < Number(inicial.monto);
+  const pf = inicial ? null : prefill; // lo que viene completado (solo en una reserva nueva)
+  const num = (x) => (x == null ? '' : String(Number(x)).replace('.', ','));
   const [v, setV] = useState(() => ({
-    habitacion: inicial?.habitacion ?? '', monto: inicial && inicial.canal_cobra !== false ? String(Number(inicial.monto)).replace('.', ',') : '', moneda: inicial?.moneda ?? 'ARS',
-    medio_pago: String(inicial?.medio_pago_id ?? medios[0]?.id ?? ''), fecha: inicial?.fecha_cobro ?? hoyAR(),
-    sena: conSenaInicial, pago: conSenaInicial ? String(Number(inicial.pago_hotel)).replace('.', ',') : '', fecha_sena: inicial?.fecha_sena ?? '',
-    noches: inicial?.noches != null ? String(inicial.noches) : '', huespedes: inicial?.esperados != null ? String(inicial.esperados) : '', categoria: inicial?.categoria_id != null ? String(inicial.categoria_id) : '',
-    canal: String(inicial?.canal_id ?? (canales.find((c) => c.base) ?? canales[0])?.id ?? '')
+    habitacion: inicial?.habitacion ?? pf?.habitacion ?? '', monto: inicial && inicial.canal_cobra !== false ? String(Number(inicial.monto)).replace('.', ',') : num(pf?.monto), moneda: inicial?.moneda ?? pf?.moneda ?? 'ARS',
+    medio_pago: String(inicial?.medio_pago_id ?? pf?.medio_pago ?? medios[0]?.id ?? ''), fecha: inicial?.fecha_cobro ?? hoyAR(),
+    sena: conSenaInicial || !!pf?.sena, pago: conSenaInicial ? String(Number(inicial.pago_hotel)).replace('.', ',') : num(pf?.pago), fecha_sena: inicial?.fecha_sena ?? pf?.fecha_sena ?? '',
+    noches: inicial?.noches != null ? String(inicial.noches) : num(pf?.noches), huespedes: inicial?.esperados != null ? String(inicial.esperados) : num(pf?.huespedes),
+    categoria: inicial?.categoria_id != null ? String(inicial.categoria_id) : pf?.categoria_id != null ? String(pf.categoria_id) : '',
+    canal: String(inicial?.canal_id ?? pf?.canal_id ?? (canales.find((c) => c.base) ?? canales[0])?.id ?? '')
   }));
   const canalElegido = opcionesCanal.find((c) => String(c.id) === v.canal);
   const cobra = canalElegido ? canalElegido.cobra !== false : true;
@@ -150,7 +155,7 @@ export default function ReservaForm({ inicial = null, medios, canales = [], cate
 
   return (
     <form onSubmit={enviar} noValidate ref={form} className="reserva-form">
-      {campo('habitacion', 'Habitación', <input {...p('habitacion', { maxLength: 12, placeholder: 'Ej. 107', autoFocus: !inicial, enterKeyHint: 'next' })} />)}
+      {campo('habitacion', 'Habitación', <input {...p('habitacion', { maxLength: 12, placeholder: 'Ej. 107', autoFocus: !inicial && !prefill, enterKeyHint: 'next' })} />)}
       {opcionesCat.length > 0 && fichas('categoria', 'Categoría de la habitación', opcionesCat, errores.categoria)}
       {campo('noches', 'Cantidad de noches', <input {...p('noches', { inputMode: 'numeric', maxLength: 3, placeholder: 'Ej. 4' })} />, 'Cuántas noches se queda. Con eso se calcula lo que sale cada noche.')}
       {campo('huespedes', 'Cantidad de huéspedes', <input {...p('huespedes', { inputMode: 'numeric', maxLength: 2, placeholder: 'Ej. 3' })} />, inicial ? 'Cuántas personas van a hacer el check-in en esta habitación.' : 'Cuántas personas van a hacer el check-in en esta habitación. La reserva queda abierta hasta que entren todos, así pueden llegar a distinta hora.')}

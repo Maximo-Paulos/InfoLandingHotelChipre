@@ -36,6 +36,19 @@ export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcio
 // Le vuelve a dar código a una reserva abierta (el huésped que llegó después) y anula una que no tiene huéspedes (nunca borra: queda marcada).
 export const recepcionReservaAbrir = (clave, id) => rpc('recepcion_reserva_abrir', { p_clave: clave, p_id: id });
 export const recepcionReservaAnular = (clave, id) => rpc('recepcion_reserva_anular', { p_clave: clave, p_id: id });
+// Reservas anotadas (por adelantado): las carga, corrige y cancela el dueño; recepción las ve en «Llegadas» y hace el check-in eligiendo cómo paga.
+// `r` = { titular, ingreso, habitacion, noches, categoria, canal, huespedes, efectivo, transferencia?, usd?, sena?, fechaSena?, nota? } (precios en pesos, salvo usd; seña en pesos).
+const deAnotada = (r) => ({
+  p_titular: r.titular, p_ingreso: r.ingreso, p_habitacion: r.habitacion, p_noches: r.noches ?? null, p_categoria: r.categoria ?? null, p_canal: r.canal ?? null, p_huespedes: r.huespedes ?? null,
+  p_efectivo: r.efectivo ?? null, p_transferencia: r.transferencia ?? null, p_usd: r.usd ?? null, p_sena: r.sena ?? 0, p_fecha_sena: r.fechaSena ?? null, p_nota: r.nota ?? null
+});
+export const adminAnotadas = (clave) => rpc('admin_anotadas', { p_clave: clave });
+export const adminAnotadaGuardar = (clave, id, r) => rpc('admin_anotada_guardar', { p_clave: clave, p_id: id, ...deAnotada(r) });
+// Recepción también anota y corrige (por ejemplo, al que llega de la calle sin reserva: a su nombre, con el monto, y sigue con el check-in). Cancelar es solo del dueño.
+export const recepcionAnotadaGuardar = (clave, id, r) => rpc('recepcion_anotada_guardar', { p_clave: clave, p_id: id, ...deAnotada(r) });
+export const adminAnotadaCancelar = (clave, id, cancelar = true) => rpc('admin_anotada_cancelar', { p_clave: clave, p_id: id, p_cancelar: cancelar });
+// Hace el check-in de una reserva anotada: arma la reserva con el cobro que se eligió (mismos datos que «Nueva reserva») y da el primer código.
+export const recepcionLlegadaIniciar = (clave, id, r) => rpc('recepcion_llegada_iniciar', { p_clave: clave, p_id: id, ...deReserva(r) });
 // El dueño elimina una reserva (con huéspedes también: se van con ella) o la restaura. Nunca borra: queda guardada y se puede restaurar.
 export const adminReservaAnular = (clave, id, anular = true) => rpc('admin_reserva_anular', { p_clave: clave, p_id: id, p_anular: anular });
 // El dueño elimina a un huésped (deja de verse y de contar, queda guardado) o lo restaura. Y la lista de los eliminados.
@@ -103,6 +116,9 @@ export const MENSAJES = {
   reserva_completa: 'Esa reserva ya tiene a todos sus huéspedes. Si falta alguien más, el dueño puede subir la cantidad de huéspedes.',
   reserva_vencida: 'Esa reserva ya pasó el tiempo en que recepción la ve. Pedile al dueño que la reabra.',
   reserva_cerrada: 'Esa reserva se cerró. Actualizá la pantalla.',
+  anotada_cancelada: 'Esa reserva anotada está cancelada. Solo el dueño la puede restaurar.',
+  anotada_ya_empezo: 'Esa reserva ya empezó el check-in. Actualizá la pantalla.',
+  llegada_fuera_de_fecha: 'Esa reserva llega fuera de los días que ve recepción. Pedile al dueño que haga el check-in.',
   tiene_huespedes: 'Esa reserva ya tiene huéspedes: no se puede anular.'
 };
 
