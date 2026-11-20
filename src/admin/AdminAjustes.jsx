@@ -5,6 +5,7 @@ import { fechaHora } from '../checkin/util.js';
 import { useNoIndexar } from '../personal.js';
 import Dispositivos from './Dispositivos.jsx';
 import { ConectarDrive, ConfigCheckin, useConfigCheckin } from './PanelCheckin.jsx';
+import PanelAvisos from './PanelAvisos.jsx';
 import PanelCatalogo from './PanelCatalogo.jsx';
 import PanelMediosPago from './PanelMediosPago.jsx';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
@@ -40,6 +41,7 @@ function Contenido({ clave, salir }) {
         </header>
         {error && <p className="ed-error" role="alert">{error}</p>}
         <ConfigCheckin clave={clave} config={config} recargar={recargar} />
+        <PanelAvisos clave={clave} />
         <PanelMediosPago clave={clave} medios={medios} alGuardar={setMedios} />
         <PanelCatalogo clave={clave} tipo="categoria" titulo="Categorías de habitación" singular="una categoría" plural="categoría" ejemplo="Ej. Suite" items={categorias} alGuardar={setCategorias}
           ayuda="Single, Doble, Triple… Recepción elige una al abrir cada reserva. Sirve para ver qué categorías se buscan más y a qué tarifa se vende cada una. Podés cambiar nombres, agregar y quitar: nunca se borra nada." />

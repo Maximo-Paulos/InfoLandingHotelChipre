@@ -42,6 +42,13 @@
 --   * Una reserva anotada NO es una estadía: no suma en ninguna estadística hasta que se hace el check-in. Anular no borra: queda marcada.
 --   * Anotar y corregir: el dueño y recepción. CANCELAR (y restaurar): solo el dueño.
 
+--
+-- AVISOS EN EL CELULAR (notificaciones push, ver la sección «avisos» más abajo):
+--   * Cada celular con la app instalada activa los avisos con un botón y queda registrado, atado a su sesión (si la sesión se cierra o vence, deja de recibir).
+--   * Avisos: reserva anotada nueva (la crea el dueño → les llega a recepción; la crea recepción → le llega al dueño y a los otros de recepción) y check-in
+--     realizado (le llega al dueño; a recepción solo si el dueño lo prende). A quien hizo la acción no se le avisa.
+--   * El envío lo hace una función en Vercel (api/push.js); la base le pasa los celulares y el texto con pg_net. Un fallo al avisar NUNCA frena una reserva ni un check-in.
+
 -- ---------------------------------------------------------------- tablas
 
 alter table private.checkin_config add column if not exists reserva_min int not null default 10 check (reserva_min between 1 and 120);
@@ -169,6 +176,46 @@ create table if not exists private.reservas_anotadas (
 alter table private.reservas_anotadas enable row level security;
 create index if not exists anotadas_ingreso_idx on private.reservas_anotadas (fecha_ingreso);
 create index if not exists anotadas_estadia_idx on private.reservas_anotadas (estadia_id);
+
+-- Los celulares que activaron los avisos. endpoint/p256dh/auth son lo que el navegador entrega para poder avisarle (no sirven para nada más).
+-- sesion_hash: la sesión de ese celular (sha256 del código sd_…). Cada vez que se abre la app se vuelve a anotar con la sesión de ese momento.
+create table if not exists private.push_suscripciones (
+  id bigint generated always as identity primary key,
+  creado timestamptz not null default now(),
+  visto timestamptz not null default now(),
+  sesion_hash text not null,
+  usuario_id bigint not null,
+  alias text not null,
+  rol text not null check (rol in ('admin', 'recepcion')),
+  endpoint text not null unique check (endpoint ~ '^https://' and length(endpoint) between 20 and 1000),
+  p256dh text not null check (length(p256dh) between 40 and 200),
+  auth text not null check (length(auth) between 10 and 100),
+  agente text check (length(agente) <= 200)
+);
+alter table private.push_suscripciones enable row level security;
+create index if not exists push_susc_rol_idx on private.push_suscripciones (rol);
+-- Lo último que se mandó (queda unos días para revisar qué pasó; trae habitación y titular, por eso se vacía solo).
+create table if not exists private.push_cola (
+  id bigint generated always as identity primary key,
+  creado timestamptz not null default now(),
+  tipo text not null,
+  titulo text not null,
+  cuerpo text not null,
+  destinos int not null default 0,
+  enviado boolean not null default false
+);
+alter table private.push_cola enable row level security;
+-- url + secreto: a dónde y con qué clave se le pide a la función de Vercel que mande los avisos (los carga el dueño una vez, ver README). Sin eso no se envía nada.
+-- con_nombre: el aviso lleva el nombre del titular · checkin_a_recepcion: el aviso de check-in también le llega a recepción.
+create table if not exists private.push_config (
+  id int primary key check (id = 1),
+  url text,
+  secreto text,
+  con_nombre boolean not null default true,
+  checkin_a_recepcion boolean not null default false
+);
+alter table private.push_config enable row level security;
+insert into private.push_config (id) values (1) on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------- ayudas
 
@@ -556,6 +603,9 @@ begin
   update private.checkin_sesiones set usada = true where token_hash = v_hash;
   if e.id is not null and v_n + 1 >= e.huespedes_esperados then
     perform private.estadia_cerrar_codigos(e.id); -- ya entraron todos: la reserva se cierra y el código deja de servir
+  end if;
+  if e.id is not null then
+    perform private.push_aviso_checkin(e.id, v_n + 1, s.habilitado_por); -- avisa en los celulares (nunca falla: avisar no frena el check-in)
   end if;
   return json_build_object('ok', true);
 end;
@@ -1023,6 +1073,7 @@ begin
               (v ->> 'efectivo')::numeric, (v ->> 'transf')::numeric, (v ->> 'usd')::numeric, (v ->> 'sena')::numeric, (v ->> 'fecha_sena')::date, v ->> 'nota')
       returning id into v_id;
     perform private.auditar(case when p_dueno then 'admin' else 'recepcion' end, 'anotada_guardar', null, jsonb_build_object('anotada', v_id, 'por', v_quien, 'nueva', true));
+    perform private.push_aviso_anotada(v_id, v_quien, p_dueno);
   else
     v_id := p_id;
     if (v ->> 'titular') <> a.titular then v_cambios := array_append(v_cambios, 'titular'); end if;
@@ -1130,6 +1181,228 @@ begin
   return json_build_object('ok', true, 'hoy', v_hoy, 'anotadas', (
     select coalesce(json_agg(private.anotada_json(t.id) order by t.fecha_ingreso, t.id), '[]'::json)
       from (select a.id, a.fecha_ingreso from private.reservas_anotadas a where a.fecha_ingreso >= v_hoy - 60 order by a.fecha_ingreso, a.id limit 500) t));
+end;
+$$;
+
+-- ---------------------------------------------------------------- avisos en el celular (notificaciones push)
+
+-- Quién es esa persona del equipo (0 = el dueño), por su nombre. null si no hay nadie activo con ese nombre.
+create or replace function private.push_usuario_id(p_alias text)
+returns bigint language sql stable security definer set search_path = '' as $$
+  select case when lower(btrim(coalesce(p_alias, ''))) = 'dueño' then 0
+              else (select u.id from private.usuarios u where lower(btrim(u.alias)) = lower(btrim(p_alias)) and u.activo limit 1) end;
+$$;
+
+-- Manda un aviso a los celulares de esos roles que tengan la sesión abierta (menos a los de p_excluir, quien hizo la acción), o solo al celular p_solo.
+-- No devuelve nada y NUNCA falla: avisar es un extra, no puede frenar una reserva ni un check-in.
+--   La función de Vercel (config.url) firma y entrega; acá solo se arma la lista y se llama con pg_net (sin esperar la respuesta).
+create or replace function private.push_enviar(p_tipo text, p_titulo text, p_cuerpo text, p_tag text, p_roles text[], p_excluir bigint default null, p_solo bigint default null)
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  cfg private.push_config;
+  v_subs jsonb;
+  v_n int;
+  v_cola bigint;
+begin
+  select * into cfg from private.push_config where id = 1;
+  select coalesce(jsonb_agg(jsonb_build_object('endpoint', s.endpoint, 'p256dh', s.p256dh, 'auth', s.auth,
+                                                'url', case s.rol when 'admin' then '#/admin' else '#/recepcion' end)), '[]'::jsonb), count(*)::int
+    into v_subs, v_n
+    from private.push_suscripciones s
+    join private.sesiones x on x.token_hash = s.sesion_hash and x.revocada_en is null and x.vence > now()
+   where (p_solo is not null and s.id = p_solo)
+      or (p_solo is null and s.rol = any(p_roles) and s.usuario_id is distinct from p_excluir);
+  if v_n = 0 then
+    return;
+  end if;
+  -- limpieza: lo enviado hace más de 3 días y los celulares que no abren la app hace 45 días
+  delete from private.push_cola where creado < now() - interval '3 days';
+  delete from private.push_suscripciones where visto < now() - interval '45 days';
+  insert into private.push_cola (tipo, titulo, cuerpo, destinos) values (p_tipo, left(p_titulo, 100), left(p_cuerpo, 250), v_n) returning id into v_cola;
+  if cfg.url is not null and cfg.secreto is not null
+     and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'net' and p.proname = 'http_post') then
+    execute 'select net.http_post(url := $1, headers := $2, body := $3, timeout_milliseconds := 10000)'
+      using cfg.url, jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || cfg.secreto),
+            jsonb_build_object('titulo', left(p_titulo, 100), 'cuerpo', left(p_cuerpo, 250), 'tag', p_tag, 'suscripciones', v_subs);
+    update private.push_cola set enviado = true where id = v_cola;
+  end if;
+exception when others then
+  null;
+end;
+$$;
+
+-- «dom 17/11» para el aviso.
+create or replace function private.push_fecha(p_fecha date)
+returns text language sql immutable security definer set search_path = '' as $$
+  select (array['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'])[extract(dow from p_fecha)::int + 1] || ' ' || to_char(p_fecha, 'DD/MM');
+$$;
+
+-- Se anotó una reserva: si la anotó el dueño les avisa a recepción; si la anotó recepción, le avisa al dueño y a los otros de recepción.
+create or replace function private.push_aviso_anotada(p_id bigint, p_quien text, p_dueno boolean)
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  a private.reservas_anotadas;
+  cfg private.push_config;
+begin
+  select * into a from private.reservas_anotadas where id = p_id;
+  select * into cfg from private.push_config where id = 1;
+  perform private.push_enviar('anotada', 'Reserva nueva',
+    concat_ws(' · ', 'Hab. ' || a.habitacion, case when cfg.con_nombre then a.titular end, 'llega ' || private.push_fecha(a.fecha_ingreso),
+              a.huespedes_esperados || case when a.huespedes_esperados = 1 then ' huésped' else ' huéspedes' end,
+              case when not p_dueno then 'la anotó ' || p_quien end),
+    'anotada-' || a.id, case when p_dueno then array['recepcion'] else array['admin', 'recepcion'] end, private.push_usuario_id(p_quien));
+exception when others then
+  null;
+end;
+$$;
+
+-- Entró un huésped a una reserva: le avisa al dueño (y a recepción si el dueño lo prendió), menos a quien dio el código. Un solo aviso por reserva (el último reemplaza al anterior).
+create or replace function private.push_aviso_checkin(p_estadia bigint, p_con int, p_habilito text)
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  e private.estadias;
+  cfg private.push_config;
+begin
+  select * into e from private.estadias where id = p_estadia;
+  select * into cfg from private.push_config where id = 1;
+  perform private.push_enviar('checkin', 'Check-in realizado',
+    concat_ws(' · ', 'Hab. ' || e.habitacion, case when cfg.con_nombre then e.titular end,
+              p_con || ' de ' || e.huespedes_esperados || case when e.huespedes_esperados = 1 then ' huésped' else ' huéspedes' end,
+              case when p_con >= e.huespedes_esperados then 'reserva completa' end),
+    'checkin-' || e.id, case when cfg.checkin_a_recepcion then array['admin', 'recepcion'] else array['admin'] end, private.push_usuario_id(p_habilito));
+exception when others then
+  null;
+end;
+$$;
+
+-- Activa los avisos en este celular (lo llama la app cuando la persona toca «Activar avisos», y cada vez que se abre, para atarlo a la sesión de ese momento).
+-- p_endpoint / p_llave (p256dh) / p_auth: lo que entrega el navegador. Solo con una sesión de dispositivo (no con la clave).
+create or replace function public.push_suscribir(p_clave text, p_endpoint text, p_llave text, p_auth text, p_agente text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  v_actor jsonb;
+  v_uid bigint;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  if p_clave !~ '^sd_[0-9a-f]{64}$' then
+    return json_build_object('ok', false, 'error', 'sesion_requerida');
+  end if;
+  if p_endpoint is null or p_endpoint !~ '^https://' or length(p_endpoint) not between 20 and 1000 or p_llave is null or length(p_llave) not between 40 and 200
+     or p_auth is null or length(p_auth) not between 10 and 100 then
+    return json_build_object('ok', false, 'error', 'datos_invalidos');
+  end if;
+  v_actor := private.actor(p_clave);
+  v_uid := (v_actor ->> 'id')::bigint;
+  insert into private.push_suscripciones (sesion_hash, usuario_id, alias, rol, endpoint, p256dh, auth, agente)
+    values (encode(extensions.digest(p_clave, 'sha256'), 'hex'), v_uid, v_actor ->> 'alias', v_actor ->> 'rol', p_endpoint, p_llave, p_auth, left(p_agente, 200))
+    on conflict (endpoint) do update set sesion_hash = excluded.sesion_hash, usuario_id = excluded.usuario_id, alias = excluded.alias, rol = excluded.rol,
+                                         p256dh = excluded.p256dh, auth = excluded.auth, agente = excluded.agente, visto = now();
+  -- una persona no junta celulares viejos: se queda con los 8 más recientes
+  delete from private.push_suscripciones where usuario_id = v_uid and id not in (select id from private.push_suscripciones where usuario_id = v_uid order by visto desc, id desc limit 8);
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Apaga los avisos de este celular (cada persona solo puede apagar los suyos).
+create or replace function public.push_desuscribir(p_clave text, p_endpoint text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare r text;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  delete from private.push_suscripciones where endpoint = p_endpoint and usuario_id = (private.actor(p_clave) ->> 'id')::bigint;
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- ¿Este celular tiene los avisos activos? configurado: el envío ya está conectado en el servidor (si no, los avisos todavía no salen).
+create or replace function public.push_estado(p_clave text, p_endpoint text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  cfg private.push_config;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  select * into cfg from private.push_config where id = 1;
+  return json_build_object('ok', true, 'configurado', cfg.url is not null and cfg.secreto is not null,
+    'suscripto', exists (select 1 from private.push_suscripciones where endpoint = p_endpoint and usuario_id = (private.actor(p_clave) ->> 'id')::bigint));
+end;
+$$;
+
+-- Un aviso de prueba, solo a este celular, para comprobar que llega.
+create or replace function public.push_prueba(p_clave text, p_endpoint text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  cfg private.push_config;
+  v_id bigint;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  if private.limite_alcanzado('prb', 5) then
+    return json_build_object('ok', false, 'error', 'demasiados_intentos');
+  end if;
+  perform private.registrar_fallo('prb');
+  select * into cfg from private.push_config where id = 1;
+  select id into v_id from private.push_suscripciones where endpoint = p_endpoint and usuario_id = (private.actor(p_clave) ->> 'id')::bigint;
+  if v_id is null then
+    return json_build_object('ok', false, 'error', 'no_existe');
+  end if;
+  perform private.push_enviar('prueba', 'Aviso de prueba', 'Si ves esto, los avisos funcionan en este celular.', 'prueba', array[]::text[], null, v_id);
+  return json_build_object('ok', true, 'configurado', cfg.url is not null and cfg.secreto is not null);
+end;
+$$;
+
+-- La función de Vercel avisa qué celulares ya no existen (se desinstaló la app o se quitó el permiso) para sacarlos de la lista. Se entra con el secreto.
+create or replace function public.push_limpiar(p_secreto text, p_endpoints text[])
+returns json language plpgsql security definer set search_path = '' as $$
+declare cfg private.push_config;
+begin
+  if private.limite_alcanzado('psh', 8) then
+    return json_build_object('ok', false, 'error', 'demasiados_intentos');
+  end if;
+  select * into cfg from private.push_config where id = 1;
+  if cfg.secreto is null or p_secreto is distinct from cfg.secreto then
+    perform private.registrar_fallo('psh');
+    return json_build_object('ok', false, 'error', 'clave_incorrecta');
+  end if;
+  delete from private.push_suscripciones where endpoint = any(coalesce(p_endpoints, array[]::text[]));
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Ajustes de los avisos (solo el dueño): si el aviso lleva el nombre del titular, y si el check-in también le avisa a recepción. Sin pasar nada, devuelve lo de hoy.
+--   dispositivos: cuántos celulares con sesión abierta tienen los avisos activos, del dueño y de recepción.
+create or replace function public.admin_push_config(p_clave text, p_nombre boolean default null, p_checkin_recepcion boolean default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  cfg private.push_config;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  if p_nombre is not null or p_checkin_recepcion is not null then
+    update private.push_config set con_nombre = coalesce(p_nombre, con_nombre), checkin_a_recepcion = coalesce(p_checkin_recepcion, checkin_a_recepcion) where id = 1;
+    perform private.auditar('admin', 'config', null, jsonb_build_object('claves', jsonb_build_array('avisos')));
+  end if;
+  select * into cfg from private.push_config where id = 1;
+  return json_build_object('ok', true, 'con_nombre', cfg.con_nombre, 'checkin_a_recepcion', cfg.checkin_a_recepcion, 'configurado', cfg.url is not null and cfg.secreto is not null,
+    'dispositivos', json_build_object(
+      'admin', (select count(*)::int from private.push_suscripciones s join private.sesiones x on x.token_hash = s.sesion_hash and x.revocada_en is null and x.vence > now() where s.rol = 'admin'),
+      'recepcion', (select count(*)::int from private.push_suscripciones s join private.sesiones x on x.token_hash = s.sesion_hash and x.revocada_en is null and x.vence > now() where s.rol = 'recepcion')));
 end;
 $$;
 
@@ -1545,6 +1818,11 @@ revoke all on function private.estadia_ultima(bigint) from public, anon, authent
 revoke all on function private.estadia_cerrar_codigos(bigint) from public, anon, authenticated;
 revoke all on function private.estadia_abierta(bigint) from public, anon, authenticated;
 revoke all on function private.anotada_json(bigint) from public, anon, authenticated;
+revoke all on function private.push_usuario_id(text) from public, anon, authenticated;
+revoke all on function private.push_enviar(text, text, text, text, text[], bigint, bigint) from public, anon, authenticated;
+revoke all on function private.push_fecha(date) from public, anon, authenticated;
+revoke all on function private.push_aviso_anotada(bigint, text, boolean) from public, anon, authenticated;
+revoke all on function private.push_aviso_checkin(bigint, int, text) from public, anon, authenticated;
 revoke all on function private.anotada_guardar(text, boolean, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) from public, anon, authenticated;
 revoke all on function private.anotada_validar(text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text, private.reservas_anotadas) from public, anon, authenticated;
 revoke all on function private.estadia_crear(jsonb, text, numeric, text, int, date, numeric, date, int, int, int, int, text, text) from public, anon, authenticated;
@@ -1564,6 +1842,12 @@ revoke all on function public.admin_anotada_guardar(text, bigint, text, date, te
 revoke all on function public.recepcion_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) from public, anon, authenticated;
 revoke all on function public.admin_anotada_cancelar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.admin_anotadas(text) from public, anon, authenticated;
+revoke all on function public.push_suscribir(text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.push_desuscribir(text, text) from public, anon, authenticated;
+revoke all on function public.push_estado(text, text) from public, anon, authenticated;
+revoke all on function public.push_prueba(text, text) from public, anon, authenticated;
+revoke all on function public.push_limpiar(text, text[]) from public, anon, authenticated;
+revoke all on function public.admin_push_config(text, boolean, boolean) from public, anon, authenticated;
 revoke all on function public.admin_huesped_quitar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.admin_huespedes_quitados(text) from public, anon, authenticated;
 revoke all on function public.recepcion_reserva_cerrar(text, boolean) from public, anon, authenticated;
@@ -1580,6 +1864,12 @@ grant execute on function public.admin_anotada_guardar(text, bigint, text, date,
 grant execute on function public.recepcion_anotada_guardar(text, bigint, text, date, text, int, int, int, int, numeric, numeric, numeric, numeric, date, text) to anon, authenticated;
 grant execute on function public.admin_anotada_cancelar(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.admin_anotadas(text) to anon, authenticated;
+grant execute on function public.push_suscribir(text, text, text, text, text) to anon, authenticated;
+grant execute on function public.push_desuscribir(text, text) to anon, authenticated;
+grant execute on function public.push_estado(text, text) to anon, authenticated;
+grant execute on function public.push_prueba(text, text) to anon, authenticated;
+grant execute on function public.push_limpiar(text, text[]) to anon, authenticated;
+grant execute on function public.admin_push_config(text, boolean, boolean) to anon, authenticated;
 grant execute on function public.admin_huesped_quitar(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.admin_huespedes_quitados(text) to anon, authenticated;
 grant execute on function public.recepcion_reserva_cerrar(text, boolean) to anon, authenticated;

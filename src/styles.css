@@ -749,3 +749,13 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .fichas button small{display:block;margin-top:2px;font-size:12px;font-weight:400;opacity:.85}
 .sub-form{margin:18px 0 0;font:500 19px/1.2 var(--serif)}
 
+/* Avisos en el celular */
+.avisos{margin:0 0 14px;padding:12px 14px;border:1px solid var(--linea);border-radius:14px;background:var(--verde-claro)}
+.avisos h3{margin:0 0 4px;font:500 19px/1.2 var(--serif)}
+.avisos .ab-btns{margin-top:8px}
+.av-ok{margin:0;font-size:14px;line-height:1.4;font-weight:700;color:var(--verde-oscuro)}
+.av-banner{margin:14px 0 0;padding:12px 14px;border:1px solid rgba(34,51,42,.16);border-left:4px solid var(--terracota);border-radius:12px;background:var(--superficie)}
+.av-banner p{margin:0;font-size:14px;line-height:1.45}
+.av-banner .ab-btns{margin-top:10px}
+.av-reglas{margin:4px 0 8px;padding-left:20px}
+

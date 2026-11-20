@@ -5,6 +5,7 @@ import BarraPersonal from '../BarraPersonal.jsx';
 import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 import { cargarCotizaciones } from '../admin/cotizaciones.js';
+import { AvisosBanner } from '../components/Avisos.jsx';
 import { recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import AnotadaForm from './AnotadaForm.jsx';
 import CobroLlegada from './CobroLlegada.jsx';
@@ -271,6 +272,7 @@ function Panel({ clave, rol, vista, salir }) {
         {!estado && !error && <p className="intro" role="status">Cargando…</p>}
         {error && <p className="ed-error" role="alert">{error}</p>}
         {aviso && vista === 'codigo' && <p className={aviso.includes('Atención') ? 'in-aviso' : 'ed-ok'} role="status">{aviso}</p>}
+        {vista === 'codigo' && <AvisosBanner />}
 
         {estado && vista === 'codigo' && (
           <section className={`codigo-panel${activo && (!estado.reserva || otraReserva) ? ' con-form' : ''}`} aria-label="Código para el huésped">
