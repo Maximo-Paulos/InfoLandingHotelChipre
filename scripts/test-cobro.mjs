@@ -1,6 +1,6 @@
 // Las cuentas de cobro de una reserva anotada: cuánto resta en efectivo, en transferencia y en dólares, y lo que se le completa al formulario del check-in.
 //   node scripts/test-cobro.mjs
-import { aCobrar, medioSugerido, prefillDe, redondear } from '../src/checkin/cobro.js';
+import { aCobrar, medioSugerido, redondear, reservaDeLlegada } from '../src/checkin/cobro.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -44,20 +44,40 @@ ok(medioSugerido(medios, 'efectivo') === 1 && medioSugerido(medios, 'transferenc
 ok(medioSugerido([{ id: 9, nombre: 'Pago en dólares' }], 'usd') === 9 && medioSugerido([{ id: 8, nombre: 'Tarjeta' }], 'efectivo') === null, 'si se llama distinto lo encuentra igual; si nada se parece, null');
 ok(medioSugerido(null, 'usd') === null, 'sin lista no se rompe');
 
-console.log('\n== 4. Lo que se le completa al formulario del check-in');
-let p = prefillDe(A(), 'efectivo', 1000, medios);
-ok(p.moneda === 'ARS' && p.monto === 100000 && p.sena === true && p.pago === 70000 && p.fecha_sena === '2026-11-10' && p.medio_pago === 1, 'efectivo: total 100.000, con seña, pagó en el hotel 70.000, su fecha y medio «Efectivo»');
-ok(p.habitacion === '107' && p.noches === 2 && p.huespedes === 3 && p.categoria_id === 6 && p.canal_id === 1, 'y trae habitación, noches, huéspedes, categoría y canal');
-p = prefillDe(A(), 'transferencia', 1000, medios);
-ok(p.monto === 110000 && p.pago === 80000 && p.medio_pago === 2, 'transferencia: total 110.000, pagó en el hotel 80.000');
-p = prefillDe(A(), 'usd', 1000, medios);
-ok(p.moneda === 'USD' && cerca(p.monto, 100) && cerca(p.pago, 70) && p.sena === true && p.medio_pago === 3, 'dólares: moneda USD, total US$ 100 (el efectivo al oficial) y pagó en el hotel US$ 70');
-p = prefillDe(A({ sena: 0, fecha_sena: null }), 'efectivo', 1000, medios);
-ok(p.sena === false && p.pago === null && p.monto === 100000, 'sin seña el formulario queda como «pagó todo en el hotel»');
-p = prefillDe(A(), 'usd', null, medios);
-ok(p.moneda === 'USD' && p.monto === null && p.pago === null, 'dólares sin dólar oficial: el formulario queda para escribir el monto a mano');
-p = prefillDe(A({ canal_cobra: false, precio_efectivo: 0 }), 'efectivo', 1000, medios);
-ok(p.monto === undefined && p.habitacion === '107' && p.huespedes === 3, 'obra social: sin montos, con los datos de la estadía');
+console.log('\n== 4. La reserva que sale al confirmar el cobro (la habitación, noches y huéspedes salen tal cual de la anotada)');
+const HOY = '2026-11-20';
+let q = reservaDeLlegada(A(), 'efectivo', 1000, 2, HOY);
+ok(q.habitacion === '107' && q.noches === 2 && q.huespedes === 3 && q.canal === 1 && q.categoria === 6 && q.fecha === HOY, 'lleva la habitación, noches, huéspedes, canal, categoría y el día del cobro');
+ok(q.monto === 100000 && q.moneda === 'ARS' && q.medioPago === 2 && q.pagoHotel === 70000 && q.fechaSena === '2026-11-10', 'efectivo con seña: total 100.000, en el hotel 70.000 (lo que resta) y la fecha de la seña');
+q = reservaDeLlegada(A(), 'transferencia', 1000, 3, HOY);
+ok(q.monto === 110000 && q.pagoHotel === 80000 && q.moneda === 'ARS' && q.medioPago === 3, 'transferencia: total 110.000 y en el hotel 80.000');
+q = reservaDeLlegada(A({ sena: 0 }), 'efectivo', 1000, 2, HOY);
+ok(q.monto === 100000 && q.pagoHotel === 100000 && q.fechaSena === null, 'sin seña: pagó todo en el hotel y no hay fecha de seña');
+q = reservaDeLlegada(A({ sena: 100000 }), 'efectivo', 1000, 2, HOY);
+ok(q.monto === 100000 && q.pagoHotel === 0 && q.fechaSena === '2026-11-10', 'con una seña que cubre todo: en el hotel 0');
+q = reservaDeLlegada(A(), 'usd', 1000, 4, HOY);
+ok(q.moneda === 'USD' && cerca(q.monto, 100) && cerca(q.pagoHotel, 70) && q.medioPago === 4, 'dólares sin precio en dólares: se calcula con el oficial (US$ 100 en total, US$ 70 en el hotel)');
+q = reservaDeLlegada(A({ precio_usd: 80 }), 'usd', 1250, 4, HOY);
+ok(q.moneda === 'USD' && q.monto === 80 && cerca(q.pagoHotel, 80 - 24), 'dólares con precio en dólares cargado: US$ 80 menos la seña pasada a dólares');
+ok(reservaDeLlegada(A(), 'usd', null, 4, HOY) === null, 'dólares sin cotización y con seña: no se puede calcular (null)');
+q = reservaDeLlegada(A({ canal_cobra: false, precio_efectivo: 0, sena: 0 }), 'efectivo', 1000, null, HOY);
+ok(q.monto === 0 && q.medioPago === null && q.pagoHotel === 0 && q.fechaSena === null && q.habitacion === '107', 'obra social: sin monto ni medio de pago, con los datos de la estadía');
+q = reservaDeLlegada(A({ categoria_id: null }), 'efectivo', 1000, 2, HOY);
+ok(q.categoria === null, 'una reserva anotada sin categoría sigue sin categoría');
+
+console.log('\n== 5. Si en el mostrador se cobró otro monto: solo cambia lo cobrado, el resto de la reserva no');
+q = reservaDeLlegada(A(), 'efectivo', 1000, 2, HOY, 60000);
+ok(q.pagoHotel === 60000 && q.monto === 90000 && q.fechaSena === '2026-11-10', 'se cobraron 60.000 en vez de 70.000 (seña 30.000): el total de la reserva pasa a 90.000');
+ok(q.habitacion === '107' && q.noches === 2 && q.huespedes === 3 && q.canal === 1 && q.categoria === 6, 'y la habitación, noches, huéspedes, canal y categoría quedan como estaban anotados');
+q = reservaDeLlegada(A(), 'transferencia', 1000, 3, HOY, 90000);
+ok(q.pagoHotel === 90000 && q.monto === 120000 && q.moneda === 'ARS', 'transferencia: cobraron 90.000 y con la seña el total es 120.000');
+q = reservaDeLlegada(A({ sena: 0 }), 'efectivo', 1000, 2, HOY, 95000.5);
+ok(q.pagoHotel === 95000.5 && q.monto === 95000.5 && q.fechaSena === null, 'sin seña el total es lo cobrado (acepta centavos)');
+q = reservaDeLlegada(A(), 'usd', 1000, 4, HOY, 50);
+ok(q.moneda === 'USD' && q.pagoHotel === 50 && cerca(q.monto, 80), 'dólares: cobraron US$ 50 y con la seña (US$ 30) el total es US$ 80');
+for (const malo of [0, -5, 'abc', NaN, 1e9, 1e12, Infinity]) ok(reservaDeLlegada(A(), 'efectivo', 1000, 2, HOY, malo) === null, `un monto cobrado de ${String(malo)} no vale (null)`);
+q = reservaDeLlegada(A({ canal_cobra: false, precio_efectivo: 0, sena: 0 }), 'efectivo', 1000, null, HOY, 5000);
+ok(q.monto === 0 && q.pagoHotel === 0, 'con un canal que no cobra no se carga ningún monto, ni aunque se pase uno');
 
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);

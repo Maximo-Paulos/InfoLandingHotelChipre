@@ -10,9 +10,10 @@ import { recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepci
 import AnotadaForm from './AnotadaForm.jsx';
 import CobroLlegada from './CobroLlegada.jsx';
 import EditarHuesped from './EditarHuesped.jsx';
-import { TarjetaLlegada, ventaDeHoy } from './Llegadas.jsx';
+import { ventaDeHoy } from './Llegadas.jsx';
 import Modal from './Modal.jsx';
 import Planilla from './Planilla.jsx';
+import Proximas from './Proximas.jsx';
 import ReservaForm, { cobroLinea, detalleTexto, hoyAR, huespedesTexto } from './ReservaForm.jsx';
 import { agruparCodigo, minSeg, tiempoCorto, useAhora } from './util.js';
 
@@ -22,7 +23,9 @@ const CADA_MS = 3000;
 // (las reservas abiertas y el código para el huésped, que es de quien está en sesión) y «Huéspedes» (la planilla de los últimos días).
 // Recepción también anota reservas (por ejemplo, al que llega de la calle sin reserva: a su nombre, con el monto, y sigue con el check-in) y corrige las
 // llegadas que ve; cancelar es solo del dueño, por eso acá no hay ningún botón de cancelar una llegada.
-// «Código» tiene tres vistas: el código de una reserva (mientras dura), la lista (las LLEGADAS que el dueño anotó por adelantado, con cuánto cobrar, y las
+// La pestaña «Reservas» (próximas reservas) lista TODAS las reservas anotadas que esperan al huésped, con buscador por nombre: al tocar una se ve la habitación y
+// cuánto hay que cobrar, se confirma el cobro y recién ahí se hace el check-in y sale el código (ver CobroLlegada).
+// «Código» tiene tres vistas: el código de una reserva (mientras dura), la lista (un aviso de las llegadas de hoy que lleva a «Reservas», y las
 // reservas abiertas, las que todavía esperan huéspedes, de todo el equipo: así el turno de la tarde atiende al que llega tarde) y el formulario de reserva nueva.
 // La sesión queda abierta en el dispositivo (ver sesion.js).
 export default function Recepcion({ vista = 'codigo' }) {
@@ -80,6 +83,7 @@ function Panel({ clave, rol, vista, salir }) {
   const [haciendoCheckin, setHaciendoCheckin] = useState(null); // la llegada anotada a la que se le está haciendo el check-in (se elige cómo paga)
   const [cotizaciones, setCotizaciones] = useState(null); // el dólar oficial, para decir cuánto cobrar en dólares (solo se pide si hay llegadas)
   const [fotos, setFotos] = useState(null);
+  const [version, setVersion] = useState(0); // sube cuando algo cambia (se anotó, se hizo un check-in): la lista de próximas reservas se vuelve a pedir
   const ahora = useAhora(250);
   const reloj = useRef(null);
   const ultimoVencido = useRef(0);
@@ -152,9 +156,10 @@ function Panel({ clave, rol, vista, salir }) {
     const nueva = anotando === 'nueva';
     const res = await recepcionAnotadaGuardar(clave, nueva ? null : anotando.id, r);
     if (!res.ok) {
-      if (['anotada_ya_empezo', 'anotada_cancelada', 'llegada_fuera_de_fecha', 'no_existe'].includes(res.error)) { setAnotando(null); setError(textoCodigo(res.error)); await refrescar(); }
+      if (['anotada_ya_empezo', 'anotada_cancelada', 'llegada_fuera_de_fecha', 'no_existe'].includes(res.error)) { setAnotando(null); setError(textoCodigo(res.error)); setVersion((v) => v + 1); await refrescar(); }
       return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
     }
+    setVersion((v) => v + 1);
     const pisan = res.superpuestas ?? [];
     setAnotando(null);
     setError('');
@@ -171,14 +176,17 @@ function Panel({ clave, rol, vista, salir }) {
   const iniciarLlegada = async (r) => {
     const res = await recepcionLlegadaIniciar(clave, haciendoCheckin.id, r);
     if (!res.ok) {
-      if (['anotada_ya_empezo', 'anotada_cancelada', 'llegada_fuera_de_fecha', 'no_existe'].includes(res.error)) { setHaciendoCheckin(null); setError(textoCodigo(res.error)); await refrescar(); }
+      if (['anotada_ya_empezo', 'anotada_cancelada', 'llegada_fuera_de_fecha', 'no_existe'].includes(res.error)) { setHaciendoCheckin(null); setError(textoCodigo(res.error)); setVersion((v) => v + 1); await refrescar(); }
       return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
     }
     setHaciendoCheckin(null);
     setOtraReserva(false);
     setError('');
     setAviso('');
+    setVersion((v) => v + 1);
     await refrescar();
+    // Con el check-in hecho, el código para el huésped está en la pestaña «Código»: se va para allá.
+    if (vista === 'reservas') window.location.hash = '#/recepcion';
     return { ok: true };
   };
   const abrirReserva = async (r) => {
@@ -245,7 +253,8 @@ function Panel({ clave, rol, vista, salir }) {
   const llegadas = estado?.llegadas ?? [];
   const venta = ventaDeHoy(cotizaciones);
   const hayLlegadas = llegadas.length > 0;
-  const pideDolar = hayLlegadas || !!anotando;
+  const llegadasHoy = llegadas.filter((a) => a.dias_para === 0).length;
+  const pideDolar = hayLlegadas || !!anotando || vista === 'reservas' || !!haciendoCheckin;
   useEffect(() => {
     if (!pideDolar) return undefined;
     let vivo = true;
@@ -262,16 +271,16 @@ function Panel({ clave, rol, vista, salir }) {
 
   return (
     <div className="page personal">
-      <BarraPersonal titulo={vista === 'codigo' ? 'Código' : 'Huéspedes'} actual={vista === 'codigo' ? 'codigo' : rol === 'admin' ? 'huespedes' : 'huespedesRec'} salir={salir} ancha={vista !== 'codigo'} />
-      <main className={`card${vista === 'codigo' ? '' : ' ancha'}`}>
+      <BarraPersonal titulo={vista === 'codigo' ? 'Código' : vista === 'reservas' ? 'Reservas' : 'Huéspedes'} actual={vista === 'codigo' ? 'codigo' : vista === 'reservas' ? 'reservasRec' : rol === 'admin' ? 'huespedes' : 'huespedesRec'} salir={salir} ancha={vista === 'huespedes'} />
+      <main className={`card${vista === 'huespedes' ? ' ancha' : ''}`}>
         <header>
           <p className="eyebrow">Recepción</p>
-          <h1>{vista === 'codigo' ? 'Código para el huésped' : 'Huéspedes cargados'}</h1>
+          <h1>{vista === 'codigo' ? 'Código para el huésped' : vista === 'reservas' ? 'Próximas reservas' : 'Huéspedes cargados'}</h1>
         </header>
 
         {!estado && !error && <p className="intro" role="status">Cargando…</p>}
         {error && <p className="ed-error" role="alert">{error}</p>}
-        {aviso && vista === 'codigo' && <p className={aviso.includes('Atención') ? 'in-aviso' : 'ed-ok'} role="status">{aviso}</p>}
+        {aviso && vista !== 'huespedes' && <p className={aviso.includes('Atención') ? 'in-aviso' : 'ed-ok'} role="status">{aviso}</p>}
         {vista === 'codigo' && <AvisosBanner />}
 
         {estado && vista === 'codigo' && (
@@ -315,20 +324,11 @@ function Panel({ clave, rol, vista, salir }) {
               ) : (abiertas.length > 0 || hayLlegadas) && !otraReserva ? (
                 <div className="abiertas">
                   {hayLlegadas && (
-                    <>
-                      <h2>Llegadas</h2>
-                      <p className="aclara">Reservas que el dueño anotó para estos días. Cuando llegue el huésped, tocá <b>Hacer el check-in</b>: elegís cómo paga y se genera el código.</p>
-                      <ul className="ll-lista">
-                        {llegadas.map((a) => (
-                          <TarjetaLlegada key={a.id} a={a} venta={venta}>
-                            <div className="btns ab-btns">
-                              <button type="button" className="btn mini" onClick={() => { setAviso(''); setHaciendoCheckin(a); }}>Hacer el check-in</button>
-                              <button type="button" className="btn mini claro" onClick={() => { setAviso(''); setAnotando(a); }}>Editar</button>
-                            </div>
-                          </TarjetaLlegada>
-                        ))}
-                      </ul>
-                    </>
+                    <a className="ll-resumen" href="#/recepcion/reservas">
+                      <Icon name="calendario" size={26} sw={1.8} />
+                      <span><b>{llegadasHoy > 0 ? `Hoy ${llegadasHoy === 1 ? 'llega 1 reserva' : `llegan ${llegadasHoy} reservas`}` : 'Hay reservas para estos días'}</b>Buscá la reserva, mirá cuánto cobrar y hacé el check-in en «Reservas».</span>
+                      <Icon name="adelante" size={20} sw={2} />
+                    </a>
                   )}
                   {abiertas.length > 0 && <h2>Reservas abiertas</h2>}
                   {abiertas.length > 0 && <p className="aclara">Habitaciones a las que todavía les faltan huéspedes. Tocá <b>Dar código</b> cuando llegue alguien. Una reserva sin ningún huésped no suma en las estadísticas.</p>}
@@ -370,7 +370,11 @@ function Panel({ clave, rol, vista, salir }) {
           </section>
         )}
 
-        {estado && vista !== 'codigo' && (
+        {estado && vista === 'reservas' && (
+          <Proximas clave={clave} version={version} salir={salir} onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); setAnotando('nueva'); }} />
+        )}
+
+        {estado && vista === 'huespedes' && (
           <>
             <div className="head-row">
               <span className="muted">Últimos {estado.config.dias} {estado.config.dias === 1 ? 'día' : 'días'}</span>
@@ -392,7 +396,8 @@ function Panel({ clave, rol, vista, salir }) {
       )}
 
       {haciendoCheckin && (
-        <CobroLlegada a={haciendoCheckin} venta={venta} medios={estado?.medios_pago ?? []} canales={estado?.canales ?? []} categorias={estado?.categorias ?? []} onIniciar={iniciarLlegada} onCerrar={() => setHaciendoCheckin(null)} />
+        <CobroLlegada a={haciendoCheckin} venta={venta} medios={estado?.medios_pago ?? []} apagado={estado?.activo === false}
+          onIniciar={iniciarLlegada} onEditar={(a) => { setHaciendoCheckin(null); setAviso(''); setAnotando(a); }} onCerrar={() => setHaciendoCheckin(null)} />
       )}
 
       {fotos && <FotosHuesped modo="recepcion" clave={clave} fila={fotos} onCerrar={() => setFotos(null)} alCambiar={refrescar} />}

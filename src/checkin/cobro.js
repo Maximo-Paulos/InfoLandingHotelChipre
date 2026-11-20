@@ -40,19 +40,20 @@ const PARECE = {
 };
 export const medioSugerido = (medios, forma) => (medios ?? []).find((m) => PARECE[forma]?.(m.nombre))?.id ?? null;
 
-// Lo que se le pone ya completado al formulario de la reserva al hacer el check-in, para cada forma de cobrar ('efectivo' | 'transferencia' | 'usd').
-// Todo se puede corregir: por ejemplo, si en el mostrador se negoció otro monto. Con un canal que no cobra solo van los datos de la estadía.
-export function prefillDe(a, forma, venta, medios) {
-  const base = { habitacion: a.habitacion, categoria_id: a.categoria_id, noches: a.noches, huespedes: a.esperados, canal_id: a.canal_id };
-  if (a.canal_cobra === false) return base;
+// La reserva que se arma al hacer el check-in cuando recepción confirma el cobro: la habitación, las noches, los huéspedes, el canal y la categoría salen TAL CUAL de la
+// reserva anotada (no se tocan acá); del cobro se elige solo la forma de pago, el medio de pago y, si hace falta, cuánto se cobró de verdad.
+//   forma: 'efectivo' | 'transferencia' | 'usd' · medioPago: el medio con el que paga (id) · hoy: la fecha del cobro (YYYY-MM-DD)
+//   cobrado: lo que se cobró en el hotel (en la moneda de esa forma de pago), si NO es lo anotado (por ejemplo, si en el mostrador se negoció otro monto): el total de la
+//     reserva pasa a ser lo cobrado más la seña que ya estaba pagada. Sin `cobrado` se cobra lo que resta: el precio anotado menos la seña.
+// Con un canal que no cobra no hay monto ni medio de pago. null si esa forma de pagar no se puede calcular (dólares sin cotización) o si lo cobrado no es un monto válido.
+export function reservaDeLlegada(a, forma, venta, medioPago, hoy, cobrado = null) {
+  const base = { habitacion: a.habitacion, noches: a.noches, canal: a.canal_id, categoria: a.categoria_id ?? null, huespedes: a.esperados, fecha: hoy };
+  if (a.canal_cobra === false) return { ...base, monto: 0, moneda: 'ARS', medioPago: null, pagoHotel: 0, fechaSena: null };
   const x = aCobrar(a, venta)[forma] ?? null;
-  return {
-    ...base,
-    moneda: forma === 'usd' ? 'USD' : 'ARS',
-    monto: x ? x.total : null,
-    sena: x ? Number(a.sena) > 0 : false, // con seña, «lo que pagó en el hotel» es lo que resta; la seña es la diferencia
-    pago: x && Number(a.sena) > 0 ? x.resta : null,
-    fecha_sena: a.fecha_sena ?? null,
-    medio_pago: medioSugerido(medios, forma)
-  };
+  if (!x) return null;
+  const otro = cobrado != null;
+  if (otro && !(Number(cobrado) > 0 && Number(cobrado) < 1e9)) return null;
+  const pagoHotel = otro ? redondear(Number(cobrado)) : x.resta;
+  const monto = otro ? redondear(pagoHotel + x.sena) : x.total;
+  return { ...base, monto, moneda: forma === 'usd' ? 'USD' : 'ARS', medioPago, pagoHotel, fechaSena: x.sena > 0 && pagoHotel < monto ? (a.fecha_sena ?? null) : null };
 }
