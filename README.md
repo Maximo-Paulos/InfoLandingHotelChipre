@@ -237,6 +237,7 @@ El dueño y el personal reciben un **aviso en el celular** cuando se anota una r
 - **Qué avisos y a quién** (a quien hizo la acción no se le avisa):
   - **Reserva anotada por el dueño** → les llega a recepción. *«Reserva nueva · Hab. 107 · Juan Pérez · llega vie 21/11 · 3 huéspedes»*.
   - **Reserva anotada por recepción** → le llega al dueño (y a quien tenga rol de dueño) y a los otros de recepción, con quién la anotó.
+  - Al tocar el aviso de una **reserva nueva**, recepción abre directo la pestaña **Reservas** (para buscarla y atenderla); el dueño abre su Inicio; el aviso de **check-in** abre *Código* en recepción.
   - **Check-in de un huésped** → le llega al dueño. *«Check-in realizado · Hab. 107 · Juan Pérez · 1 de 3 huéspedes»*, y al entrar el último, *«… · reserva completa»*. Un solo aviso por reserva: el nuevo reemplaza al anterior en vez de apilarse. Si el que dio el código fue el dueño, no se le avisa a él.
   - En *Ajustes → Avisos en los celulares* el dueño elige si el aviso lleva el **nombre del titular** (apagado: solo la habitación) y si el aviso de **check-in también le llega a recepción** (apagado por defecto).
 - **Cada celular los activa una vez**: un cartel «Activá los avisos» arriba del Inicio / Código (o *Más → Avisos en este celular*) con el botón **Activar avisos**; el celular pide permiso y se registra. Hay un botón **Enviar aviso de prueba** para comprobar que llega. Cada celular queda atado a su sesión: al tocar *Salir*, o si la sesión se cierra o vence, deja de recibir; al volver a entrar se ata solo.

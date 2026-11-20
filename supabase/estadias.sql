@@ -1238,7 +1238,7 @@ declare
 begin
   select * into cfg from private.push_config where id = 1;
   select coalesce(jsonb_agg(jsonb_build_object('endpoint', s.endpoint, 'p256dh', s.p256dh, 'auth', s.auth,
-                                                'url', case s.rol when 'admin' then '#/admin' else '#/recepcion' end)), '[]'::jsonb), count(*)::int
+                                                'url', case when s.rol = 'admin' then '#/admin' when p_tipo = 'anotada' then '#/recepcion/reservas' else '#/recepcion' end)), '[]'::jsonb), count(*)::int
     into v_subs, v_n
     from private.push_suscripciones s
     join private.sesiones x on x.token_hash = s.sesion_hash and x.revocada_en is null and x.vence > now()

@@ -92,7 +92,7 @@ let ll = await llamadas();
 ok(ll.length === 1 && ll[0].url === 'https://hotel.ejemplo.test/api/push', 'ahora sí se le pide a la función de envío (una sola llamada)');
 ok(ll[0].headers.Authorization === 'Bearer secreto-de-prueba', 'con el secreto, para que nadie más pueda mandar avisos');
 ok(destinosDe(ll[0]).join() === 'lucia,martin', 'a los celulares de recepción (Recepción y Martín), y no al del dueño ni al de Carla');
-ok(ll[0].body.suscripciones.every((x) => x.url === '#/recepcion' && x.p256dh && x.auth) && ll[0].body.tag.startsWith('anotada-'), 'cada uno con lo que necesita para abrirlo, y una etiqueta para no repetir');
+ok(ll[0].body.suscripciones.every((x) => x.url === '#/recepcion/reservas' && x.p256dh && x.auth) && ll[0].body.tag.startsWith('anotada-'), 'cada uno con lo que necesita para abrirlo (la pestaña Reservas, para buscar la reserva nueva), y una etiqueta para no repetir');
 ok((await ultima()).enviado === true, 'y la cola lo marca como enviado');
 
 console.log('\n== 4. Reserva anotada por recepción → le llega al dueño y a los otros de recepción');
@@ -103,7 +103,7 @@ ll = await llamadas();
 ok(destinosDe(ll[0]).join() === 'carla,dueno,martin', 'le llega al dueño, a Carla y a Martín, y NO a quien la anotó');
 ok(ll[0].body.cuerpo.includes('Cliente de la calle') && ll[0].body.cuerpo.includes('la anotó Recepción'), 'y el aviso dice quién la anotó');
 const porRol = Object.fromEntries(ll[0].body.suscripciones.map((x) => [x.endpoint.split('/').pop(), x.url]));
-ok(porRol.dueno === '#/admin' && porRol.carla === '#/admin' && porRol.martin === '#/recepcion', 'al tocar el aviso, el dueño abre su inicio y recepción su pantalla');
+ok(porRol.dueno === '#/admin' && porRol.carla === '#/admin' && porRol.martin === '#/recepcion/reservas', 'al tocar el aviso, el dueño abre su inicio y recepción la pestaña Reservas');
 await limpiarLlamadas();
 await anotar({ p_titular: 'Corregida', p_habitacion: '306', p_ingreso: AR(1) }, lucia, 'recepcion_anotada_guardar');
 const idCorr = (await back.sql(`select id from private.reservas_anotadas where titular = 'Corregida'`))[0].id;
@@ -162,6 +162,7 @@ await limpiarLlamadas();
 await checkin(codD, 'Eli');
 ll = await llamadas();
 ok(ll.length === 1 && destinosDe(ll[0]).join() === 'carla,lucia,martin', 'ahora le llega también a recepción (Recepción y Martín) y a Carla; el dueño, que dio el código, no');
+ok(ll[0].body.suscripciones.filter((x) => ['lucia', 'martin'].includes(x.endpoint.split('/').pop())).every((x) => x.url === '#/recepcion'), 'y al tocarlo recepción abre «Código» (no «Reservas»: eso es solo para las reservas nuevas)');
 await llamar('admin_push_config', { p_clave: dueno, p_checkin_recepcion: false });
 
 console.log('\n== 7. Las sesiones cerradas ya no reciben');
