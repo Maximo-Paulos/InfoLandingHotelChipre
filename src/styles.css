@@ -788,6 +788,30 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .resumen-checkin{margin:0 0 10px;padding:12px 14px;border:1px solid var(--linea);border-radius:12px;background:var(--superficie);font-size:15px;line-height:1.45}
 .resumen-checkin b{font-weight:700}
 
+/* Reservas separadas en secciones: falta ingresar / ya ingresaron */
+.sec{margin:26px 0 0;padding:16px 14px 18px;border:1px solid var(--linea);border-radius:18px;background:var(--superficie)}
+.sec-falta{border-top:5px solid var(--terracota)}
+.sec-ingresaron{border-top:5px solid var(--verde)}
+.sec-tit{display:flex;align-items:center;gap:10px;margin:0;font:500 26px/1.15 var(--serif)}
+.sec-n{display:inline-grid;place-items:center;min-width:32px;height:32px;padding:0 9px;border-radius:999px;background:var(--hueso);font:800 15px/1 var(--sans)}
+.sec-falta .sec-n{background:var(--mostaza-claro);color:var(--terracota-texto)}
+.sec-ingresaron .sec-n{background:var(--verde-claro);color:var(--verde-oscuro)}
+.sec-ayuda{margin:2px 0 0;font-size:14px;color:var(--texto-suave)}
+.sec .pp-dia{margin-top:16px}
+.sec .pp-dia:first-of-type{margin-top:12px}
+.sec .ayuda,.sec .ab-vacio{margin-top:10px}
+.sub-sec{margin:18px 0 0;font:700 12px/1.3 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--texto-suave)}
+.pp-card{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--linea);border-left:4px solid var(--verde);border-radius:14px;background:var(--superficie)}
+.pp-card.nadie{border-left-color:var(--terracota)}
+.pp-card.faltan{border-left-color:var(--mostaza)}
+.pp-card .btn.mini{flex:none;margin:0}
+.pp-ingreso{font-size:14px;font-weight:700}
+.pp-ingreso.nadie{color:var(--terracota-texto)}
+.pp-ingreso.faltan{color:var(--terracota-texto)}
+.pp-ingreso.completa{color:var(--verde-oscuro)}
+.pp-nombres{font-size:14px;line-height:1.4;color:var(--texto-suave);overflow-wrap:anywhere}
+.ab-sub{margin:16px 0 0;font:700 12px/1.3 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--texto-suave)}
+
 /* Avisos en el celular */
 .avisos{margin:0 0 14px;padding:12px 14px;border:1px solid var(--linea);border-radius:14px;background:var(--verde-claro)}
 .avisos h3{margin:0 0 4px;font:500 19px/1.2 var(--serif)}
