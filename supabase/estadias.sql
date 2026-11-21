@@ -397,20 +397,27 @@ end;
 $$;
 
 -- La reserva anotada como la ven las pantallas. dias_para: cuántos días faltan para el ingreso (negativo = ya pasó). estado: anotada | en_curso | cancelada.
+--   Una reserva con el check-in empezado (en_curso) muestra lo REAL de su reserva (la habitación y cuántos huéspedes se esperan, por si el dueño los corrigió), con_checkin
+--   (cuántos ya ingresaron), ingresaron (sus nombres) y ultima (la última actividad: sirve para saber hasta cuándo la ve recepción).
 create or replace function private.anotada_json(p_id bigint)
 returns json language sql stable security definer set search_path = '' as $$
   select json_build_object(
     'id', a.id, 'titular', a.titular, 'fecha_ingreso', a.fecha_ingreso, 'noches', a.noches, 'salida', a.fecha_ingreso + a.noches,
     'dias_para', a.fecha_ingreso - (now() at time zone 'America/Argentina/Buenos_Aires')::date,
-    'habitacion', a.habitacion, 'categoria_id', a.categoria_id, 'categoria', cg.nombre, 'canal_id', a.canal_id, 'canal', ca.nombre, 'canal_cobra', ca.cobra,
-    'esperados', a.huespedes_esperados, 'precio_efectivo', a.precio_efectivo, 'precio_transferencia', a.precio_transferencia, 'precio_usd', a.precio_usd,
+    'habitacion', coalesce(e.habitacion, a.habitacion), 'categoria_id', a.categoria_id, 'categoria', cg.nombre, 'canal_id', a.canal_id, 'canal', ca.nombre, 'canal_cobra', ca.cobra,
+    'esperados', coalesce(e.huespedes_esperados, a.huespedes_esperados), 'precio_efectivo', a.precio_efectivo, 'precio_transferencia', a.precio_transferencia, 'precio_usd', a.precio_usd,
     'sena', a.sena, 'fecha_sena', a.fecha_sena, 'nota', a.nota, 'cargado_por', a.cargado_por, 'creado', a.creado,
     'estado', case when a.cancelada_en is not null then 'cancelada' when a.estadia_id is not null then 'en_curso' else 'anotada' end,
     'cancelada_por', a.cancelada_por, 'estadia_id', a.estadia_id,
-    'con_checkin', case when a.estadia_id is null then 0 else (select count(*)::int from private.checkins_activos c where c.estadia_id = a.estadia_id) end)
+    'con_checkin', case when a.estadia_id is null then 0 else (select count(*)::int from private.checkins_activos c where c.estadia_id = a.estadia_id) end,
+    'ingresaron', case when a.estadia_id is null then '[]'::json
+                       else (select coalesce(json_agg(btrim(concat_ws(' ', c.datos ->> 'nombre', c.datos ->> 'apellido')) order by c.id), '[]'::json)
+                               from private.checkins_activos c where c.estadia_id = a.estadia_id) end,
+    'ultima', case when a.estadia_id is null then null else private.estadia_ultima(a.estadia_id) end)
     from private.reservas_anotadas a
     join private.catalogo ca on ca.id = a.canal_id
     left join private.catalogo cg on cg.id = a.categoria_id
+    left join private.estadias e on e.id = a.estadia_id
    where a.id = p_id;
 $$;
 
@@ -1184,10 +1191,13 @@ begin
 end;
 $$;
 
--- «Próximas reservas» de recepción: las reservas anotadas que todavía esperan al huésped (no canceladas, sin check-in empezado) y que llegan entre `dias_recepcion`
--- días atrás y `dias_recepcion` días adelante (el dueño lo cambia en Ajustes). Es lo que se busca por nombre en la pantalla.
+-- «Reservas» de recepción: las reservas anotadas (no canceladas) separadas en dos grupos que la pantalla muestra en secciones:
+--   · FALTA INGRESAR: las que todavía no empezaron el check-in (estado «anotada»), que llegan entre `dias_recepcion` días atrás y `dias_recepcion` días adelante (el dueño lo
+--     cambia en Ajustes). Las que ya empezaron pero todavía no entró nadie (se dio el código y falta el primer huésped) también están acá: estado «en_curso» y con_checkin = 0.
+--   · YA INGRESARON: las que tienen el check-in empezado (estado «en_curso»), con con_checkin (cuántos ya entraron), ingresaron (sus nombres) y esperados; las ve recepción
+--     mientras su última actividad esté dentro de esos días.
 --   Lo que está fuera de esos días NO se devuelve: recepción no lo ve ni lo encuentra buscando (una reserva de hace 7 días o de dentro de 7 no aparece, con 5 de ventana).
---   El dueño ve todas, desde hace 60 días en adelante (para eso también tiene su propia pantalla).
+--   El dueño ve todo: las que esperan desde hace 60 días en adelante y las que ya empezaron con actividad en los últimos 60 días.
 --   Devuelve hasta 300, de la más cercana a la más lejana (`mas` dice cuántas quedaron afuera).
 create or replace function public.recepcion_proximas(p_clave text)
 returns json language plpgsql security definer set search_path = '' as $$
@@ -1198,6 +1208,7 @@ declare
   v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
   v_desde date;
   v_hasta date;
+  v_dias int;
   v_total int;
 begin
   r := private.comprobar_recepcion(p_clave);
@@ -1206,14 +1217,19 @@ begin
   end if;
   select * into cfg from private.checkin_config where id = 1;
   v_dueno := coalesce((private.actor(p_clave) ->> 'dueno')::boolean, false);
-  v_desde := case when v_dueno then v_hoy - 60 else v_hoy - cfg.dias_recepcion end;
+  v_dias := case when v_dueno then 60 else cfg.dias_recepcion end;
+  v_desde := v_hoy - v_dias;
   v_hasta := case when v_dueno then null else v_hoy + cfg.dias_recepcion end;
   select count(*)::int into v_total from private.reservas_anotadas a
-   where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_desde and (v_hasta is null or a.fecha_ingreso <= v_hasta);
+   where a.cancelada_en is null
+     and ((a.estadia_id is null and a.fecha_ingreso >= v_desde and (v_hasta is null or a.fecha_ingreso <= v_hasta))
+          or (a.estadia_id is not null and private.estadia_ultima(a.estadia_id) > now() - make_interval(days => v_dias)));
   return json_build_object('ok', true, 'activo', cfg.activo, 'hoy', v_hoy, 'dias', cfg.dias_recepcion, 'limitada', not v_dueno, 'mas', greatest(0, v_total - 300), 'reservas', (
     select coalesce(json_agg(private.anotada_json(t.id) order by t.fecha_ingreso, t.id), '[]'::json)
       from (select a.id, a.fecha_ingreso from private.reservas_anotadas a
-             where a.cancelada_en is null and a.estadia_id is null and a.fecha_ingreso >= v_desde and (v_hasta is null or a.fecha_ingreso <= v_hasta)
+             where a.cancelada_en is null
+               and ((a.estadia_id is null and a.fecha_ingreso >= v_desde and (v_hasta is null or a.fecha_ingreso <= v_hasta))
+                    or (a.estadia_id is not null and private.estadia_ultima(a.estadia_id) > now() - make_interval(days => v_dias)))
              order by a.fecha_ingreso, a.id limit 300) t));
 end;
 $$;

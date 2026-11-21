@@ -210,7 +210,10 @@ function Panel({ clave, rol, vista, salir }) {
     try {
       const r = await recepcionReservaAbrir(clave, id);
       setError(r.ok ? '' : textoCodigo(r.error));
+      setVersion((v) => v + 1);
       await refrescar();
+      // Con el código dado, el código para el huésped está en la pestaña «Código»: se va para allá.
+      if (r.ok && vista === 'reservas') window.location.hash = '#/recepcion';
     } catch {
       setError('No se pudo conectar. Revisá tu conexión.');
     } finally {
@@ -268,6 +271,26 @@ function Panel({ clave, rol, vista, salir }) {
   const sinNada = !!activo && !!estado && !estado.reserva && abiertas.length === 0 && llegadas.length === 0;
   useEffect(() => { if (sinNada) setOtraReserva(true); }, [sinNada]);
   const pct = Math.max(0, Math.min(100, (restanteCodigo / duracion) * 100));
+  // Las reservas abiertas se muestran separadas: las que todavía no tienen a nadie adentro y las que ya tienen al menos un huésped (y esperan al resto).
+  const sinNadieAb = abiertas.filter((a) => a.huespedes.length === 0);
+  const conAlguienAb = abiertas.filter((a) => a.huespedes.length > 0);
+  const filaAbierta = (a) => {
+    const e = a.estadia;
+    const con = a.huespedes.length;
+    const quedan = Math.max(0, a.quedan_seg - (ahora - estado.recibido) / 1000);
+    return (
+      <li key={a.id} className={con === 0 ? 'espera' : ''}>
+        <div className="ab-cab"><b>Hab. {e.habitacion}</b><span>{detalleTexto(e)}</span></div>
+        <p className="ab-prog">{con === 0 ? <>Todavía sin huéspedes · <b>no suma en las estadísticas</b></> : <><b>{huespedesTexto(e, con)}</b> ya hicieron el check-in</>}</p>
+        {con > 0 && <p className="ab-nombres">{a.huespedes.map((h) => `${h.nombre} ${h.apellido}`).join(', ')}</p>}
+        <p className="ab-meta">Cargó {e.cargado_por} · se oculta en {tiempoCorto(quedan)}</p>
+        <div className="btns ab-btns">
+          <button type="button" className="btn mini" onClick={() => darCodigo(a.id)} disabled={trabajando === a.id}>{trabajando === a.id ? 'Un momento…' : 'Dar código'}</button>
+          {con === 0 && <button type="button" className="btn mini claro" onClick={() => anular(e)} disabled={trabajando === a.id}>Anular</button>}
+        </div>
+      </li>
+    );
+  };
 
   return (
     <div className="page personal">
@@ -332,25 +355,18 @@ function Panel({ clave, rol, vista, salir }) {
                   )}
                   {abiertas.length > 0 && <h2>Reservas abiertas</h2>}
                   {abiertas.length > 0 && <p className="aclara">Habitaciones a las que todavía les faltan huéspedes. Tocá <b>Dar código</b> cuando llegue alguien. Una reserva sin ningún huésped no suma en las estadísticas.</p>}
-                  {abiertas.length > 0 && <ul className="ab-lista">
-                    {abiertas.map((a) => {
-                      const e = a.estadia;
-                      const con = a.huespedes.length;
-                      const quedan = Math.max(0, a.quedan_seg - (ahora - estado.recibido) / 1000);
-                      return (
-                        <li key={a.id} className={con === 0 ? 'espera' : ''}>
-                          <div className="ab-cab"><b>Hab. {e.habitacion}</b><span>{detalleTexto(e)}</span></div>
-                          <p className="ab-prog">{con === 0 ? <>Todavía sin huéspedes · <b>no suma en las estadísticas</b></> : <><b>{huespedesTexto(e, con)}</b> ya hicieron el check-in</>}</p>
-                          {con > 0 && <p className="ab-nombres">{a.huespedes.map((h) => `${h.nombre} ${h.apellido}`).join(', ')}</p>}
-                          <p className="ab-meta">Cargó {e.cargado_por} · se oculta en {tiempoCorto(quedan)}</p>
-                          <div className="btns ab-btns">
-                            <button type="button" className="btn mini" onClick={() => darCodigo(a.id)} disabled={trabajando === a.id}>{trabajando === a.id ? 'Un momento…' : 'Dar código'}</button>
-                            {con === 0 && <button type="button" className="btn mini claro" onClick={() => anular(e)} disabled={trabajando === a.id}>Anular</button>}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>}
+                  {sinNadieAb.length > 0 && (
+                    <>
+                      <h3 className="ab-sub">Todavía no ingresó nadie ({sinNadieAb.length})</h3>
+                      <ul className="ab-lista">{sinNadieAb.map(filaAbierta)}</ul>
+                    </>
+                  )}
+                  {conAlguienAb.length > 0 && (
+                    <>
+                      <h3 className="ab-sub">Ya ingresó alguien, faltan huéspedes ({conAlguienAb.length})</h3>
+                      <ul className="ab-lista">{conAlguienAb.map(filaAbierta)}</ul>
+                    </>
+                  )}
                   <div className="btns">
                     <button type="button" className="btn" onClick={() => { setAviso(''); setAnotando('nueva'); }}>Anotar una reserva (a nombre de…)</button>
                     <button type="button" className="btn claro" onClick={() => setOtraReserva(true)}>Nueva reserva rápida (sin nombre)</button>
@@ -371,7 +387,7 @@ function Panel({ clave, rol, vista, salir }) {
         )}
 
         {estado && vista === 'reservas' && (
-          <Proximas clave={clave} version={version} salir={salir} onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); setAnotando('nueva'); }} />
+          <Proximas clave={clave} version={version} salir={salir} onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); setAnotando('nueva'); }} onDarCodigo={darCodigo} trabajando={trabajando} />
         )}
 
         {estado && vista === 'huespedes' && (
