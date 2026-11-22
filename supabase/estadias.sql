@@ -97,6 +97,9 @@ end $$;
 alter table private.estadias add column if not exists anulada_en timestamptz;
 alter table private.estadias add column if not exists anulada_por text;
 alter table private.estadias add column if not exists reabierta_en timestamptz;
+-- Cerrar una reserva a mano: ya ingresó al menos un huésped y el resto no va a venir (se anotaron dos y vino uno). Deja de esperar a los que faltan. Solo el dueño la reabre.
+alter table private.estadias add column if not exists cerrada_en timestamptz;
+alter table private.estadias add column if not exists cerrada_por text;
 create index if not exists estadias_creado_idx on private.estadias (creado desc);
 
 -- QUITAR / ELIMINAR (solo el dueño): un huésped o una reserva eliminados dejan de verse en todas las listas y de contar en todas las estadísticas, pero
@@ -490,12 +493,12 @@ $$;
 
 -- ---------------------------------------------------------------- huésped
 
--- ¿Sigue abierta la reserva? No está anulada y todavía faltan huéspedes por hacer el check-in.
+-- ¿Sigue abierta la reserva? No está anulada, no se cerró a mano y todavía faltan huéspedes por hacer el check-in.
 create or replace function private.estadia_abierta(p_id bigint)
 returns boolean language sql stable security definer set search_path = '' as $$
   select exists (
     select 1 from private.estadias e
-     where e.id = p_id and e.anulada_en is null
+     where e.id = p_id and e.anulada_en is null and e.cerrada_en is null
        and (select count(*) from private.checkins_activos c where c.estadia_id = e.id) < e.huespedes_esperados);
 $$;
 
@@ -1191,6 +1194,75 @@ begin
 end;
 $$;
 
+-- Cierra a mano una reserva a la que ya ingresó al menos un huésped y el resto no va a venir (se anotaron dos y vino uno, o «al final no viene el otro»): deja de esperar
+-- a los que faltan y el código deja de servir. Recepción puede; reabrirla es solo del dueño. Sin ningún huésped no se cierra: se anula. Si ya estaba cerrada o completa, no pasa nada.
+create or replace function public.recepcion_estadia_cerrar(p_clave text, p_id bigint)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  cfg private.checkin_config;
+  e private.estadias;
+  v_actor jsonb;
+  v_n int;
+begin
+  r := private.comprobar_recepcion(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  select * into cfg from private.checkin_config where id = 1;
+  v_actor := private.actor(p_clave);
+  select * into e from private.estadias where id = p_id for update;
+  if not found then
+    return json_build_object('ok', false, 'error', 'no_existe');
+  end if;
+  if e.anulada_en is not null then
+    return json_build_object('ok', false, 'error', 'reserva_anulada');
+  end if;
+  select count(*)::int into v_n from private.checkins_activos c where c.estadia_id = e.id;
+  if v_n = 0 then
+    return json_build_object('ok', false, 'error', 'sin_huespedes');
+  end if;
+  if e.cerrada_en is not null or v_n >= e.huespedes_esperados then
+    return json_build_object('ok', true);
+  end if;
+  if not coalesce((v_actor ->> 'dueno')::boolean, false) and private.estadia_ultima(e.id) <= now() - make_interval(days => cfg.dias_recepcion) then
+    return json_build_object('ok', false, 'error', 'reserva_vencida');
+  end if;
+  update private.estadias set cerrada_en = now(), cerrada_por = v_actor ->> 'alias' where id = e.id;
+  perform private.estadia_cerrar_codigos(e.id);
+  perform private.auditar('recepcion', 'reserva_cerrar', null, jsonb_build_object('estadia', e.id, 'alias', v_actor ->> 'alias', 'ingresaron', v_n, 'esperados', e.huespedes_esperados));
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Reabre una reserva que se cerró a mano (vuelve a esperar a los que faltan). SOLO EL DUEÑO. Si no estaba cerrada a mano, no pasa nada.
+create or replace function public.admin_estadia_reabrir(p_clave text, p_id bigint)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  e private.estadias;
+  v_quien text;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  v_quien := coalesce(private.actor(p_clave) ->> 'alias', 'Dueño');
+  select * into e from private.estadias where id = p_id for update;
+  if not found then
+    return json_build_object('ok', false, 'error', 'no_existe');
+  end if;
+  if e.anulada_en is not null then
+    return json_build_object('ok', false, 'error', 'reserva_anulada');
+  end if;
+  if e.cerrada_en is not null then
+    update private.estadias set cerrada_en = null, cerrada_por = null, reabierta_en = now() where id = e.id;
+    perform private.auditar('admin', 'reserva_reabrir', null, jsonb_build_object('estadia', e.id, 'por', v_quien));
+  end if;
+  return json_build_object('ok', true);
+end;
+$$;
+
 -- «Reservas» de recepción: las reservas anotadas (no canceladas) separadas en dos grupos que la pantalla muestra en secciones:
 --   · FALTA INGRESAR: las que todavía no empezaron el check-in (estado «anotada»), que llegan entre `dias_recepcion` días atrás y `dias_recepcion` días adelante (el dueño lo
 --     cambia en Ajustes). Las que ya empezaron pero todavía no entró nadie (se dio el código y falta el primer huésped) también están acá: estado «en_curso» y con_checkin = 0.
@@ -1198,7 +1270,7 @@ $$;
 --     mientras su última actividad esté dentro de esos días.
 --   Lo que está fuera de esos días NO se devuelve: recepción no lo ve ni lo encuentra buscando (una reserva de hace 7 días o de dentro de 7 no aparece, con 5 de ventana).
 --   El dueño ve todo: las que esperan desde hace 60 días en adelante y las que ya empezaron con actividad en los últimos 60 días.
---   Devuelve hasta 300, de la más cercana a la más lejana (`mas` dice cuántas quedaron afuera).
+--   Devuelve hasta 300, de la más cercana a la más lejana (`mas` dice cuántas quedaron afuera). Además `estadias`: todas las reservas con actividad en esos días (ver abajo).
 create or replace function public.recepcion_proximas(p_clave text)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
@@ -1230,7 +1302,28 @@ begin
              where a.cancelada_en is null
                and ((a.estadia_id is null and a.fecha_ingreso >= v_desde and (v_hasta is null or a.fecha_ingreso <= v_hasta))
                     or (a.estadia_id is not null and private.estadia_ultima(a.estadia_id) > now() - make_interval(days => v_dias)))
-             order by a.fecha_ingreso, a.id limit 300) t));
+             order by a.fecha_ingreso, a.id limit 300) t),
+    -- Todas las reservas (estadías) con actividad en esos días, tengan o no nombre: una anotada que ya empezó o una reserva rápida. estado: sin_ingresos (todavía no entró nadie)
+    -- · faltan (ingresó alguien y faltan huéspedes: falta cerrar) · completa (entraron todos) · cerrada (se cerró a mano con menos de los esperados).
+    'estadias', (
+    select coalesce(json_agg(json_build_object(
+             'id', t.id, 'anotada_id', t.anotada_id, 'titular', t.titular, 'habitacion', t.habitacion, 'llegada', t.llegada, 'dias_para', t.llegada - v_hoy,
+             'noches', t.noches, 'esperados', t.huespedes_esperados, 'categoria', t.categoria, 'canal', t.canal, 'nota', t.nota, 'cargado_por', t.cargado_por,
+             'creado', t.creado, 'ultima', t.ultima, 'con_checkin', t.cant, 'ingresaron', t.nombres, 'cerrada_en', t.cerrada_en, 'cerrada_por', t.cerrada_por,
+             'estado', case when t.cant = 0 then 'sin_ingresos' when t.cerrada_en is not null then 'cerrada' when t.cant >= t.huespedes_esperados then 'completa' else 'faltan' end)
+           order by t.llegada desc, t.id desc), '[]'::json)
+      from (select e.id, a.id as anotada_id, e.titular, e.habitacion, e.noches, e.huespedes_esperados, e.nota, e.cargado_por, e.creado, e.cerrada_en, e.cerrada_por,
+                   cg.nombre as categoria, ca.nombre as canal, private.estadia_ultima(e.id) as ultima, n.cant, n.nombres,
+                   coalesce(a.fecha_ingreso, (e.creado at time zone 'America/Argentina/Buenos_Aires')::date) as llegada
+              from private.estadias e
+              left join private.reservas_anotadas a on a.estadia_id = e.id
+              left join private.catalogo ca on ca.id = e.canal_id
+              left join private.catalogo cg on cg.id = e.categoria_id
+              cross join lateral (select count(*)::int as cant,
+                                         coalesce(json_agg(btrim(concat_ws(' ', c.datos ->> 'nombre', c.datos ->> 'apellido')) order by c.id), '[]'::json) as nombres
+                                    from private.checkins_activos c where c.estadia_id = e.id) n
+             where e.anulada_en is null and private.estadia_ultima(e.id) > now() - make_interval(days => v_dias)
+             order by coalesce(a.fecha_ingreso, (e.creado at time zone 'America/Argentina/Buenos_Aires')::date) desc, e.id desc limit 300) t));
 end;
 $$;
 
@@ -1893,6 +1986,8 @@ revoke all on function public.recepcion_anotada_guardar(text, bigint, text, date
 revoke all on function public.admin_anotada_cancelar(text, bigint, boolean) from public, anon, authenticated;
 revoke all on function public.admin_anotadas(text) from public, anon, authenticated;
 revoke all on function public.recepcion_proximas(text) from public, anon, authenticated;
+revoke all on function public.recepcion_estadia_cerrar(text, bigint) from public, anon, authenticated;
+revoke all on function public.admin_estadia_reabrir(text, bigint) from public, anon, authenticated;
 revoke all on function public.push_suscribir(text, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.push_desuscribir(text, text) from public, anon, authenticated;
 revoke all on function public.push_estado(text, text) from public, anon, authenticated;
@@ -1916,6 +2011,8 @@ grant execute on function public.recepcion_anotada_guardar(text, bigint, text, d
 grant execute on function public.admin_anotada_cancelar(text, bigint, boolean) to anon, authenticated;
 grant execute on function public.admin_anotadas(text) to anon, authenticated;
 grant execute on function public.recepcion_proximas(text) to anon, authenticated;
+grant execute on function public.recepcion_estadia_cerrar(text, bigint) to anon, authenticated;
+grant execute on function public.admin_estadia_reabrir(text, bigint) to anon, authenticated;
 grant execute on function public.push_suscribir(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.push_desuscribir(text, text) to anon, authenticated;
 grant execute on function public.push_estado(text, text) to anon, authenticated;
