@@ -7,21 +7,22 @@ import { perfilGuardado, refrescarSesion } from './sesion.js';
 
 // Lo que ve el personal en todas sus pantallas, como una app: una barra de arriba con el nombre de la pantalla y de quién entró, y
 // las pestañas de abajo para cambiar de sección (la última, «Más», abre el resto: editar la guía, la guía del huésped y salir).
-// Cada uno ve solo lo suyo: recepción tiene Reservas (crear, dar código, lo que falta llegar y lo ya llegado) y Huéspedes; el dueño, además, Inicio y Datos (estadísticas). Son 5 como máximo (como en
+// Cada uno ve solo lo suyo: recepción tiene Código, Reservas (las próximas reservas) y Huéspedes; el dueño, además, Inicio y Datos (estadísticas). Son 5 como máximo (como en
 // cualquier app del celular); el resto (Equipo, Ajustes, editar la guía) está en «Más».
 const TABS = {
   inicio: { texto: 'Inicio', href: '#/admin', icono: 'casa' },
+  codigo: { texto: 'Código', href: '#/recepcion', icono: 'llave' },
   huespedes: { texto: 'Huéspedes', href: '#/admin/huespedes', icono: 'personas' },
-  reservas: { texto: 'Reservas', href: '#/recepcion', icono: 'calendario' },
+  reservasRec: { texto: 'Reservas', href: '#/recepcion/reservas', icono: 'calendario' },
   huespedesRec: { texto: 'Huéspedes', href: '#/recepcion/huespedes', icono: 'personas' },
   estadisticas: { texto: 'Datos', href: '#/admin/estadisticas', icono: 'grafico' }
 };
 const tabsPara = (rol, dueno) => (rol === 'recepcion'
-  ? ['reservas', 'huespedesRec']
-  : ['inicio', 'reservas', 'huespedes', 'estadisticas']);
+  ? ['codigo', 'reservasRec', 'huespedesRec']
+  : ['inicio', 'codigo', 'huespedes', 'estadisticas']);
 const ROL = { admin: 'dueño', recepcion: 'recepción' };
 
-//   titulo: nombre de la pantalla · actual: qué pestaña es (inicio, reservas, huespedes, estadisticas, huespedesRec; otra cosa, como equipo o ajustes = «Más»)
+//   titulo: nombre de la pantalla · actual: qué pestaña es (inicio, codigo, huespedes, estadisticas, reservasRec, huespedesRec; otra cosa, como equipo o ajustes = «Más»)
 //   atras: { href, texto } para las pantallas que no son una pestaña (el editor) · salir(): cierra la sesión de este dispositivo
 //   confirmar(): si devuelve false no se sale de la pantalla (para avisar de cambios sin guardar) · ancha: para las pantallas con planilla
 //   children: una segunda fila dentro de la barra de arriba (el editor pone ahí Guardar y Descartar)

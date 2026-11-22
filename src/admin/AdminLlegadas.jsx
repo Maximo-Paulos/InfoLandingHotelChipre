@@ -4,16 +4,13 @@ import { adminAnotadaCancelar, adminAnotadaGuardar, adminAnotadas, adminCatalogo
 import AnotadaForm from '../checkin/AnotadaForm.jsx';
 import { TarjetaLlegada, fechaCorta, ventaDeHoy } from '../checkin/Llegadas.jsx';
 import Modal from '../checkin/Modal.jsx';
-import { seccionesDe } from '../checkin/proximas.js';
 import { useNoIndexar } from '../personal.js';
 import { cargarCotizaciones } from './cotizaciones.js';
 import { LoginAdmin, useSesionAdmin } from './sesionAdmin.jsx';
 
 // Reservas anotadas (solo el dueño): carga por adelantado las reservas de los próximos días con a nombre de quién, fecha de ingreso, habitación, cuántos son,
-// los precios (efectivo, transferencia, dólares), la seña ya pagada y una nota. Recepción ve las llegadas de los días que el dueño configuró y hace el check-in cobrando
+// los precios (efectivo, transferencia, dólares), la seña ya pagada y una nota. Recepción ve las llegadas de los próximos 3 días y hace el check-in cobrando
 // lo que corresponde. Una reserva anotada todavía no es una estadía: no suma en ninguna estadística hasta que se hace el check-in. Cancelar no borra.
-// Están separadas en dos secciones: FALTA INGRESAR (por llegar, pasó la fecha, o con el código dado y nadie adentro todavía) y YA INGRESARON (al menos una persona hizo el
-// check-in: las que esperan al resto y las completas). Las canceladas van aparte.
 export default function AdminLlegadas() {
   useNoIndexar('Reservas anotadas');
   const sesion = useSesionAdmin();
@@ -78,8 +75,11 @@ function Contenido({ clave, salir }) {
     }
   };
 
-  const sec = seccionesDe(lista ?? []);
-  const { porLlegar: proximas, pasadas, sinNadie, faltanHuespedes, completas, canceladas } = sec;
+  const por = (f) => (lista ?? []).filter(f);
+  const proximas = por((a) => a.estado === 'anotada' && a.dias_para >= 0);
+  const pasadas = por((a) => a.estado === 'anotada' && a.dias_para < 0);
+  const enCurso = por((a) => a.estado === 'en_curso');
+  const canceladas = por((a) => a.estado === 'cancelada');
   const botones = (a) => (
     <div className="btns ab-btns">
       <button type="button" className="btn mini claro" onClick={() => { setAviso(''); setEditando(a); }}>Editar</button>
@@ -93,7 +93,7 @@ function Contenido({ clave, salir }) {
       <main className="card inicio">
         <header>
           <h1>Reservas anotadas</h1>
-          <p className="lead">Cargalas por adelantado: recepción las ve los días que elijas en Ajustes y sabe cuánto cobrar. Acá están separadas: las que todavía falta ingresar y las que ya ingresaron.</p>
+          <p className="lead">Cargalas por adelantado: recepción las ve los 3 días antes y sabe cuánto cobrar.</p>
         </header>
         <button type="button" className="btn in-accion" onClick={() => { setAviso(''); setEditando('nueva'); }}>Anotar una reserva</button>
         {aviso && <p className={`${aviso.includes('Atención') ? 'in-aviso' : 'ed-ok'}`} role="status">{aviso}</p>}
@@ -102,45 +102,24 @@ function Contenido({ clave, salir }) {
 
         {lista && (
           <>
-            <section className="sec sec-falta" aria-labelledby="sec-falta">
-              <h2 className="sec-tit" id="sec-falta">Falta ingresar <span className="sec-n">{sec.faltaIngresar}</span></h2>
-              <p className="sec-ayuda">Todavía no ingresó nadie.</p>
-              <h3 className="sub-sec">Por llegar ({proximas.length})</h3>
-              {!proximas.length && <p className="ayuda">No hay reservas anotadas por llegar. Tocá «Anotar una reserva» para cargar la primera.</p>}
-              <ul className="ll-lista">{proximas.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta}>{botones(a)}</TarjetaLlegada>)}</ul>
-              {pasadas.length > 0 && (
-                <>
-                  <h3 className="sub-sec">Pasó la fecha y no hicieron el check-in ({pasadas.length})</h3>
-                  <p className="ayuda">Recepción las ve unos días más. Si no vinieron, cancelalas.</p>
-                  <ul className="ll-lista">{pasadas.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta}>{botones(a)}</TarjetaLlegada>)}</ul>
-                </>
-              )}
-              {sinNadie.length > 0 && (
-                <>
-                  <h3 className="sub-sec">Con el código dado, todavía no entró nadie ({sinNadie.length})</h3>
-                  <ul className="ll-lista">{sinNadie.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta} />)}</ul>
-                </>
-              )}
-            </section>
+            <h2 className="in-sub">Por llegar ({proximas.length})</h2>
+            {!proximas.length && <p className="ayuda">No hay reservas anotadas por llegar. Tocá «Anotar una reserva» para cargar la primera.</p>}
+            <ul className="ll-lista">{proximas.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta}>{botones(a)}</TarjetaLlegada>)}</ul>
 
-            <section className="sec sec-ingresaron" aria-labelledby="sec-ingresaron">
-              <h2 className="sec-tit" id="sec-ingresaron">Ya ingresaron <span className="sec-n">{sec.yaIngresaron}</span></h2>
-              <p className="sec-ayuda">Al menos una persona ya hizo el check-in.</p>
-              {sec.yaIngresaron === 0 && <p className="ayuda">Todavía no ingresó nadie.</p>}
-              {faltanHuespedes.length > 0 && (
-                <>
-                  <h3 className="sub-sec">Faltan huéspedes ({faltanHuespedes.length})</h3>
-                  <ul className="ll-lista">{faltanHuespedes.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta} />)}</ul>
-                </>
-              )}
-              {completas.length > 0 && (
-                <>
-                  <h3 className="sub-sec">Completas: ingresaron todos ({completas.length})</h3>
-                  <ul className="ll-lista">{completas.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta} />)}</ul>
-                </>
-              )}
-            </section>
+            {pasadas.length > 0 && (
+              <>
+                <h2 className="in-sub">Pasó la fecha y no hicieron el check-in ({pasadas.length})</h2>
+                <p className="ayuda">Recepción las ve unos días más. Si no vinieron, cancelalas.</p>
+                <ul className="ll-lista">{pasadas.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta}>{botones(a)}</TarjetaLlegada>)}</ul>
+              </>
+            )}
 
+            {enCurso.length > 0 && (
+              <details className="caja-anuladas">
+                <summary>Con el check-in en curso o hecho ({enCurso.length})</summary>
+                <ul className="ll-lista">{enCurso.map((a) => <TarjetaLlegada key={a.id} a={a} venta={venta} />)}</ul>
+              </details>
+            )}
             {canceladas.length > 0 && (
               <details className="caja-anuladas">
                 <summary>Canceladas ({canceladas.length})</summary>

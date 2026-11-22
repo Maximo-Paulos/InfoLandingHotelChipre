@@ -1263,69 +1263,6 @@ begin
 end;
 $$;
 
--- Une una reserva anotada que sigue esperando («todavía no llegó») con la reserva donde el huésped YA hizo el check-in, cuando se abrió aparte (por ejemplo, una reserva rápida
--- en la misma habitación). Es el arreglo de las reservas duplicadas: la anotada pasa a ser la misma reserva (con su nombre y su nota) y deja de figurar como que falta llegar.
--- No cambia lo cobrado ni los huéspedes. Deben ser la misma habitación y fechas cercanas (hasta 10 días). La reserva ya ingresada no puede estar unida a otra anotada.
--- Recepción puede (con las reservas de sus días); el dueño, cualquiera.
-create or replace function public.recepcion_anotada_unir(p_clave text, p_anotada bigint, p_estadia bigint)
-returns json language plpgsql security definer set search_path = '' as $$
-declare
-  r text;
-  cfg private.checkin_config;
-  a private.reservas_anotadas;
-  e private.estadias;
-  v_actor jsonb;
-  v_dueno boolean;
-  v_hoy date := (now() at time zone 'America/Argentina/Buenos_Aires')::date;
-  v_llegada date;
-begin
-  r := private.comprobar_recepcion(p_clave);
-  if r <> 'ok' then
-    return json_build_object('ok', false, 'error', r);
-  end if;
-  select * into cfg from private.checkin_config where id = 1;
-  v_actor := private.actor(p_clave);
-  v_dueno := coalesce((v_actor ->> 'dueno')::boolean, false);
-  select * into a from private.reservas_anotadas where id = p_anotada for update;
-  if not found then
-    return json_build_object('ok', false, 'error', 'no_existe');
-  end if;
-  if a.cancelada_en is not null then
-    return json_build_object('ok', false, 'error', 'anotada_cancelada');
-  end if;
-  if a.estadia_id is not null then
-    return json_build_object('ok', false, 'error', 'anotada_ya_empezo');
-  end if;
-  if not v_dueno and a.fecha_ingreso not between v_hoy - cfg.dias_recepcion and v_hoy + cfg.dias_recepcion then
-    return json_build_object('ok', false, 'error', 'llegada_fuera_de_fecha');
-  end if;
-  select * into e from private.estadias where id = p_estadia for update;
-  if not found then
-    return json_build_object('ok', false, 'error', 'no_existe');
-  end if;
-  if e.anulada_en is not null then
-    return json_build_object('ok', false, 'error', 'reserva_anulada');
-  end if;
-  if exists (select 1 from private.reservas_anotadas x where x.estadia_id = e.id) then
-    return json_build_object('ok', false, 'error', 'estadia_ya_unida');
-  end if;
-  if lower(btrim(e.habitacion)) <> lower(btrim(a.habitacion)) then
-    return json_build_object('ok', false, 'error', 'habitacion_distinta');
-  end if;
-  v_llegada := (e.creado at time zone 'America/Argentina/Buenos_Aires')::date;
-  if abs(v_llegada - a.fecha_ingreso) > 10 then
-    return json_build_object('ok', false, 'error', 'fechas_lejanas');
-  end if;
-  if not v_dueno and private.estadia_ultima(e.id) <= now() - make_interval(days => cfg.dias_recepcion) then
-    return json_build_object('ok', false, 'error', 'reserva_vencida');
-  end if;
-  update private.reservas_anotadas set estadia_id = e.id where id = a.id;
-  update private.estadias set titular = coalesce(titular, a.titular), nota = coalesce(nota, a.nota) where id = e.id;
-  perform private.auditar(case when v_dueno then 'admin' else 'recepcion' end, 'anotada_unir', null, jsonb_build_object('anotada', a.id, 'estadia', e.id, 'por', v_actor ->> 'alias'));
-  return json_build_object('ok', true);
-end;
-$$;
-
 -- «Reservas» de recepción: las reservas anotadas (no canceladas) separadas en dos grupos que la pantalla muestra en secciones:
 --   · FALTA INGRESAR: las que todavía no empezaron el check-in (estado «anotada»), que llegan entre `dias_recepcion` días atrás y `dias_recepcion` días adelante (el dueño lo
 --     cambia en Ajustes). Las que ya empezaron pero todavía no entró nadie (se dio el código y falta el primer huésped) también están acá: estado «en_curso» y con_checkin = 0.
@@ -2051,7 +1988,6 @@ revoke all on function public.admin_anotadas(text) from public, anon, authentica
 revoke all on function public.recepcion_proximas(text) from public, anon, authenticated;
 revoke all on function public.recepcion_estadia_cerrar(text, bigint) from public, anon, authenticated;
 revoke all on function public.admin_estadia_reabrir(text, bigint) from public, anon, authenticated;
-revoke all on function public.recepcion_anotada_unir(text, bigint, bigint) from public, anon, authenticated;
 revoke all on function public.push_suscribir(text, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.push_desuscribir(text, text) from public, anon, authenticated;
 revoke all on function public.push_estado(text, text) from public, anon, authenticated;
@@ -2077,7 +2013,6 @@ grant execute on function public.admin_anotadas(text) to anon, authenticated;
 grant execute on function public.recepcion_proximas(text) to anon, authenticated;
 grant execute on function public.recepcion_estadia_cerrar(text, bigint) to anon, authenticated;
 grant execute on function public.admin_estadia_reabrir(text, bigint) to anon, authenticated;
-grant execute on function public.recepcion_anotada_unir(text, bigint, bigint) to anon, authenticated;
 grant execute on function public.push_suscribir(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.push_desuscribir(text, text) to anon, authenticated;
 grant execute on function public.push_estado(text, text) to anon, authenticated;

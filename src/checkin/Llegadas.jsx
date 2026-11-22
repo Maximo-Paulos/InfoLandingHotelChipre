@@ -1,6 +1,5 @@
 import { ventaEn } from '../admin/estadisticas.js';
 import { aCobrar } from './cobro.js';
-import { ingresoTexto } from './proximas.js';
 import { hoyAR, nochesTexto, plata } from './ReservaForm.jsx';
 
 // Las reservas anotadas por adelantado, como las ven recepción («Llegadas») y el dueño: a nombre de quién, cuándo llega, qué habitación y cuántos son,
@@ -36,9 +35,7 @@ export function ACobrar({ a, venta }) {
 
 // Una reserva anotada. `children`: los botones (hacer el check-in; o editar y cancelar para el dueño).
 export function TarjetaLlegada({ a, venta, children }) {
-  // El cartelito de la esquina: una reserva cancelada, o cómo viene el check-in de una que ya empezó (código dado sin nadie / faltan huéspedes / completa).
-  const falta = a.estado === 'en_curso' ? Number(a.esperados) - Number(a.con_checkin) : 0;
-  const estados = { cancelada: 'Cancelada', en_curso: Number(a.con_checkin) === 0 ? 'Código dado' : falta > 0 ? `Faltan ${falta}` : 'Completa' };
+  const estados = { en_curso: 'Check-in en curso', cancelada: 'Cancelada' };
   return (
     <li className={`ll-card ${a.estado}${a.estado === 'anotada' && a.dias_para < 0 ? ' pasada' : ''}`}>
       <div className="ll-cab"><b>Hab. {a.habitacion}</b><span className="ll-titular">{a.titular}</span>{estados[a.estado] && <em className="ll-estado">{estados[a.estado]}</em>}</div>
@@ -46,7 +43,7 @@ export function TarjetaLlegada({ a, venta, children }) {
       <p className="ll-det">{[a.categoria, nochesTexto(a.noches), `${a.esperados} ${a.esperados === 1 ? 'huésped' : 'huéspedes'}`, a.canal].filter(Boolean).join(' · ')}</p>
       {a.nota && <p className="ll-nota"><span>Nota</span> {a.nota}</p>}
       {a.estado !== 'cancelada' && !(a.estado === 'en_curso') && <ACobrar a={a} venta={venta} />}
-      {a.estado === 'en_curso' && <p className="ll-det">{ingresoTexto(a)}{a.ingresaron?.length ? `: ${a.ingresaron.join(', ')}` : ''}.</p>}
+      {a.estado === 'en_curso' && <p className="ll-det">{a.con_checkin} de {a.esperados} huéspedes ya hicieron el check-in.</p>}
       {children}
     </li>
   );

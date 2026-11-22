@@ -15,14 +15,13 @@ import { leerMonto, hoyAR, nochesTexto, plata } from './ReservaForm.jsx';
 const FORMAS = [['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ['usd', 'Dólares']];
 const COMO = { efectivo: 'en efectivo', transferencia: 'por transferencia', usd: 'en dólares' };
 
-export default function CobroLlegada({ a, venta, medios, apagado = false, onIniciar, onEditar = null, onUnir = null, onCerrar }) {
+export default function CobroLlegada({ a, venta, medios, apagado = false, onIniciar, onEditar = null, onCerrar }) {
   const cobra = a.canal_cobra !== false;
   const [forma, setForma] = useState(null);
   const [medio, setMedio] = useState('');
   const [otroMonto, setOtroMonto] = useState(false);
   const [texto, setTexto] = useState('');
   const [confirmado, setConfirmado] = useState(false);
-  const [distinta, setDistinta] = useState(false); // «no es la misma persona»: se sigue con el check-in aunque haya una reserva parecida
   const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState('');
   const vivo = useRef(true);
@@ -50,9 +49,7 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
       : !medio ? 'Elegí el medio de pago (paso 2).'
         : !montoValido ? 'Escribí cuánto cobraste (paso 2).'
           : !nadaQueCobrar && !confirmado ? 'Tildá «Ya cobré…» para confirmar el cobro (paso 2).' : null;
-  const candidatas = a.candidatas ?? [];
-  const duda = candidatas.length > 0 && !distinta && !!onUnir; // hay una reserva en la misma habitación: primero se decide si ya llegó
-  const puede = !apagado && !falta && !enviando && !duda;
+  const puede = !apagado && !falta && !enviando;
 
   const hacer = async () => {
     if (!puede) return;
@@ -63,20 +60,6 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
     try {
       const res = await onIniciar(r);
       if (vivo.current && !res.ok) setAviso(res.mensaje || 'No se pudo hacer el check-in.');
-    } catch {
-      if (vivo.current) setAviso('No se pudo conectar. Revisá tu conexión e intentá de nuevo.');
-    } finally {
-      if (vivo.current) setEnviando(false);
-    }
-  };
-
-  const unir = async (e) => {
-    if (enviando) return;
-    setEnviando(true);
-    setAviso('');
-    try {
-      const res = await onUnir(a, e);
-      if (vivo.current && !res.ok && res.mensaje) setAviso(res.mensaje);
     } catch {
       if (vivo.current) setAviso('No se pudo conectar. Revisá tu conexión e intentá de nuevo.');
     } finally {
@@ -96,25 +79,6 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
         {onEditar && <button type="button" className="btn mini claro" onClick={() => onEditar(a)} disabled={enviando}>Corregir los datos de la reserva</button>}
       </section>
 
-      {duda && (
-        <section className="paso dup" aria-labelledby="paso-0">
-          <h3 className="paso-tit" id="paso-0"><span className="paso-n">?</span>¿Esta reserva ya llegó?</h3>
-          <p className="ayuda">En la Hab. {a.habitacion} ya hay {candidatas.length === 1 ? 'una reserva abierta aparte' : 'reservas abiertas aparte'}. Si es la misma persona, <b>no hagas el check-in de nuevo</b>: unilas y queda una sola reserva, con su nombre.</p>
-          <ul className="dup-lista">
-            {candidatas.map((e) => (
-              <li key={e.id} className="dup-card">
-                <p><b>Hab. {e.habitacion}</b> · {e.titular || 'Reserva rápida'} · {nochesTexto(e.noches)} · {e.esperados} {e.esperados === 1 ? 'huésped' : 'huéspedes'}</p>
-                <p className="ll-det">{Number(e.con_checkin) > 0 ? `Ya ingresaron ${e.con_checkin}: ${(e.ingresaron ?? []).join(', ')}` : 'Todavía no ingresó nadie (tiene el código dado).'}{e.cargado_por ? ` · la abrió ${e.cargado_por}` : ''}</p>
-                <button type="button" className="btn mini" onClick={() => unir(e)} disabled={enviando}>Es la misma: unir</button>
-              </li>
-            ))}
-          </ul>
-          {aviso && <p className="ed-error" role="alert">{aviso}</p>}
-          <button type="button" className="btn mini claro" onClick={() => setDistinta(true)} disabled={enviando}>No es la misma persona: seguir con el check-in</button>
-        </section>
-      )}
-
-      {!duda && (<>
       <section className="paso" aria-labelledby="paso-2">
         <h3 className="paso-tit" id="paso-2"><span className="paso-n">2</span>Cobro</h3>
         {cobra ? (
@@ -177,8 +141,6 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
           <button type="button" className="btn claro" onClick={onCerrar} disabled={enviando}>Volver</button>
         </div>
       </section>
-      </>)}
-      {duda && <div className="btns modal-pie"><button type="button" className="btn claro" onClick={onCerrar} disabled={enviando}>Volver</button></div>}
     </Modal>
   );
 }

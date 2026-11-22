@@ -78,7 +78,7 @@ export default function App() {
     <ToastContext.Provider value={toast}>
       <Suspense fallback={cargando}>
         {esEntrar && <Entrar />}
-        {esRecepcion && <Recepcion vista={hash === 'recepcion/huespedes' ? 'huespedes' : 'reservas'} />}
+        {esRecepcion && <Recepcion vista={hash === 'recepcion/huespedes' ? 'huespedes' : hash === 'recepcion/reservas' ? 'reservas' : 'codigo'} />}
         {!esRecepcion && esAdmin && ruta === '' && <AdminInicio />}
         {!esRecepcion && esAdmin && ruta === 'huespedes' && <AdminHuespedes />}
         {!esRecepcion && esAdmin && ruta === 'estadisticas' && <Estadisticas />}
