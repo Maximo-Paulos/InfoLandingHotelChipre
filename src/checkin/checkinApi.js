@@ -51,6 +51,8 @@ export const recepcionProximas = (clave) => rpc('recepcion_proximas', { p_clave:
 // Cierra a mano una reserva a la que ya ingresó al menos un huésped y el resto no va a venir. Reabrirla es solo del dueño.
 export const recepcionEstadiaCerrar = (clave, id) => rpc('recepcion_estadia_cerrar', { p_clave: clave, p_id: id });
 export const adminEstadiaReabrir = (clave, id) => rpc('admin_estadia_reabrir', { p_clave: clave, p_id: id });
+// Une una reserva anotada que espera con la reserva donde el huésped ya hizo el check-in (arregla las duplicadas).
+export const recepcionAnotadaUnir = (clave, anotada, estadia) => rpc('recepcion_anotada_unir', { p_clave: clave, p_anotada: anotada, p_estadia: estadia });
 export const adminAnotadaCancelar = (clave, id, cancelar = true) => rpc('admin_anotada_cancelar', { p_clave: clave, p_id: id, p_cancelar: cancelar });
 // Hace el check-in de una reserva anotada: arma la reserva con el cobro que se eligió (mismos datos que «Nueva reserva») y da el primer código.
 export const recepcionLlegadaIniciar = (clave, id, r) => rpc('recepcion_llegada_iniciar', { p_clave: clave, p_id: id, ...deReserva(r) });
@@ -132,7 +134,10 @@ export const MENSAJES = {
   anotada_ya_empezo: 'Esa reserva ya empezó el check-in. Actualizá la pantalla.',
   llegada_fuera_de_fecha: 'Esa reserva llega fuera de los días que ve recepción. Pedile al dueño que haga el check-in.',
   tiene_huespedes: 'Esa reserva ya tiene huéspedes: no se puede anular.',
-  sin_huespedes: 'Esa reserva todavía no tiene ningún huésped: no se cierra, se anula.'
+  sin_huespedes: 'Esa reserva todavía no tiene ningún huésped: no se cierra, se anula.',
+  estadia_ya_unida: 'Esa reserva ya está unida a otra reserva anotada.',
+  habitacion_distinta: 'Tienen que ser la misma habitación.',
+  fechas_lejanas: 'Las fechas están muy lejos una de otra (más de 10 días): no parecen ser la misma reserva.'
 };
 
 export const textoError = (e) => (e?.codigo ? MENSAJES[e.codigo] ?? e.codigo : 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.');

@@ -1,6 +1,6 @@
 // Las cuentas de la pantalla «Reservas» de recepción: qué reserva va en cada pestaña, el cartel de «qué falta llegar» y los textos. Sin pantalla ni red.
 //   node scripts/test-hub.mjs
-import { PESTANAS, cierreTexto, clasificarHub, controlLlegadas, diasEntre } from '../src/checkin/hub.js';
+import { PESTANAS, candidatasPara, cierreTexto, clasificarHub, controlLlegadas, diasEntre, dudaTexto } from '../src/checkin/hub.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -71,6 +71,23 @@ ok(cierreTexto({ estado: 'completa', con_checkin: 3, esperados: 3 }) === 'Ingres
 ok(cierreTexto({ estado: 'cerrada', con_checkin: 1, esperados: 2, cerrada_por: 'Recepción' }) === 'Cerrada con 1 de 2 · por Recepción', 'cerrada a mano: «Cerrada con 1 de 2 · por Recepción»');
 ok(cierreTexto({ estado: 'cerrada', con_checkin: 1, esperados: 2 }) === 'Cerrada con 1 de 2', 'sin saber quién: «Cerrada con 1 de 2»');
 ok(diasEntre('2026-11-20', '2026-11-22') === 2 && diasEntre('2026-11-20', '2026-11-17') === -3 && diasEntre('2026-02-28', '2026-03-01') === 1, 'los días entre dos fechas (también cruzando meses)');
+
+console.log('\n== 7. Reservas duplicadas: ¿esta anotada ya llegó por otro lado?');
+const ana = A(30, 'Maldonado Gianfranco', -1, { habitacion: '202', fecha_ingreso: '2026-11-19' });
+const lista = [
+  E(40, null, 'completa', 2, 2, '2026-11-19', '2026-11-19T22:00:00Z', { habitacion: '202', anotada_id: null, cargado_por: 'Donato' }),
+  E(41, null, 'sin_ingresos', 0, 2, '2026-11-20', '2026-11-20T10:00:00Z', { habitacion: '202', anotada_id: null }),
+  E(42, 'Ya unida', 'completa', 1, 1, '2026-11-19', '2026-11-19T20:00:00Z', { habitacion: '202', anotada_id: 99 }),
+  E(43, null, 'completa', 1, 1, '2026-11-19', '2026-11-19T20:00:00Z', { habitacion: '203', anotada_id: null }),
+  E(44, null, 'completa', 1, 1, '2026-11-01', '2026-11-01T20:00:00Z', { habitacion: '202', anotada_id: null })
+];
+ok(JSON.stringify(ids(candidatasPara(ana, lista))) === '[40,41]', 'son candidatas las reservas sin anotada de la misma habitación y con fechas cercanas: la 202 con 2 huéspedes y la 202 con el código dado (las que ya tienen huéspedes, primero)');
+ok(!ids(candidatasPara(ana, lista)).includes(42) && !ids(candidatasPara(ana, lista)).includes(43) && !ids(candidatasPara(ana, lista)).includes(44), 'no lo son: una que ya está unida a otra anotada, una de otra habitación ni una de hace 18 días');
+ok(candidatasPara({ ...ana, habitacion: ' 202 ' }, lista).length === 2, 'la habitación se compara sin importar espacios');
+ok(candidatasPara(A(31, 'Sin parecidas', 0, { habitacion: '999' }), lista).length === 0 && candidatasPara(ana, []).length === 0 && candidatasPara(ana, undefined).length === 0, 'si no hay parecidas (o no hay lista) no hay candidatas');
+ok(dudaTexto([lista[0]], '202') === 'Puede que ya haya llegado: en la Hab. 202 hay una reserva con 2 huéspedes ingresados.', 'el aviso dice cuántos huéspedes ya ingresaron');
+ok(dudaTexto([{ con_checkin: 1 }], '7') === 'Puede que ya haya llegado: en la Hab. 7 hay una reserva con 1 huésped ingresado.', 'con uno: «1 huésped ingresado»');
+ok(dudaTexto([lista[1]], '202').includes('con el código dado'), 'si todavía no entró nadie, dice que es otra reserva abierta con el código dado');
 
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);

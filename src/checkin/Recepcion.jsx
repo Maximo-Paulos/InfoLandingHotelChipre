@@ -6,7 +6,7 @@ import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 import { cargarCotizaciones } from '../admin/cotizaciones.js';
 import { AvisosBanner } from '../components/Avisos.jsx';
-import { adminEstadiaReabrir, recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
+import { adminEstadiaReabrir, recepcionAnotadaGuardar, recepcionAnotadaUnir, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import AnotadaForm from './AnotadaForm.jsx';
 import CobroLlegada from './CobroLlegada.jsx';
 import EditarHuesped from './EditarHuesped.jsx';
@@ -85,6 +85,7 @@ function Panel({ clave, rol, vista, salir }) {
   const ahora = useAhora(250);
   const reloj = useRef(null);
   const ultimoVencido = useRef(0);
+  const duplicadaAvisada = useRef(''); // la habitación por la que ya se avisó «ya hay una reserva anotada»: a la segunda vez se crea igual
 
   const refrescar = useCallback(async () => {
     try {
@@ -149,9 +150,21 @@ function Panel({ clave, rol, vista, salir }) {
     }
   }, [estado, restanteReserva, refrescar]);
 
+  // Antes de abrir una reserva nueva (rápida, o anotada a nombre de alguien) se mira si esa habitación ya tiene una reserva anotada esperando: puede ser la misma persona y quedaría duplicada.
+  // Se avisa una vez; si es otra persona, a la segunda vez se crea igual.
+  const avisoDuplicada = (habitacion) => {
+    const h = String(habitacion ?? '').trim().toLowerCase();
+    if (!h || duplicadaAvisada.current === h) return null;
+    const a = (estado?.llegadas ?? []).find((x) => String(x.habitacion).trim().toLowerCase() === h && x.estado === 'anotada');
+    if (!a) return null;
+    duplicadaAvisada.current = h;
+    return `La Hab. ${habitacion} ya tiene una reserva anotada a nombre de ${a.titular}${a.dias_para === 0 ? ' (llega hoy)' : a.dias_para < 0 ? ' (todavía no llegó)' : ''}. Si es esa persona, cerrá esta ventana y hacé el check-in desde «Faltan llegar»: así no queda duplicada. Si es otra persona, tocá de nuevo el botón.`;
+  };
+
   // Anota una reserva (o corrige una llegada). Si es nueva y llega hoy (el que vino de la calle), se sigue directo con el check-in: elegir cómo paga y generar el código.
   const guardarAnotada = async (r) => {
     const nueva = anotando === 'nueva';
+    if (nueva) { const dup = avisoDuplicada(r.habitacion); if (dup) return { ok: false, mensaje: dup }; }
     const res = await recepcionAnotadaGuardar(clave, nueva ? null : anotando.id, r);
     if (!res.ok) {
       if (['anotada_ya_empezo', 'anotada_cancelada', 'llegada_fuera_de_fecha', 'no_existe'].includes(res.error)) { setAnotando(null); setError(textoCodigo(res.error)); setVersion((v) => v + 1); await refrescar(); }
@@ -186,6 +199,8 @@ function Panel({ clave, rol, vista, salir }) {
     return { ok: true };
   };
   const abrirReserva = async (r) => {
+    const dup = avisoDuplicada(r.habitacion);
+    if (dup) return { ok: false, mensaje: dup };
     const res = await recepcionReservaNueva(clave, r);
     if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
     setRapida(false);
@@ -231,6 +246,21 @@ function Panel({ clave, rol, vista, salir }) {
     } finally {
       setTrabajando(null);
     }
+  };
+  // Une una reserva anotada que sigue esperando con la reserva donde el huésped ya hizo el check-in (la duplicada): queda una sola, con el nombre del titular.
+  const unirAnotada = async (a, e) => {
+    if (!window.confirm(`¿Unir la reserva de ${a.titular} con la de la Hab. ${e.habitacion} que ya está abierta? Queda una sola reserva, con el nombre de ${a.titular}. No cambia lo cobrado ni a los huéspedes.`)) return { ok: false, mensaje: '' };
+    const res = await recepcionAnotadaUnir(clave, a.id, e.id);
+    if (!res.ok) {
+      if (['anotada_ya_empezo', 'anotada_cancelada', 'llegada_fuera_de_fecha', 'no_existe'].includes(res.error)) { setHaciendoCheckin(null); setError(textoCodigo(res.error)); setVersion((v) => v + 1); await refrescar(); }
+      return { ok: false, mensaje: textoCodigo(res.error) };
+    }
+    setHaciendoCheckin(null);
+    setError('');
+    setAviso(`Listo: la reserva de ${a.titular} quedó unida a la de la Hab. ${e.habitacion}. Ya no figura como que falta llegar.`);
+    setVersion((v) => v + 1);
+    await refrescar();
+    return { ok: true };
   };
   // Cierra a mano una reserva a la que vino menos gente de la esperada («al final no viene el otro»): deja de esperar a los que faltan y el código deja de servir.
   const cerrarEstadia = async (est) => {
@@ -345,7 +375,7 @@ function Panel({ clave, rol, vista, salir }) {
               </section>
             )}
             <Reservas clave={clave} version={version} salir={salir} dueno={rol === 'admin'} apagado={!activo} trabajando={trabajando}
-              onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); setAnotando('nueva'); }} onRapida={() => { setAviso(''); setRapida(true); }}
+              onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); duplicadaAvisada.current = ''; setAnotando('nueva'); }} onRapida={() => { setAviso(''); duplicadaAvisada.current = ''; setRapida(true); }}
               onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onAnular={anular} />
           </>
         )}
@@ -380,7 +410,7 @@ function Panel({ clave, rol, vista, salir }) {
 
       {haciendoCheckin && (
         <CobroLlegada a={haciendoCheckin} venta={venta} medios={estado?.medios_pago ?? []} apagado={estado?.activo === false}
-          onIniciar={iniciarLlegada} onEditar={(a) => { setHaciendoCheckin(null); setAviso(''); setAnotando(a); }} onCerrar={() => setHaciendoCheckin(null)} />
+          onIniciar={iniciarLlegada} onEditar={(a) => { setHaciendoCheckin(null); setAviso(''); setAnotando(a); }} onUnir={unirAnotada} onCerrar={() => setHaciendoCheckin(null)} />
       )}
 
       {fotos && <FotosHuesped modo="recepcion" clave={clave} fila={fotos} onCerrar={() => setFotos(null)} alCambiar={refrescar} />}

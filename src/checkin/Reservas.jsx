@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { recepcionProximas, textoCodigo } from './checkinApi.js';
-import { PESTANAS, cierreTexto, clasificarHub, controlLlegadas } from './hub.js';
+import { PESTANAS, candidatasPara, cierreTexto, clasificarHub, controlLlegadas, dudaTexto } from './hub.js';
 import { cuando, fechaCorta } from './Llegadas.jsx';
 import { agruparPorDia, ingresoTexto } from './proximas.js';
 import { nochesTexto } from './ReservaForm.jsx';
@@ -71,18 +71,23 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
   };
 
   // Una reserva anotada que todavía no empezó el check-in: se toca para ver la habitación, cobrar y hacer el check-in.
-  const filaAnotada = (a) => (
-    <li key={a.id}>
-      <button type="button" className={`pp-fila${a.dias_para < 0 ? ' pasada' : ''}`} onClick={() => onAbrir(a)}>
-        <span className="pp-datos">
-          <span className="pp-cab"><b className="pp-hab">Hab. {a.habitacion}</b><span className="pp-titular">{a.titular}</span></span>
-          <span className="pp-det">{[nochesTexto(a.noches), personas(a.esperados), a.categoria].filter(Boolean).join(' · ')}</span>
-          {a.dias_para < 0 && <span className="pp-estado">Todavía no llegó</span>}
-        </span>
-        <Icon name="adelante" size={22} sw={2} />
-      </button>
-    </li>
-  );
+  // Si en esa misma habitación ya hay una reserva abierta aparte (sin anotada), puede que sea la misma persona y la anotada quedó duplicada: se avisa y el detalle pide decidirlo.
+  const filaAnotada = (a) => {
+    const candidatas = candidatasPara(a, datos?.estadias);
+    return (
+      <li key={a.id}>
+        <button type="button" className={`pp-fila${a.dias_para < 0 ? ' pasada' : ''}${candidatas.length ? ' duda' : ''}`} onClick={() => onAbrir({ ...a, candidatas })}>
+          <span className="pp-datos">
+            <span className="pp-cab"><b className="pp-hab">Hab. {a.habitacion}</b><span className="pp-titular">{a.titular}</span></span>
+            <span className="pp-det">{[nochesTexto(a.noches), personas(a.esperados), a.categoria].filter(Boolean).join(' · ')}</span>
+            {a.dias_para < 0 && <span className="pp-estado">Todavía no llegó</span>}
+            {candidatas.length > 0 && <span className="pp-duda">{dudaTexto(candidatas, a.habitacion)} Tocá para ver y unirlas.</span>}
+          </span>
+          <Icon name="adelante" size={22} sw={2} />
+        </button>
+      </li>
+    );
+  };
 
   // Una reserva que ya está armada (anotada que empezó o reserva rápida): cuántos entraron y quiénes, y lo que se puede hacer según cómo esté.
   const filaEstadia = (e) => {

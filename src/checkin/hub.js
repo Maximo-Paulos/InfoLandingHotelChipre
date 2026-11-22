@@ -69,3 +69,21 @@ export const cierreTexto = (e) => {
   if (e.estado === 'cerrada') return `Cerrada con ${con} de ${esp}${e.cerrada_por ? ` · por ${e.cerrada_por}` : ''}`;
   return con === 1 ? 'Ingresó 1 huésped' : `Ingresaron los ${con}`;
 };
+
+// Reservas duplicadas: una anotada que sigue esperando puede ser la misma que otra reserva ya abierta aparte (por ejemplo una reserva rápida en la misma habitación, donde el huésped
+// ya hizo el check-in). Son candidatas las reservas sin anotada, de la misma habitación y con fechas cercanas (hasta 5 días); las que ya tienen huéspedes adentro, primero.
+const hab = (x) => String(x ?? '').trim().toLowerCase();
+export function candidatasPara(a, estadias = []) {
+  return (estadias ?? [])
+    .filter((e) => !e.anotada_id && hab(e.habitacion) === hab(a.habitacion) && a.fecha_ingreso && e.llegada && Math.abs(diasEntre(a.fecha_ingreso, e.llegada)) <= 5)
+    .sort((x, y) => (Number(y.con_checkin) || 0) - (Number(x.con_checkin) || 0) || String(y.ultima ?? '').localeCompare(String(x.ultima ?? '')));
+}
+
+// Lo que se le dice a quien mira una anotada que puede ya haber llegado: «En la Hab. 202 ya hay una reserva con 2 huéspedes ingresados».
+export const dudaTexto = (candidatas, habitacion) => {
+  const c = candidatas[0];
+  const n = Number(c.con_checkin) || 0;
+  return n > 0
+    ? `Puede que ya haya llegado: en la Hab. ${habitacion} hay una reserva con ${n} ${n === 1 ? 'huésped ingresado' : 'huéspedes ingresados'}.`
+    : `Puede que sea la misma: en la Hab. ${habitacion} hay otra reserva abierta con el código dado.`;
+};

@@ -833,6 +833,12 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .pp-card.completa,.pp-card.cerrada{border-left-color:var(--verde)}
 .pp-ingreso.cerrada{color:var(--texto-suave)}
 
+.pp-fila.duda{border-left-color:var(--terracota)}
+.pp-duda{margin-top:2px;font-size:13px;font-weight:700;line-height:1.35;color:var(--terracota-texto)}
+.paso.dup{padding:14px;border:1.5px solid var(--terracota);border-radius:14px;background:var(--mostaza-claro)}
+.dup-lista{display:grid;gap:10px;margin:10px 0;padding:0;list-style:none}
+.dup-card{padding:12px;border:1px solid var(--linea);border-radius:12px;background:var(--superficie)}
+.dup-card p{margin:0}
 /* Avisos en el celular */
 .avisos{margin:0 0 14px;padding:12px 14px;border:1px solid var(--linea);border-radius:14px;background:var(--verde-claro)}
 .avisos h3{margin:0 0 4px;font:500 19px/1.2 var(--serif)}
