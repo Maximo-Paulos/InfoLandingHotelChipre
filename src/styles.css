@@ -812,6 +812,27 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .pp-nombres{font-size:14px;line-height:1.4;color:var(--texto-suave);overflow-wrap:anywhere}
 .ab-sub{margin:16px 0 0;font:700 12px/1.3 var(--sans);letter-spacing:.1em;text-transform:uppercase;color:var(--texto-suave)}
 
+/* Pantalla «Reservas»: cartel de llegadas, pestañas de arriba y acciones */
+.hub-resumen{display:grid;gap:4px;margin:14px 0 0;padding:14px 16px;border:1px solid var(--linea);border-left:5px solid var(--verde);border-radius:14px;background:var(--verde-claro)}
+.hub-resumen.esperando{border-left-color:var(--terracota);background:var(--mostaza-claro)}
+.hub-resumen b{font:500 22px/1.2 var(--serif)}
+.hub-resumen span{font-size:14px;line-height:1.4;color:var(--texto-suave)}
+.hub-resumen .hub-quienes{color:var(--texto);font-weight:700}
+.hub-resumen .hub-aparte{margin-top:4px;padding-top:6px;border-top:1px dashed var(--linea)}
+.hub-acciones{margin:14px 0 0}
+.hub-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 12px}
+.hub-tabs button{flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 12px;border:1px solid var(--linea);border-radius:999px;background:var(--superficie);color:var(--texto-suave);font:700 14px var(--sans);white-space:nowrap;cursor:pointer}
+.hub-tabs button.activa{border-color:var(--verde);background:var(--verde);color:#fff}
+.hub-n{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:rgba(34,51,42,.1);font:800 12px/1 var(--sans)}
+.hub-tabs .activa .hub-n{background:rgba(255,255,255,.25)}
+.hub-panel .sec-ayuda{margin:0 0 4px}
+.hub-panel .pp-dia{margin-top:16px}
+.pp-acciones{display:grid;gap:8px;flex:none;min-width:116px}
+.pp-acciones .btn.mini{width:100%;margin:0}
+.pp-dia-n{margin-left:6px;font:400 14px var(--sans);color:var(--texto-suave)}
+.pp-card.completa,.pp-card.cerrada{border-left-color:var(--verde)}
+.pp-ingreso.cerrada{color:var(--texto-suave)}
+
 /* Avisos en el celular */
 .avisos{margin:0 0 14px;padding:12px 14px;border:1px solid var(--linea);border-radius:14px;background:var(--verde-claro)}
 .avisos h3{margin:0 0 4px;font:500 19px/1.2 var(--serif)}
