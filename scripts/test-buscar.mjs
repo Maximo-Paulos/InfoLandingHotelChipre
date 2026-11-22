@@ -1,6 +1,6 @@
 // El buscador y la agrupación de «Próximas reservas» de recepción (cuentas puras, sin pantalla ni red).
 //   node scripts/test-buscar.mjs
-import { agruparPorDia, filtrarProximas, ingresoTexto, normalizar, seccionesDe } from '../src/checkin/proximas.js';
+import { agruparPorDia, filtrarProximas, normalizar, soloEsperando } from '../src/checkin/proximas.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -35,43 +35,10 @@ ok(g.length === 3 && g[0].fecha === '2026-11-21' && ids(g[0].items).join() === '
 ok(g[0].dias === 1 && g[1].dias === 5 && g[2].dias === 40, 'cada grupo trae cuántos días faltan');
 ok(agruparPorDia([]).length === 0, 'sin reservas no hay grupos');
 
-console.log('\n== 4. Buscar también por quien ya ingresó');
-const con = [
-  R(10, 'Familia Gómez', '77', { estado: 'en_curso', con_checkin: 2, esperados: 3, ingresaron: ['Ana Prueba', 'Luis Pérez'], ultima: '2026-11-20T15:00:00Z' }),
-  R(11, 'Otra', '12', { estado: 'en_curso', con_checkin: 1, esperados: 1, ingresaron: ['Mario Ruiz'] })
-];
-ok(JSON.stringify(ids(filtrarProximas(con, 'luis'))) === '[10]' && JSON.stringify(ids(filtrarProximas(con, 'ruiz'))) === '[11]', 'el buscador encuentra la reserva por el nombre de alguien que ya ingresó');
-
-console.log('\n== 5. Secciones: falta ingresar / ya ingresaron');
-const E = (id, titular, extra) => R(id, titular, String(id), extra);
-const todas = [
-  E(20, 'Por llegar 1', { estado: 'anotada', dias_para: 0 }),
-  E(21, 'Por llegar 2', { estado: 'anotada', dias_para: 3 }),
-  E(22, 'Pasó la fecha', { estado: 'anotada', dias_para: -2 }),
-  E(23, 'Código sin nadie', { estado: 'en_curso', con_checkin: 0, esperados: 2, ultima: '2026-11-20T10:00:00Z' }),
-  E(24, 'Faltan viejo', { estado: 'en_curso', con_checkin: 1, esperados: 3, ultima: '2026-11-19T10:00:00Z' }),
-  E(25, 'Faltan nuevo', { estado: 'en_curso', con_checkin: 2, esperados: 3, ultima: '2026-11-20T18:00:00Z' }),
-  E(26, 'Completa', { estado: 'en_curso', con_checkin: 3, esperados: 3, ultima: '2026-11-20T12:00:00Z' }),
-  E(27, 'Completa vieja', { estado: 'en_curso', con_checkin: 2, esperados: 2, ultima: '2026-11-18T12:00:00Z' }),
-  E(28, 'Cancelada', { estado: 'cancelada' })
-];
-const sc = seccionesDe(todas);
-ok(JSON.stringify(ids(sc.porLlegar)) === '[20,21]' && JSON.stringify(ids(sc.pasadas)) === '[22]', 'las que esperan se reparten en por llegar (hoy y futuras) y pasó la fecha, en el orden en que vienen');
-ok(JSON.stringify(ids(sc.sinNadie)) === '[23]', 'se dio el código y todavía no entró nadie: sigue siendo «falta ingresar»');
-ok(JSON.stringify(ids(sc.faltanHuespedes)) === '[25,24]', 'ya ingresó alguien pero faltan: de la actividad más reciente a la más vieja');
-ok(JSON.stringify(ids(sc.completas)) === '[26,27]', 'completas (ingresaron todos): también de la más reciente a la más vieja');
-ok(JSON.stringify(ids(sc.canceladas)) === '[28]', 'las canceladas van aparte');
-ok(sc.faltaIngresar === 4 && sc.yaIngresaron === 4, 'los totales: 4 faltan ingresar (2 por llegar, 1 pasada, 1 con código) y 4 ya ingresaron');
-ok(sc.faltaIngresar + sc.yaIngresaron + sc.canceladas.length === todas.length, 'no se pierde ninguna reserva: cada una está en una sola sección');
-const vacias = seccionesDe([]);
-ok(vacias.faltaIngresar === 0 && vacias.yaIngresaron === 0, 'sin reservas, todo en cero');
-ok(seccionesDe([E(30, 'Sin dato', { estado: 'en_curso', esperados: 2 })]).sinNadie.length === 1, 'una reserva en curso sin el dato de cuántos entraron cuenta como que no entró nadie');
-
-console.log('\n== 6. El cartelito de cuántos ingresaron');
-ok(ingresoTexto({ con_checkin: 0, esperados: 3 }) === 'Todavía no entró nadie', 'ninguno: «Todavía no entró nadie»');
-ok(ingresoTexto({ con_checkin: 2, esperados: 3 }) === 'Ingresaron 2 de 3 (falta 1)', 'dos de tres: «Ingresaron 2 de 3 (falta 1)»');
-ok(ingresoTexto({ con_checkin: 1, esperados: 4 }) === 'Ingresaron 1 de 4 (faltan 3)', 'uno de cuatro: «Ingresaron 1 de 4 (faltan 3)»');
-ok(ingresoTexto({ con_checkin: 3, esperados: 3 }) === 'Ingresaron los 3' && ingresoTexto({ con_checkin: 1, esperados: 1 }) === 'Ingresó 1 huésped', 'completas: «Ingresaron los 3» / «Ingresó 1 huésped»');
+console.log('\n== 4. Solo las que todavía esperan (la base también devuelve las que ya empezaron el check-in)');
+const mezcla = [R(1, 'Ana', '101', { estado: 'anotada' }), R(2, 'Beto', '102', { estado: 'en_curso', con_checkin: 1 }), R(3, 'Caro', '103'), R(4, 'Dani', '104', { estado: 'en_curso', con_checkin: 0 })];
+ok(JSON.stringify(ids(soloEsperando(mezcla))) === '[1,3]', 'las «en_curso» (con o sin huéspedes ingresados) no figuran como «todavía no llegó»; sin estado se toma como esperando');
+ok(soloEsperando([]).length === 0, 'sin reservas no hay nada');
 
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);
