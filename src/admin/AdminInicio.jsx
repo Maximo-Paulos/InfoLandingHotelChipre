@@ -65,7 +65,7 @@ function Contenido({ clave, salir }) {
         <p className="in-fecha">{fechaLarga()}</p>
         <AvisosBanner />
 
-        <a className="btn in-accion" href="#/recepcion"><Icon name="llave" size={22} sw={1.8} /> Nueva reserva y código</a>
+        <a className="btn in-accion" href="#/recepcion"><Icon name="calendario" size={22} sw={1.8} /> Reservas: crear y dar código</a>
         <a className="btn claro in-accion" href="#/admin/llegadas"><Icon name="calendario" size={22} sw={1.8} /> Anotar una reserva por adelantado</a>
 
         {proximas.length > 0 && (

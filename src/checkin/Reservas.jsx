@@ -1,0 +1,226 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Icon from '../components/Icon.jsx';
+import { recepcionProximas, textoCodigo } from './checkinApi.js';
+import { PESTANAS, candidatasPara, cierreTexto, clasificarHub, controlLlegadas, dudaTexto } from './hub.js';
+import { cuando, fechaCorta } from './Llegadas.jsx';
+import { agruparPorDia, ingresoTexto } from './proximas.js';
+import { nochesTexto } from './ReservaForm.jsx';
+
+const CADA_MS = 15000;
+const personas = (n) => `${n} ${n === 1 ? 'huésped' : 'huéspedes'}`;
+
+// La pantalla «Reservas» de recepción: todo lo de las reservas en un solo lugar.
+//   · Arriba, un cartel que dice si todavía falta llegar alguien («estar atento») o si ya llegaron todas las de hoy («quedarse tranquilo»).
+//   · Para crear: anotar una reserva a nombre de alguien o abrir una reserva rápida (sin nombre); al crearla se da el código para el huésped.
+//   · Un buscador (por nombre, habitación o quien ya ingresó) y las pestañas: Faltan llegar · Falta cerrar · Cerradas · Próximas · Historial (por día).
+// Recepción solo ve lo de los días que el dueño configuró (N atrás y N adelante); el dueño ve todo.
+//   clave: la sesión · version: sube cuando algo cambió y la lista se vuelve a pedir · salir(): si la sesión ya no vale · dueno: puede reabrir una reserva cerrada
+//   onAbrir(anotada): abre el detalle para cobrar y hacer el check-in · onAnotar() / onRapida(): crear · onDarCodigo(estadiaId) · onCerrar(estadia) · onReabrir(estadia) · onAnular(estadia)
+//   trabajando: el id de la reserva a la que se le está haciendo algo (para apagar sus botones)
+export default function Reservas({ clave, version = 0, salir, dueno = false, apagado = false, trabajando = null, onAbrir, onAnotar, onRapida, onDarCodigo, onCerrar, onReabrir, onAnular }) {
+  const [datos, setDatos] = useState(null); // la última respuesta de la base
+  const [error, setError] = useState('');
+  const [buscar, setBuscar] = useState('');
+  const [pestana, setPestana] = useState('faltan');
+  const reloj = useRef(null);
+  const botones = useRef({});
+
+  const cargar = useCallback(async () => {
+    try {
+      const r = await recepcionProximas(clave);
+      if (!r.ok) {
+        if (r.error === 'clave_incorrecta') { salir(); return; }
+        setError(textoCodigo(r.error));
+        return;
+      }
+      setDatos(r);
+      setError('');
+    } catch {
+      setError('Sin conexión. Reintentando…');
+    }
+  }, [clave, salir]);
+
+  // Se pide al abrir, cada tanto mientras la pantalla se ve (para que aparezcan las que cargan los demás) y cada vez que `version` cambia.
+  useEffect(() => {
+    let vivo = true;
+    const vuelta = async () => {
+      if (document.visibilityState !== 'hidden') await cargar();
+      if (vivo) reloj.current = setTimeout(vuelta, CADA_MS);
+    };
+    vuelta();
+    const alVolver = () => { if (document.visibilityState === 'visible') { clearTimeout(reloj.current); vuelta(); } };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => { vivo = false; clearTimeout(reloj.current); document.removeEventListener('visibilitychange', alVolver); };
+  }, [cargar, version]);
+
+  const c = useMemo(() => clasificarHub(datos, buscar), [datos, buscar]);
+  const k = useMemo(() => controlLlegadas(datos), [datos]);
+  const buscando = buscar.trim() !== '';
+  const hayAlgo = (datos?.reservas?.length ?? 0) + (datos?.estadias?.length ?? 0) > 0;
+  const total = Object.values(c.conteo).reduce((s, x) => s + x, 0);
+
+  // Flechas para pasar de una pestaña a otra, como en las estadísticas.
+  const alTecla = (e) => {
+    const i = PESTANAS.findIndex((p) => p.id === pestana);
+    const ir = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: PESTANAS.length - 1 }[e.key];
+    if (ir == null) return;
+    e.preventDefault();
+    const sig = PESTANAS[(ir + PESTANAS.length) % PESTANAS.length].id;
+    setPestana(sig);
+    botones.current[sig]?.focus();
+  };
+
+  // Una reserva anotada que todavía no empezó el check-in: se toca para ver la habitación, cobrar y hacer el check-in.
+  // Si en esa misma habitación ya hay una reserva abierta aparte (sin anotada), puede que sea la misma persona y la anotada quedó duplicada: se avisa y el detalle pide decidirlo.
+  const filaAnotada = (a) => {
+    const candidatas = candidatasPara(a, datos?.estadias);
+    return (
+      <li key={a.id}>
+        <button type="button" className={`pp-fila${a.dias_para < 0 ? ' pasada' : ''}${candidatas.length ? ' duda' : ''}`} onClick={() => onAbrir({ ...a, candidatas })}>
+          <span className="pp-datos">
+            <span className="pp-cab"><b className="pp-hab">Hab. {a.habitacion}</b><span className="pp-titular">{a.titular}</span></span>
+            <span className="pp-det">{[nochesTexto(a.noches), personas(a.esperados), a.categoria].filter(Boolean).join(' · ')}</span>
+            {a.dias_para < 0 && <span className="pp-estado">Todavía no llegó</span>}
+            {candidatas.length > 0 && <span className="pp-duda">{dudaTexto(candidatas, a.habitacion)} Tocá para ver y unirlas.</span>}
+          </span>
+          <Icon name="adelante" size={22} sw={2} />
+        </button>
+      </li>
+    );
+  };
+
+  // Una reserva que ya está armada (anotada que empezó o reserva rápida): cuántos entraron y quiénes, y lo que se puede hacer según cómo esté.
+  const filaEstadia = (e) => {
+    const clase = { sin_ingresos: 'nadie', faltan: 'faltan', completa: 'completa', cerrada: 'cerrada' }[e.estado];
+    const texto = e.estado === 'sin_ingresos' ? 'Todavía no entró nadie' : e.estado === 'faltan' ? ingresoTexto(e) : cierreTexto(e);
+    const ocupado = trabajando === e.id;
+    return (
+      <li key={e.id} className={`pp-card ${clase}`}>
+        <div className="pp-datos">
+          <span className="pp-cab"><b className="pp-hab">Hab. {e.habitacion}</b><span className="pp-titular">{e.titular || 'Reserva rápida'}</span></span>
+          <span className="pp-det">{[nochesTexto(e.noches), personas(e.esperados), e.categoria].filter(Boolean).join(' · ')}</span>
+          <span className={`pp-ingreso ${clase}`}>{texto}</span>
+          {e.ingresaron?.length > 0 && <span className="pp-nombres">{e.ingresaron.join(', ')}</span>}
+        </div>
+        <div className="pp-acciones">
+          {(e.estado === 'sin_ingresos' || e.estado === 'faltan') && <button type="button" className="btn mini" onClick={() => onDarCodigo(e.id)} disabled={ocupado || apagado}>{ocupado ? 'Un momento…' : 'Dar código'}</button>}
+          {e.estado === 'faltan' && <button type="button" className="btn mini claro" onClick={() => onCerrar(e)} disabled={ocupado}>Cerrar reserva</button>}
+          {e.estado === 'sin_ingresos' && <button type="button" className="btn mini claro" onClick={() => onAnular(e)} disabled={ocupado}>Anular</button>}
+          {e.estado === 'cerrada' && dueno && <button type="button" className="btn mini claro" onClick={() => onReabrir(e)} disabled={ocupado}>Reabrir</button>}
+        </div>
+      </li>
+    );
+  };
+
+  const grupo = (titulo, items, fila, ayuda) => items.length > 0 && (
+    <div className="pp-dia">
+      <h3 className="pp-dia-tit"><b>{titulo}</b> ({items.length})</h3>
+      {ayuda && <p className="sec-ayuda">{ayuda}</p>}
+      <ul className="ll-lista">{items.map(fila)}</ul>
+    </div>
+  );
+  const vacio = (texto) => <p className="ab-vacio" role="status">{buscando ? `Nada en esta sección coincide con «${buscar.trim()}».` : texto}</p>;
+
+  return (
+    <div className="reservas-hub">
+      {datos && (
+        <section className={`hub-resumen ${k.estado}`} aria-label="Llegadas de hoy">
+          {k.estado === 'esperando' ? (
+            <>
+              <b>Faltan llegar {k.faltan} {k.faltan === 1 ? 'reserva' : 'reservas'}</b>
+              <span>{[k.hoy > 0 && `${k.hoy} de hoy`, k.atrasadas > 0 && `${k.atrasadas} ${k.atrasadas === 1 ? 'atrasada' : 'atrasadas'}`, k.sinIngresos > 0 && `${k.sinIngresos} con el código dado y nadie adentro`].filter(Boolean).join(' · ')}</span>
+              <span className="hub-quienes">Estate atento: {k.quienes.join(' · ')}{k.faltan > k.quienes.length ? ' y más' : ''}</span>
+            </>
+          ) : (
+            <>
+              <b>Ya llegaron todas las de hoy</b>
+              <span>Podés quedarte tranquilo.{k.manana > 0 ? ` Mañana ${k.manana === 1 ? 'llega 1 reserva' : `llegan ${k.manana} reservas`}.` : ''}</span>
+            </>
+          )}
+          {k.cerrar > 0 && <span className="hub-aparte">{k.cerrar} {k.cerrar === 1 ? 'reserva con huéspedes por llegar o cerrar' : 'reservas con huéspedes por llegar o cerrar'} (pestaña «Falta cerrar»)</span>}
+        </section>
+      )}
+
+      <div className="btns hub-acciones">
+        <button type="button" className="btn" onClick={onAnotar}>Anotar reserva (con nombre)</button>
+        <button type="button" className="btn claro" onClick={onRapida} disabled={apagado}>Reserva rápida (sin nombre)</button>
+      </div>
+      {apagado && <p className="in-aviso" role="status">El check-in digital está apagado: no se pueden dar códigos. Lo prende el dueño desde su panel.</p>}
+
+      {datos?.limitada && <p className="pp-rango" role="note">Se ven las reservas desde hace <b>{datos.dias} {datos.dias === 1 ? 'día' : 'días'}</b> hasta dentro de <b>{datos.dias} {datos.dias === 1 ? 'día' : 'días'}</b>.</p>}
+      <div className="campo pp-buscar">
+        <label htmlFor="pp-buscar">Buscar por nombre o habitación</label>
+        <input id="pp-buscar" type="search" value={buscar} onChange={(e) => setBuscar(e.target.value)} autoComplete="off" placeholder="Ej. Pérez o 107" enterKeyHint="search" />
+      </div>
+      {error && <p className="ed-error" role="alert">{error}</p>}
+      {!datos && !error && <p className="intro" role="status">Cargando…</p>}
+      {buscando && datos && <p className="pp-cuenta" role="status">{total} {total === 1 ? 'reserva encontrada' : 'reservas encontradas'} en total</p>}
+      {buscando && datos && total === 0 && hayAlgo && <p className="ab-vacio" role="status">Ninguna reserva coincide con «{buscar.trim()}». Probá con solo el apellido o con la habitación.{datos.limitada ? ` Si la reserva es de otra fecha (más de ${datos.dias} ${datos.dias === 1 ? 'día' : 'días'} atrás o adelante), no se muestra: avisale al dueño.` : ''}</p>}
+
+      {datos && (
+        <>
+          <div className="hub-tabs" role="tablist" aria-label="Secciones de reservas" onKeyDown={alTecla}>
+            {PESTANAS.map((p) => (
+              <button key={p.id} type="button" role="tab" id={`hub-tab-${p.id}`} aria-selected={pestana === p.id} aria-controls="hub-panel" tabIndex={pestana === p.id ? 0 : -1}
+                ref={(el) => { botones.current[p.id] = el; }} className={pestana === p.id ? 'activa' : ''} onClick={() => setPestana(p.id)}>
+                {p.texto}<span className="hub-n">{c.conteo[p.id]}</span>
+              </button>
+            ))}
+          </div>
+
+          <div id="hub-panel" role="tabpanel" aria-labelledby={`hub-tab-${pestana}`} className="hub-panel">
+            {pestana === 'faltan' && (
+              <>
+                <p className="sec-ayuda">Todavía no llegó nadie. Tocá una para ver la habitación, cobrar y hacer el check-in.</p>
+                {c.conteo.faltan === 0 && vacio('No falta llegar nadie.')}
+                {grupo('Atrasadas', c.faltan.atrasadas, filaAnotada, 'Tenían que llegar antes y todavía no hicieron el check-in.')}
+                {grupo('Hoy', c.faltan.hoy, filaAnotada)}
+                {grupo('Con el código dado', c.faltan.sinIngresos, filaEstadia, 'Se empezó el check-in pero todavía no entró ningún huésped.')}
+              </>
+            )}
+            {pestana === 'cerrar' && (
+              <>
+                <p className="sec-ayuda">Ya ingresó alguien y faltan otros. Dales el código o, si no van a venir, cerrá la reserva.</p>
+                {c.cerrar.length === 0 && vacio('No hay reservas por cerrar.')}
+                {c.cerrar.length > 0 && <ul className="ll-lista">{c.cerrar.map(filaEstadia)}</ul>}
+              </>
+            )}
+            {pestana === 'cerradas' && (
+              <>
+                <p className="sec-ayuda">Ya terminaron: entraron todos o se cerraron a mano.{dueno ? ' Si se cerró una por error, la podés reabrir.' : ''}</p>
+                {c.cerradas.length === 0 && vacio('Todavía no hay reservas cerradas en estos días.')}
+                {c.cerradas.length > 0 && <ul className="ll-lista">{c.cerradas.map(filaEstadia)}</ul>}
+              </>
+            )}
+            {pestana === 'proximas' && (
+              <>
+                <p className="sec-ayuda">Las que llegan de mañana en adelante.</p>
+                {c.proximas.length === 0 && vacio('No hay reservas anotadas para los próximos días.')}
+                {agruparPorDia(c.proximas).map((g) => (
+                  <div key={g.fecha} className="pp-dia">
+                    <h3 className="pp-dia-tit"><b>{cuando(g.dias)}</b> · {fechaCorta(g.fecha)}</h3>
+                    <ul className="ll-lista">{g.items.map(filaAnotada)}</ul>
+                  </div>
+                ))}
+              </>
+            )}
+            {pestana === 'historial' && (
+              <>
+                <p className="sec-ayuda">Las que ya llegaron, por día.</p>
+                {c.historial.length === 0 && vacio('Todavía no llegó ninguna en estos días.')}
+                {c.historial.map((d) => (
+                  <div key={d.fecha} className="pp-dia">
+                    <h3 className="pp-dia-tit"><b>{cuando(d.dias)}</b> · {fechaCorta(d.fecha)} <span className="pp-dia-n">{d.items.length} {d.items.length === 1 ? 'reserva' : 'reservas'} · {personas(d.huespedes)}</span></h3>
+                    <ul className="ll-lista">{d.items.map(filaEstadia)}</ul>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {datos?.mas > 0 && <p className="ayuda">Se muestran las 300 más cercanas; hay {datos.mas} más.</p>}
+    </div>
+  );
+}
