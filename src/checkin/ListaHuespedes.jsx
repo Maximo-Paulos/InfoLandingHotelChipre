@@ -24,6 +24,7 @@ export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarRese
                 <>
                   <div className="rg-tit">
                     <b className="rg-hab">Hab. {g.estadia.habitacion}</b>
+                    {g.estadia.numero != null && <span className="pp-num">N.º {g.estadia.numero}</span>}
                     <span className="rg-cuenta">{huespedesTexto(g.estadia, g.estadia.con_checkin ?? g.filas.length)}</span>
                   </div>
                   {detalleTexto(g.estadia) && <p className="rg-det">{detalleTexto(g.estadia)}</p>}

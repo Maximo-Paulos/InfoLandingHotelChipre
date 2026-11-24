@@ -3,6 +3,7 @@ import Modal from '../checkin/Modal.jsx';
 import { adminCatalogos, adminEstadiaEditar, adminMediosPago, adminReservaAnular, recepcionReservaAbrir, textoCodigo } from '../checkin/checkinApi.js';
 import ReservaForm, { cobroLinea, detalleTexto, huespedesTexto, plata } from '../checkin/ReservaForm.jsx';
 import Icon from '../components/Icon.jsx';
+import { numeroTexto } from '../checkin/proximas.js';
 import { caja } from './estadisticas.js';
 
 const POR_VEZ = 40;
@@ -100,7 +101,7 @@ export default function Caja({ datos, rango, clave, alGuardar }) {
                   <span className="caja-hab">{f.habitacion}</span>
                   <span className="caja-cuerpo">
                     <b>{cobroLinea(f)}</b>
-                    <small>{[detalleTexto(f), `${f.esperados} ${f.esperados === 1 ? 'huésped esperado' : 'huéspedes esperados'}`, `cargó ${f.cargado_por}`, ddmm(f.fecha_cobro)].filter(Boolean).join(' · ')}</small>
+                    <small>{[numeroTexto(f), detalleTexto(f), `${f.esperados} ${f.esperados === 1 ? 'huésped esperado' : 'huéspedes esperados'}`, `cargó ${f.cargado_por}`, ddmm(f.fecha_cobro)].filter(Boolean).join(' · ')}</small>
                   </span>
                   <Icon name="lapiz" size={16} sw={1.8} />
                 </button>
@@ -158,7 +159,7 @@ export default function Caja({ datos, rango, clave, alGuardar }) {
                     <span className="caja-cuerpo">
                       <b>{f.sinCobro ? 'Sin cobro: se factura aparte' : `${plata(f.hotel, f.moneda)} en el hotel`}</b>
                       {f.sena > 0 && <small>+ seña {plata(f.sena, f.moneda)}{f.fecha_sena ? ` (${ddmm(f.fecha_sena)})` : ''} · total {plata(f.total, f.moneda)}</small>}
-                      <small>{[detalleTexto(f), f.sinCobro ? null : f.medio_pago, `cargó ${f.cargado_por}`].filter(Boolean).join(' · ')}</small>
+                      <small>{[numeroTexto(f), detalleTexto(f), f.sinCobro ? null : f.medio_pago, `cargó ${f.cargado_por}`].filter(Boolean).join(' · ')}</small>
                       <small>{huespedesTexto(f, f.huespedes)} con check-in</small>
                     </span>
                     <Icon name="lapiz" size={16} sw={1.8} />
@@ -194,7 +195,7 @@ export default function Caja({ datos, rango, clave, alGuardar }) {
       )}
 
       {editando && (
-        <Modal titulo={`Reserva de la ${editando.habitacion}`} onCerrar={() => setEditando(null)}>
+        <Modal titulo={`Reserva de la ${editando.habitacion}${editando.numero != null ? ` · N.º ${editando.numero}` : ''}`} onCerrar={() => setEditando(null)}>
           <ReservaForm inicial={editando} medios={medios} canales={catalogos.canales} categorias={catalogos.categorias} onGuardar={guardar} texto="Guardar cambios" alCancelar={() => setEditando(null)} />
           <div className="zona-quitar">
             <p className="ayuda">Si la reserva no corresponde (una prueba, o se cargó por error), la podés eliminar{editando.huespedes ? `: se van con ella sus ${editando.huespedes} ${editando.huespedes === 1 ? 'huésped' : 'huéspedes'}` : ''}. No se borra nada: queda en «Reservas anuladas» y la podés restaurar.</p>
