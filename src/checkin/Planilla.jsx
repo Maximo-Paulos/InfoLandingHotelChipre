@@ -66,7 +66,7 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                 <td role="cell" colSpan={15}>
                   {g.estadia ? (
                     <>
-                      <b>Hab. {g.estadia.habitacion}</b> · {detalleTexto(g.estadia)} · {cobroLinea(g.estadia)} · {g.estadia.canal_cobra === false ? 'estadía' : 'cobro'} {g.estadia.fecha_cobro.split('-').reverse().slice(0, 2).join('/')}
+                      <b>Hab. {g.estadia.habitacion}</b>{g.estadia.numero != null && <> · <b>N.º {g.estadia.numero}</b></>} · {detalleTexto(g.estadia)} · {cobroLinea(g.estadia)} · {g.estadia.canal_cobra === false ? 'estadía' : 'cobro'} {g.estadia.fecha_cobro.split('-').reverse().slice(0, 2).join('/')}
                       <span className="muted"> · cargó {g.estadia.cargado_por} · {huespedesTexto(g.estadia, g.estadia.con_checkin ?? g.filas.length)}</span>
                       {onEditarReserva && (!reservaEditable || reservaEditable(g.estadia)) && (
                         <button type="button" className="btn mini claro" onClick={() => onEditarReserva(g.estadia)}><Icon name="lapiz" size={16} sw={1.8} /> Corregir reserva</button>

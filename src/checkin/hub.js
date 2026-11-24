@@ -1,6 +1,6 @@
 // La pantalla «Reservas» de recepción: cuentas puras (sin pantalla ni red) que reparten lo que manda la base en las pestañas de arriba y arman el cartel de «qué falta llegar».
 //   datos: la respuesta de recepcion_proximas → { hoy, dias, reservas (las reservas anotadas), estadias (todas las reservas con actividad en esos días) }
-import { filtrarProximas } from './proximas.js';
+import { filtrarProximas, numeroTexto } from './proximas.js';
 
 // Las pestañas, en este orden: lo urgente primero.
 export const PESTANAS = [
@@ -8,7 +8,8 @@ export const PESTANAS = [
   { id: 'cerrar', texto: 'Falta cerrar' },
   { id: 'cerradas', texto: 'Cerradas' },
   { id: 'proximas', texto: 'Próximas' },
-  { id: 'historial', texto: 'Historial' }
+  { id: 'historial', texto: 'Historial' },
+  { id: 'eliminadas', texto: 'Eliminadas', soloDueno: true } // solo el dueño: lo que se eliminó, para restaurarlo
 ];
 
 const masReciente = (x, y) => String(y.ultima ?? '').localeCompare(String(x.ultima ?? ''));
@@ -19,6 +20,7 @@ const masReciente = (x, y) => String(y.ultima ?? '').localeCompare(String(x.ulti
 //   cerradas  → ya están: entraron todos (completa) o se cerró a mano con menos de los esperados (cerrada)
 //   proximas  → las anotadas que llegan de mañana en adelante
 //   historial → las que ya llegaron (con al menos un huésped), por día de llegada, de la más reciente a la más vieja
+//   eliminadas → (solo le llega al dueño) lo eliminado en los últimos 60 días: reservas anuladas y anotadas canceladas, para restaurarlas
 export function clasificarHub(datos, consulta = '') {
   const anotadas = filtrarProximas((datos?.reservas ?? []).filter((a) => a.estado === 'anotada'), consulta);
   const estadias = filtrarProximas(datos?.estadias ?? [], consulta);
@@ -36,9 +38,10 @@ export function clasificarHub(datos, consulta = '') {
     d.huespedes += Number(e.con_checkin);
   }
   dias.sort((x, y) => y.fecha.localeCompare(x.fecha));
+  const eliminadas = filtrarProximas(datos?.eliminadas ?? [], consulta);
   return {
-    faltan: { atrasadas, hoy, sinIngresos }, cerrar, cerradas, proximas, historial: dias,
-    conteo: { faltan: atrasadas.length + hoy.length + sinIngresos.length, cerrar: cerrar.length, cerradas: cerradas.length, proximas: proximas.length, historial: dias.reduce((s, d) => s + d.items.length, 0) }
+    faltan: { atrasadas, hoy, sinIngresos }, cerrar, cerradas, proximas, historial: dias, eliminadas,
+    conteo: { faltan: atrasadas.length + hoy.length + sinIngresos.length, cerrar: cerrar.length, cerradas: cerradas.length, proximas: proximas.length, historial: dias.reduce((s, d) => s + d.items.length, 0), eliminadas: eliminadas.length }
   };
 }
 
@@ -79,11 +82,44 @@ export function candidatasPara(a, estadias = []) {
     .sort((x, y) => (Number(y.con_checkin) || 0) - (Number(x.con_checkin) || 0) || String(y.ultima ?? '').localeCompare(String(x.ultima ?? '')));
 }
 
-// Lo que se le dice a quien mira una anotada que puede ya haber llegado: «En la Hab. 202 ya hay una reserva con 2 huéspedes ingresados».
+// Lo que se le dice a quien mira una anotada que puede ya haber llegado: «En la Hab. 202 ya hay una reserva (N.º 55) con 2 huéspedes ingresados».
 export const dudaTexto = (candidatas, habitacion) => {
   const c = candidatas[0];
   const n = Number(c.con_checkin) || 0;
+  const num = c.numero != null ? ` (${numeroTexto(c)})` : '';
   return n > 0
-    ? `Puede que ya haya llegado: en la Hab. ${habitacion} hay una reserva con ${n} ${n === 1 ? 'huésped ingresado' : 'huéspedes ingresados'}.`
-    : `Puede que sea la misma: en la Hab. ${habitacion} hay otra reserva abierta con el código dado.`;
+    ? `Puede que ya haya llegado: en la Hab. ${habitacion} hay una reserva${num} con ${n} ${n === 1 ? 'huésped ingresado' : 'huéspedes ingresados'}.`
+    : `Puede que sea la misma: en la Hab. ${habitacion} hay otra reserva abierta${num} con el código dado.`;
+};
+
+// Reservas que se parecen y pueden ser la misma cargada dos veces (el dueño las reconoce por el número y elimina la que sobra). Devuelve { 'e12': [reserva, …], 'a7': […] } (e = reserva
+// armada, a = anotada) con las demás reservas de la MISMA habitación que se pisan con ella:
+//   · dos reservas armadas (o dos anotadas) cuyas fechas se pisan (misma habitación, mismos días);
+//   · una reserva armada que no salió de ninguna anotada y una anotada que sigue esperando, con hasta 5 días de diferencia (la anotada ya avisa por su lado: ver candidatasPara).
+export function parecidas(datos) {
+  const anotadas = (datos?.reservas ?? []).filter((a) => a.estado === 'anotada');
+  const estadias = datos?.estadias ?? [];
+  const noches = (x) => Math.max(1, Number(x.noches) || 1);
+  const salen = (fecha, n) => diasEntre('2000-01-01', fecha) + n;
+  const seTapan = (f1, n1, f2, n2) => !!f1 && !!f2 && diasEntre('2000-01-01', f1) < salen(f2, n2) && diasEntre('2000-01-01', f2) < salen(f1, n1);
+  const mapa = {};
+  const sumar = (clave, otra) => { (mapa[clave] ??= []).push(otra); };
+  for (const x of estadias) {
+    for (const y of estadias) {
+      if (x.id !== y.id && hab(x.habitacion) === hab(y.habitacion) && seTapan(x.llegada, noches(x), y.llegada, noches(y))) sumar(`e${x.id}`, y);
+    }
+    if (!x.anotada_id) for (const a of anotadas) if (hab(a.habitacion) === hab(x.habitacion) && a.fecha_ingreso && x.llegada && Math.abs(diasEntre(a.fecha_ingreso, x.llegada)) <= 5) sumar(`e${x.id}`, a);
+  }
+  for (const x of anotadas) {
+    for (const y of anotadas) {
+      if (x.id !== y.id && hab(x.habitacion) === hab(y.habitacion) && seTapan(x.fecha_ingreso, noches(x), y.fecha_ingreso, noches(y))) sumar(`a${x.id}`, y);
+    }
+  }
+  return mapa;
+}
+
+// «Parece repetida: la N.º 55 (Hab. 202, Maldonado) tiene los mismos días.»
+export const parecidaTexto = (otras) => {
+  const nombres = otras.slice(0, 2).map((o) => `${o.numero != null ? `la ${numeroTexto(o)}` : 'otra'}${o.titular ? ` (${o.titular})` : ''}`).join(' y ');
+  return `Parece repetida: ${nombres}${otras.length > 2 ? ' y más' : ''} es de la misma habitación y fechas parecidas. Si es la misma, el dueño elimina la que sobra.`;
 };

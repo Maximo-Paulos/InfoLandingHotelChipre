@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { aCobrar, medioSugerido, reservaDeLlegada } from './cobro.js';
 import { ACobrar, cuando, fechaCorta } from './Llegadas.jsx';
 import Modal from './Modal.jsx';
+import { numeroTexto } from './proximas.js';
 import { leerMonto, hoyAR, nochesTexto, plata } from './ReservaForm.jsx';
 
 // El check-in de una reserva anotada: tres pasos, en este orden, y cada uno habilita al siguiente. No hay forma de saltearse el cobro ni de dar el código por error.
@@ -89,7 +90,7 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
     <Modal titulo={a.titular} onCerrar={onCerrar}>
       <section className="paso" aria-labelledby="paso-1">
         <h3 className="paso-tit" id="paso-1"><span className="paso-n">1</span>La reserva</h3>
-        <p className="paso-hab">Habitación <b>{a.habitacion}</b></p>
+        <p className="paso-hab">Habitación <b>{a.habitacion}</b>{a.numero != null && <span className="pp-num">{numeroTexto(a)}</span>}</p>
         <p className="ll-cuando"><b>{cuando(a.dias_para)}</b> · llega {fechaCorta(a.fecha_ingreso)} · sale {fechaCorta(a.salida)}</p>
         <p className="ll-det">{[a.categoria, nochesTexto(a.noches), `${a.esperados} ${a.esperados === 1 ? 'huésped' : 'huéspedes'}`, a.canal].filter(Boolean).join(' · ')}</p>
         {a.nota && <p className="ll-nota"><span>Nota</span> {a.nota}</p>}
@@ -103,7 +104,7 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
           <ul className="dup-lista">
             {candidatas.map((e) => (
               <li key={e.id} className="dup-card">
-                <p><b>Hab. {e.habitacion}</b> · {e.titular || 'Reserva rápida'} · {nochesTexto(e.noches)} · {e.esperados} {e.esperados === 1 ? 'huésped' : 'huéspedes'}</p>
+                <p><b>Hab. {e.habitacion}</b>{e.numero != null && <> · <b>{numeroTexto(e)}</b></>} · {e.titular || 'Reserva rápida'} · {nochesTexto(e.noches)} · {e.esperados} {e.esperados === 1 ? 'huésped' : 'huéspedes'}</p>
                 <p className="ll-det">{Number(e.con_checkin) > 0 ? `Ya ingresaron ${e.con_checkin}: ${(e.ingresaron ?? []).join(', ')}` : 'Todavía no ingresó nadie (tiene el código dado).'}{e.cargado_por ? ` · la abrió ${e.cargado_por}` : ''}</p>
                 <button type="button" className="btn mini" onClick={() => unir(e)} disabled={enviando}>Es la misma: unir</button>
               </li>
@@ -119,6 +120,13 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
         <h3 className="paso-tit" id="paso-2"><span className="paso-n">2</span>Cobro</h3>
         {cobra ? (
           <>
+            {!nadaQueCobrar && (
+              <ul className="pasos-cobro" aria-label="Lo que hay que hacer en el cobro">
+                <li className={forma ? 'hecho' : ''}>Elegir cómo paga</li>
+                <li className={medio ? 'hecho' : ''}>Elegir el medio de pago</li>
+                <li className={confirmado ? 'hecho' : ''}>Confirmar que ya cobró</li>
+              </ul>
+            )}
             <ACobrar a={a} venta={venta} />
             <div className="campo">
               <span className="etq" id="forma-etq">¿Cómo paga lo que resta?</span>
@@ -168,7 +176,7 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
       <section className="paso" aria-labelledby="paso-3">
         <h3 className="paso-tit" id="paso-3"><span className="paso-n">3</span>Check-in</h3>
         {apagado && <p className="in-aviso" role="status">El check-in digital está apagado. Lo prende el dueño desde su panel.</p>}
-        <p className="resumen-checkin">Se va a registrar: <b>Hab. {a.habitacion} · {a.titular}</b> · {a.esperados} {a.esperados === 1 ? 'huésped' : 'huéspedes'}
+        <p className="resumen-checkin">Se va a registrar: <b>Hab. {a.habitacion} · {a.titular}</b>{a.numero != null && <> (<b>{numeroTexto(a)}</b>)</>} · {a.esperados} {a.esperados === 1 ? 'huésped' : 'huéspedes'}
           {cobra ? (falta ? ' · cobro: todavía sin confirmar' : nadaQueCobrar ? ` · cobro: ya pagado con la seña (${medioNombre ?? 'medio de pago'})` : ` · cobro: ${aCobrarTexto} ${COMO[forma]} (${medioNombre ?? 'medio de pago'})`) : ' · sin cobro'}.</p>
         {!apagado && falta && <p className="ayuda" role="status">{falta}</p>}
         {aviso && <p className="ed-error" role="alert">{aviso}</p>}

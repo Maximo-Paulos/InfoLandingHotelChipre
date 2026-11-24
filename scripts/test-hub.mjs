@@ -1,6 +1,6 @@
 // Las cuentas de la pantalla «Reservas» de recepción: qué reserva va en cada pestaña, el cartel de «qué falta llegar» y los textos. Sin pantalla ni red.
 //   node scripts/test-hub.mjs
-import { PESTANAS, candidatasPara, cierreTexto, clasificarHub, controlLlegadas, diasEntre, dudaTexto } from '../src/checkin/hub.js';
+import { PESTANAS, candidatasPara, cierreTexto, clasificarHub, controlLlegadas, diasEntre, dudaTexto, parecidaTexto, parecidas } from '../src/checkin/hub.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -25,7 +25,8 @@ const datos = {
 };
 
 console.log('\n== 1. Las pestañas');
-ok(PESTANAS.map((p) => p.texto).join() === 'Faltan llegar,Falta cerrar,Cerradas,Próximas,Historial', 'son cinco, en este orden: Faltan llegar, Falta cerrar, Cerradas, Próximas e Historial');
+ok(PESTANAS.map((p) => p.texto).join() === 'Faltan llegar,Falta cerrar,Cerradas,Próximas,Historial,Eliminadas', 'son seis, en este orden: Faltan llegar, Falta cerrar, Cerradas, Próximas, Historial y Eliminadas');
+ok(PESTANAS.filter((p) => p.soloDueno).map((p) => p.id).join() === 'eliminadas', '«Eliminadas» es solo del dueño; las otras las ven todos');
 
 console.log('\n== 2. Qué va en cada una');
 const c = clasificarHub(datos);
@@ -88,6 +89,44 @@ ok(candidatasPara(A(31, 'Sin parecidas', 0, { habitacion: '999' }), lista).lengt
 ok(dudaTexto([lista[0]], '202') === 'Puede que ya haya llegado: en la Hab. 202 hay una reserva con 2 huéspedes ingresados.', 'el aviso dice cuántos huéspedes ya ingresaron');
 ok(dudaTexto([{ con_checkin: 1 }], '7') === 'Puede que ya haya llegado: en la Hab. 7 hay una reserva con 1 huésped ingresado.', 'con uno: «1 huésped ingresado»');
 ok(dudaTexto([lista[1]], '202').includes('con el código dado'), 'si todavía no entró nadie, dice que es otra reserva abierta con el código dado');
+
+ok(dudaTexto([{ ...lista[0], numero: 55 }], '202') === 'Puede que ya haya llegado: en la Hab. 202 hay una reserva (N.º 55) con 2 huéspedes ingresados.', 'con el número de la otra reserva: «hay una reserva (N.º 55)…»');
+
+console.log('\n== 8. Número de reserva y eliminadas');
+const conNumero = {
+  hoy: '2026-11-20',
+  reservas: [A(1, 'Ana', 0, { numero: 41 }), A(2, 'Beto', 1, { numero: 42 })],
+  estadias: [E(10, 'Cata', 'completa', 1, 1, '2026-11-20', '2026-11-20T10:00:00Z', { numero: 43 })],
+  eliminadas: [
+    { tipo: 'estadia', id: 7, numero: 44, titular: null, habitacion: '202', llegada: '2026-11-19', huespedes: 2, cuando: '2026-11-20T09:00:00Z', por: 'Dueño' },
+    { tipo: 'anotada', id: 8, numero: 45, titular: 'Dani', habitacion: '305', llegada: '2026-11-25', huespedes: 0, cuando: '2026-11-20T08:00:00Z', por: 'Dueño' }
+  ]
+};
+ok(ids(clasificarHub(conNumero, '41').faltan.hoy).join() === '1' && clasificarHub(conNumero, '41').conteo.proximas === 0, 'escribir «41» en el buscador encuentra la reserva N.º 41 (y solo esa)');
+ok(clasificarHub(conNumero, '43').conteo.cerradas === 1, '«43» encuentra la reserva armada N.º 43');
+ok(clasificarHub(conNumero).eliminadas.length === 2 && clasificarHub(conNumero).conteo.eliminadas === 2, 'las eliminadas (solo si la base se las manda al dueño) van en su pestaña, con su cantidad');
+ok(clasificarHub(conNumero, '45').eliminadas.map((x) => x.id).join() === '8' && clasificarHub(conNumero, '202').eliminadas.map((x) => x.id).join() === '7', 'y se buscan por número o por habitación');
+ok(clasificarHub(datos).eliminadas.length === 0 && clasificarHub(undefined).conteo.eliminadas === 0, 'si la base no manda eliminadas (recepción), la pestaña queda vacía');
+
+console.log('\n== 9. Parecidas: dos reservas que pueden ser la misma cargada dos veces');
+const R = (id, hab, llegada, noches, extra = {}) => ({ id, habitacion: hab, llegada, noches, anotada_id: null, numero: 100 + id, titular: null, ...extra });
+const par = parecidas({
+  reservas: [A(1, 'Maldonado', -1, { habitacion: '202', fecha_ingreso: '2026-11-19', numero: 41, noches: 1 }), A(2, 'Pérez', 0, { habitacion: '305', fecha_ingreso: '2026-11-20', noches: 2, numero: 61 }), A(3, 'Pérez bis', 0, { habitacion: '305', fecha_ingreso: '2026-11-21', noches: 2, numero: 62 }),
+             A(4, 'Seguida uno', 0, { habitacion: '401', fecha_ingreso: '2026-11-20', noches: 1 }), A(5, 'Seguida dos', 1, { habitacion: '401', fecha_ingreso: '2026-11-21', noches: 1 })],
+  estadias: [R(10, '202', '2026-11-19', 1, { numero: 55 }), R(11, '202', '2026-11-19', 1, { numero: 56 }), R(12, '202', '2026-11-19', 1, { anotada_id: 9, numero: 57 }),
+             R(13, '500', '2026-11-19', 3), R(14, '500', '2026-11-22', 1), R(15, '500', '2026-11-20', 1)]
+});
+ok(JSON.stringify((par.e10 ?? []).map((x) => x.id).sort()) === '[1,11,12]' || JSON.stringify((par.e10 ?? []).map((x) => x.id).sort((a, b) => a - b)) === '[1,11,12]', 'dos reservas armadas de la 202 con los mismos días se señalan entre sí; la reserva rápida también apunta a la anotada que sigue esperando');
+ok((par.e12 ?? []).map((x) => x.id).sort((a, b) => a - b).join() === '10,11', 'la que ya salió de una anotada no apunta a otras anotadas, pero sí a las armadas que se le pisan');
+ok(JSON.stringify((par.a2 ?? []).map((x) => x.id)) === '[3]' && JSON.stringify((par.a3 ?? []).map((x) => x.id)) === '[2]', 'dos anotadas de la 305 que se pisan (20 al 22 y 21 al 23) se señalan entre sí');
+ok(!par.a4 && !par.a5, 'dos anotadas seguidas de la misma habitación (una noche y la siguiente) NO se señalan: no se pisan');
+ok(!par.e14 && (par.e13 ?? []).map((x) => x.id).join() === '15' && (par.e15 ?? []).map((x) => x.id).join() === '13', 'en la 500: la estadía del 19 al 22 se pisa con la del 20, pero no con la del 22');
+const lejos = parecidas({ reservas: [A(8, 'Lejana', 10, { habitacion: '600', fecha_ingreso: '2026-11-30', noches: 1 })], estadias: [R(16, '600', '2026-11-20', 1), R(17, '600', '2026-11-26', 1)] });
+ok(!lejos.e16 && (lejos.e17 ?? []).map((x) => x.id).join() === '8', 'una anotada que llega 10 días después no se señala con la reserva armada (hasta 5 días sí: la del 26 con la anotada del 30)');
+ok(!par.a1 || par.a1.length === 0, 'la anotada que espera no se señala por este camino (ella ya avisa con «Puede que ya haya llegado»)');
+ok(Object.keys(parecidas(undefined)).length === 0 && Object.keys(parecidas({})).length === 0, 'sin datos no hay parecidas');
+const tx = parecidaTexto([{ numero: 55, titular: 'Maldonado' }]);
+ok(tx.includes('la N.º 55 (Maldonado)') && tx.includes('el dueño elimina la que sobra'), `el aviso nombra a la otra por su número: «${tx.slice(0, 60)}…»`);
 
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);

@@ -41,7 +41,7 @@ export function TarjetaLlegada({ a, venta, children }) {
   const estados = { cancelada: 'Cancelada', en_curso: Number(a.con_checkin) === 0 ? 'Código dado' : falta > 0 ? `Faltan ${falta}` : 'Completa' };
   return (
     <li className={`ll-card ${a.estado}${a.estado === 'anotada' && a.dias_para < 0 ? ' pasada' : ''}`}>
-      <div className="ll-cab"><b>Hab. {a.habitacion}</b><span className="ll-titular">{a.titular}</span>{estados[a.estado] && <em className="ll-estado">{estados[a.estado]}</em>}</div>
+      <div className="ll-cab"><b>Hab. {a.habitacion}</b><span className="ll-titular">{a.titular}</span>{a.numero != null && <span className="pp-num">N.º {a.numero}</span>}{estados[a.estado] && <em className="ll-estado">{estados[a.estado]}</em>}</div>
       <p className="ll-cuando"><b>{cuando(a.dias_para)}</b> · llega {fechaCorta(a.fecha_ingreso)} · sale {fechaCorta(a.salida)}</p>
       <p className="ll-det">{[a.categoria, nochesTexto(a.noches), `${a.esperados} ${a.esperados === 1 ? 'huésped' : 'huéspedes'}`, a.canal].filter(Boolean).join(' · ')}</p>
       {a.nota && <p className="ll-nota"><span>Nota</span> {a.nota}</p>}

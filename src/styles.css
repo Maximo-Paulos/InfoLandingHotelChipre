@@ -848,4 +848,12 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .av-banner p{margin:0;font-size:14px;line-height:1.45}
 .av-banner .ab-btns{margin-top:10px}
 .av-reglas{margin:4px 0 8px;padding-left:20px}
-
+.pp-item{display:grid;gap:6px}
+.pp-solo{display:flex;justify-content:flex-end}
+.pp-solo .btn.mini{margin:0;min-width:116px}
+.pp-num{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--hueso);font:700 12px/1.6 var(--sans);color:var(--texto-suave);white-space:nowrap}
+.pp-card.eliminada{border-left-color:var(--linea);background:var(--hueso)}
+.pasos-cobro{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0 0 10px;padding:0;list-style:none;font-size:13px;color:var(--texto-suave)}
+.pasos-cobro li::before{content:'○ '}
+.pasos-cobro li.hecho{color:var(--verde-oscuro);font-weight:700}
+.pasos-cobro li.hecho::before{content:'✓ '}

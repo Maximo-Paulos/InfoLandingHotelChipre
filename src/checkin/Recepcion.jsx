@@ -6,7 +6,7 @@ import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 import { cargarCotizaciones } from '../admin/cotizaciones.js';
 import { AvisosBanner } from '../components/Avisos.jsx';
-import { adminEstadiaReabrir, recepcionAnotadaGuardar, recepcionAnotadaUnir, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
+import { adminAnotadaCancelar, adminEstadiaReabrir, adminReservaAnular, recepcionAnotadaGuardar, recepcionAnotadaUnir, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import AnotadaForm from './AnotadaForm.jsx';
 import CobroLlegada from './CobroLlegada.jsx';
 import EditarHuesped from './EditarHuesped.jsx';
@@ -156,9 +156,15 @@ function Panel({ clave, rol, vista, salir }) {
     const h = String(habitacion ?? '').trim().toLowerCase();
     if (!h || duplicadaAvisada.current === h) return null;
     const a = (estado?.llegadas ?? []).find((x) => String(x.habitacion).trim().toLowerCase() === h && x.estado === 'anotada');
-    if (!a) return null;
+    if (a) {
+      duplicadaAvisada.current = h;
+      return `La Hab. ${habitacion} ya tiene una reserva anotada${a.numero != null ? ` (N.º ${a.numero})` : ''} a nombre de ${a.titular}${a.dias_para === 0 ? ' (llega hoy)' : a.dias_para < 0 ? ' (todavía no llegó)' : ''}. Si es esa persona, cerrá esta ventana y hacé el check-in desde «Faltan llegar»: así no queda duplicada. Si es otra persona, tocá de nuevo el botón.`;
+    }
+    // Lo mismo si esa habitación ya tiene una reserva abierta (a la que todavía le faltan huéspedes): para sumar a otro huésped se le da el código a esa reserva, no se abre otra.
+    const e = (estado?.reservas_abiertas ?? []).map((x) => x.estadia).find((x) => x && !x.anulada && String(x.habitacion).trim().toLowerCase() === h);
+    if (!e) return null;
     duplicadaAvisada.current = h;
-    return `La Hab. ${habitacion} ya tiene una reserva anotada a nombre de ${a.titular}${a.dias_para === 0 ? ' (llega hoy)' : a.dias_para < 0 ? ' (todavía no llegó)' : ''}. Si es esa persona, cerrá esta ventana y hacé el check-in desde «Faltan llegar»: así no queda duplicada. Si es otra persona, tocá de nuevo el botón.`;
+    return `La Hab. ${habitacion} ya tiene una reserva abierta${e.numero != null ? ` (N.º ${e.numero})` : ''}${e.titular ? ` a nombre de ${e.titular}` : ''} con ${e.con_checkin} de ${e.esperados} ${e.esperados === 1 ? 'huésped ingresado' : 'huéspedes ingresados'}. Si es la misma, no abras otra: dale el código a esa reserva desde «Falta cerrar» o «Faltan llegar». Si es otra persona, tocá de nuevo el botón.`;
   };
 
   // Anota una reserva (o corrige una llegada). Si es nueva y llega hoy (el que vino de la calle), se sigue directo con el check-in: elegir cómo paga y generar el código.
@@ -292,6 +298,44 @@ function Panel({ clave, rol, vista, salir }) {
       setTrabajando(null);
     }
   };
+  // Solo el dueño: elimina una reserva (por ejemplo la que quedó repetida). No se borra nada: va a «Eliminadas» y se puede restaurar. Con huéspedes ingresados, ellos se sacan con la reserva.
+  const eliminarReserva = async (x) => {
+    const num = x.numero != null ? ` N.º ${x.numero}` : '';
+    const de = x.titular ? ` de ${x.titular}` : '';
+    const con = Number(x.con_checkin) || 0;
+    const texto = x.tipo === 'anotada'
+      ? `¿Eliminar la reserva${num}${de} (Hab. ${x.habitacion})? Todavía no llegó. No se borra: queda en «Eliminadas» y la podés restaurar.`
+      : `¿Eliminar la reserva${num}${de} (Hab. ${x.habitacion})?${con > 0 ? ` Tiene ${con} ${con === 1 ? 'huésped ingresado' : 'huéspedes ingresados'}: también se sacan de la lista de Huéspedes y de las estadísticas.` : ''} No se borra: queda en «Eliminadas» y la podés restaurar.`;
+    if (!window.confirm(texto)) return;
+    setTrabajando(x.tipo === 'anotada' ? `a${x.id}` : x.id);
+    try {
+      const r = x.tipo === 'anotada' ? await adminAnotadaCancelar(clave, x.id, true) : await adminReservaAnular(clave, x.id, true);
+      setError(r.ok ? '' : textoCodigo(r.error));
+      if (r.ok) setAviso(`Listo: se eliminó la reserva${num}. La podés restaurar desde la pestaña «Eliminadas».`);
+      setVersion((v) => v + 1);
+      await refrescar();
+    } catch {
+      setError('No se pudo conectar. Revisá tu conexión.');
+    } finally {
+      setTrabajando(null);
+    }
+  };
+  const restaurarReserva = async (x) => {
+    const num = x.numero != null ? ` N.º ${x.numero}` : '';
+    if (!window.confirm(`¿Restaurar la reserva${num}${x.titular ? ` de ${x.titular}` : ''} (Hab. ${x.habitacion})? Vuelve a las listas${x.huespedes > 0 ? ` con sus ${x.huespedes} ${x.huespedes === 1 ? 'huésped' : 'huéspedes'}` : ''}.`)) return;
+    setTrabajando(x.tipo === 'anotada' ? `a${x.id}` : x.id);
+    try {
+      const r = x.tipo === 'anotada' ? await adminAnotadaCancelar(clave, x.id, false) : await adminReservaAnular(clave, x.id, false);
+      setError(r.ok ? '' : textoCodigo(r.error));
+      if (r.ok) setAviso(`Listo: la reserva${num} volvió a las listas.`);
+      setVersion((v) => v + 1);
+      await refrescar();
+    } catch {
+      setError('No se pudo conectar. Revisá tu conexión.');
+    } finally {
+      setTrabajando(null);
+    }
+  };
   const guardarReserva = async (r) => {
     const res = await recepcionEstadiaEditar(clave, editandoReserva.id, r);
     if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
@@ -339,7 +383,7 @@ function Panel({ clave, rol, vista, salir }) {
           <>
             {activo && estado.reserva && (
               <section className="codigo-panel" aria-label="Código para el huésped">
-              <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b> · {detalleTexto(estado.reserva.estadia)}<br />{cobroLinea(estado.reserva.estadia)}</p>
+              <p className="reserva-cab"><b>Hab. {estado.reserva.estadia.habitacion}</b>{estado.reserva.estadia.numero != null && <> · <b>N.º {estado.reserva.estadia.numero}</b></>} · {detalleTexto(estado.reserva.estadia)}<br />{cobroLinea(estado.reserva.estadia)}</p>
               {estado.reserva.estadia.nota && <p className="reserva-nota"><b>Nota:</b> {estado.reserva.estadia.nota}</p>}
               <p className="reserva-prog">
                 <b>{huespedesTexto(estado.reserva.estadia, estado.reserva.huespedes.length)}</b> {estado.reserva.huespedes.length < estado.reserva.estadia.esperados ? `· faltan ${estado.reserva.estadia.esperados - estado.reserva.huespedes.length}` : ''}
@@ -376,7 +420,7 @@ function Panel({ clave, rol, vista, salir }) {
             )}
             <Reservas clave={clave} version={version} salir={salir} dueno={rol === 'admin'} apagado={!activo} trabajando={trabajando}
               onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); duplicadaAvisada.current = ''; setAnotando('nueva'); }} onRapida={() => { setAviso(''); duplicadaAvisada.current = ''; setRapida(true); }}
-              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onAnular={anular} />
+              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onAnular={anular} onEliminar={eliminarReserva} onRestaurar={restaurarReserva} />
           </>
         )}
 

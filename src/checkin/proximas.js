@@ -3,13 +3,16 @@
 // Para comparar sin importar mayúsculas, tildes ni espacios de más: «  JOSÉ  perez » -> «jose perez».
 export const normalizar = (texto) => String(texto ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-// Lo que se busca: el nombre del titular, la habitación, la nota, el canal, la categoría y los nombres de quienes ya ingresaron. Cada palabra escrita tiene que estar (en cualquier orden):
-// «perez 107» encuentra a Juan Pérez de la 107. Sin nada escrito, vuelve todo.
+// El número de reserva como se ve en las pantallas: «N.º 41» (vacío si todavía no tiene).
+export const numeroTexto = (x) => (x?.numero != null ? `N.º ${x.numero}` : '');
+
+// Lo que se busca: el nombre del titular, la habitación, la nota, el canal, la categoría, los nombres de quienes ya ingresaron y el número de reserva. Cada palabra escrita tiene que estar
+// (en cualquier orden): «perez 107» encuentra a Juan Pérez de la 107; «41» encuentra la reserva N.º 41. Sin nada escrito, vuelve todo.
 export function filtrarProximas(reservas, consulta) {
   const palabras = normalizar(consulta).split(' ').filter(Boolean);
   if (!palabras.length) return reservas;
   return reservas.filter((a) => {
-    const texto = normalizar([a.titular, a.habitacion, a.nota, a.canal, a.categoria, ...(a.ingresaron ?? [])].filter(Boolean).join(' '));
+    const texto = normalizar([a.titular, a.habitacion, a.nota, a.canal, a.categoria, a.numero, ...(a.ingresaron ?? [])].filter((x) => x != null && x !== '').join(' '));
     return palabras.every((p) => texto.includes(p));
   });
 }
