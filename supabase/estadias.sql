@@ -208,6 +208,21 @@ alter table private.reservas_anotadas alter column numero set not null;
 create unique index if not exists anotadas_numero_idx on private.reservas_anotadas (numero);
 create index if not exists estadias_numero_idx on private.estadias (numero);
 
+-- ---------------------------------------------------------------- unificar reservas repetidas
+-- Cuando el dueño unifica dos reservas repetidas, la que sobra NO se borra: queda eliminada y anotada con el número de la que se conservó (`unificada_con`), y se ve en «Eliminadas».
+alter table private.estadias add column if not exists unificada_con bigint;
+alter table private.reservas_anotadas add column if not exists unificada_con bigint;
+-- Las sugerencias de «parecen repetidas» que el dueño descartó («no son la misma»): claves como 'a41' (reserva anotada 41) o 'e55' (reserva armada 55), siempre en orden.
+create table if not exists private.reservas_no_repetidas (
+  clave_a text not null,
+  clave_b text not null,
+  descartada_por text not null,
+  creado timestamptz not null default now(),
+  primary key (clave_a, clave_b),
+  check (clave_a < clave_b)
+);
+alter table private.reservas_no_repetidas enable row level security;
+
 -- Los celulares que activaron los avisos. endpoint/p256dh/auth son lo que el navegador entrega para poder avisarle (no sirven para nada más).
 -- sesion_hash: la sesión de ese celular (sha256 del código sd_…). Cada vez que se abre la app se vuelve a anotar con la sesión de ese momento.
 create table if not exists private.push_suscripciones (
@@ -1032,7 +1047,7 @@ begin
     end if;
     if e.anulada_en is not null then
       update private.checkins set quitado_en = null, quitado_por = null where estadia_id = e.id and quitado_en = e.anulada_en; -- los que se quitaron con ella
-      update private.estadias set anulada_en = null, anulada_por = null, reabierta_en = now() where id = e.id;
+      update private.estadias set anulada_en = null, anulada_por = null, unificada_con = null, reabierta_en = now() where id = e.id;
       if not private.estadia_abierta(e.id) then
         perform private.estadia_cerrar_codigos(e.id);
       end if;
@@ -1202,7 +1217,7 @@ begin
       perform private.auditar('admin', 'anotada_cancelar', null, jsonb_build_object('anotada', a.id, 'por', v_quien));
     end if;
   elsif a.cancelada_en is not null then
-    update private.reservas_anotadas set cancelada_en = null, cancelada_por = null where id = a.id;
+    update private.reservas_anotadas set cancelada_en = null, cancelada_por = null, unificada_con = null where id = a.id;
     perform private.auditar('admin', 'anotada_restaurar', null, jsonb_build_object('anotada', a.id, 'por', v_quien));
   end if;
   return json_build_object('ok', true);
@@ -1319,6 +1334,9 @@ begin
   select * into cfg from private.checkin_config where id = 1;
   v_actor := private.actor(p_clave);
   v_dueno := coalesce((v_actor ->> 'dueno')::boolean, false);
+  if not v_dueno then
+    return json_build_object('ok', false, 'error', 'sin_permiso'); -- unificar lo aprueba el dueño
+  end if;
   select * into a from private.reservas_anotadas where id = p_anotada for update;
   if not found then
     return json_build_object('ok', false, 'error', 'no_existe');
@@ -1355,6 +1373,177 @@ begin
   update private.reservas_anotadas set estadia_id = e.id where id = a.id;
   update private.estadias set titular = coalesce(titular, a.titular), nota = coalesce(nota, a.nota), numero = a.numero where id = e.id; -- pasa a ser la reserva anotada: con su número
   perform private.auditar(case when v_dueno then 'admin' else 'recepcion' end, 'anotada_unir', null, jsonb_build_object('anotada', a.id, 'estadia', e.id, 'por', v_actor ->> 'alias'));
+  return json_build_object('ok', true);
+end;
+$$;
+
+-- Unifica dos reservas ARMADAS (estadías) repetidas: los huéspedes de la que sobra pasan a la que se conserva, y la que sobra queda eliminada (no se borra) con el número de la
+-- que se conservó. Lo cobrado es el de la que se conserva. p_conservar: 'e55' para elegir cuál se queda; sin pasarlo se queda la que tiene anotada, o la que tiene más huéspedes,
+-- o la más vieja. Si una de las dos viene de una reserva anotada, se queda esa (la anotada no puede quedar sin su reserva).
+create or replace function private.unificar_estadias(p_quien text, p_a bigint, p_b bigint, p_conservar text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  ea private.estadias;
+  eb private.estadias;
+  k private.estadias;
+  s private.estadias;
+  v_anot_a bigint;
+  v_anot_b bigint;
+  v_cant_a int;
+  v_cant_b int;
+  v_la date;
+  v_lb date;
+  v_movidos int;
+begin
+  -- se bloquean siempre en el mismo orden (la de número de id más chico primero)
+  select * into ea from private.estadias where id = least(p_a, p_b) for update;
+  select * into eb from private.estadias where id = greatest(p_a, p_b) for update;
+  if ea.id is null or eb.id is null then
+    return json_build_object('ok', false, 'error', 'no_existe');
+  end if;
+  if ea.anulada_en is not null or eb.anulada_en is not null then
+    return json_build_object('ok', false, 'error', 'reserva_anulada');
+  end if;
+  if lower(btrim(ea.habitacion)) <> lower(btrim(eb.habitacion)) then
+    return json_build_object('ok', false, 'error', 'habitacion_distinta');
+  end if;
+  select a.id, a.fecha_ingreso into v_anot_a, v_la from private.reservas_anotadas a where a.estadia_id = ea.id limit 1;
+  select a.id, a.fecha_ingreso into v_anot_b, v_lb from private.reservas_anotadas a where a.estadia_id = eb.id limit 1;
+  v_la := coalesce(v_la, (ea.creado at time zone 'America/Argentina/Buenos_Aires')::date);
+  v_lb := coalesce(v_lb, (eb.creado at time zone 'America/Argentina/Buenos_Aires')::date);
+  if abs(v_la - v_lb) > 10 then
+    return json_build_object('ok', false, 'error', 'fechas_lejanas');
+  end if;
+  if v_anot_a is not null and v_anot_b is not null then
+    return json_build_object('ok', false, 'error', 'ambas_con_anotada');
+  end if;
+  select count(*)::int into v_cant_a from private.checkins_activos where estadia_id = ea.id;
+  select count(*)::int into v_cant_b from private.checkins_activos where estadia_id = eb.id;
+  if p_conservar is null then
+    if v_anot_a is not null then k := ea;
+    elsif v_anot_b is not null then k := eb;
+    elsif v_cant_a <> v_cant_b then k := case when v_cant_a > v_cant_b then ea else eb end;
+    else k := ea; -- la de id más chico: la más vieja
+    end if;
+  elsif p_conservar = 'e' || ea.id then k := ea;
+  elsif p_conservar = 'e' || eb.id then k := eb;
+  else
+    return json_build_object('ok', false, 'error', 'conservar_invalido');
+  end if;
+  s := case when k.id = ea.id then eb else ea end;
+  if (k.id = ea.id and v_anot_b is not null) or (k.id = eb.id and v_anot_a is not null) then
+    return json_build_object('ok', false, 'error', 'conservar_invalido'); -- se tiene que quedar la que viene de una anotada
+  end if;
+  update private.checkins set estadia_id = k.id where estadia_id = s.id;
+  get diagnostics v_movidos = row_count;
+  update private.checkin_sesiones set estadia_id = k.id where estadia_id = s.id;
+  update private.codigos_usuario set estadia_id = k.id where estadia_id = s.id;
+  update private.estadias set
+      huespedes_esperados = least(12, greatest(k.huespedes_esperados, (select count(*)::int from private.checkins_activos where estadia_id = k.id))),
+      titular = coalesce(k.titular, s.titular), nota = coalesce(k.nota, s.nota)
+   where id = k.id;
+  update private.estadias set anulada_en = now(), anulada_por = p_quien, unificada_con = k.numero where id = s.id;
+  perform private.auditar('admin', 'reservas_unificar', null, jsonb_build_object('tipo', 'estadias', 'conserva', k.id, 'numero', k.numero, 'elimina', s.id, 'numero_eliminada', s.numero, 'registros_movidos', v_movidos, 'por', p_quien));
+  return json_build_object('ok', true, 'conservada', 'e' || k.id, 'numero', k.numero);
+end;
+$$;
+
+-- Unifica dos reservas ANOTADAS repetidas (las dos siguen esperando): se queda una y la otra se cancela (no se borra) con el número de la que se conservó.
+-- Se queda la que se pida en p_conservar ('a41') o, sin pasarlo, la más vieja. Si a la que se conserva le faltaba la nota, toma la de la otra.
+create or replace function private.unificar_anotadas(p_quien text, p_a bigint, p_b bigint, p_conservar text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  aa private.reservas_anotadas;
+  ab private.reservas_anotadas;
+  k private.reservas_anotadas;
+  s private.reservas_anotadas;
+begin
+  select * into aa from private.reservas_anotadas where id = least(p_a, p_b) for update;
+  select * into ab from private.reservas_anotadas where id = greatest(p_a, p_b) for update;
+  if aa.id is null or ab.id is null then
+    return json_build_object('ok', false, 'error', 'no_existe');
+  end if;
+  if aa.cancelada_en is not null or ab.cancelada_en is not null then
+    return json_build_object('ok', false, 'error', 'anotada_cancelada');
+  end if;
+  if aa.estadia_id is not null or ab.estadia_id is not null then
+    return json_build_object('ok', false, 'error', 'anotada_ya_empezo');
+  end if;
+  if lower(btrim(aa.habitacion)) <> lower(btrim(ab.habitacion)) then
+    return json_build_object('ok', false, 'error', 'habitacion_distinta');
+  end if;
+  if abs(aa.fecha_ingreso - ab.fecha_ingreso) > 10 then
+    return json_build_object('ok', false, 'error', 'fechas_lejanas');
+  end if;
+  if p_conservar is null or p_conservar = 'a' || aa.id then k := aa;
+  elsif p_conservar = 'a' || ab.id then k := ab;
+  else
+    return json_build_object('ok', false, 'error', 'conservar_invalido');
+  end if;
+  s := case when k.id = aa.id then ab else aa end;
+  update private.reservas_anotadas set nota = coalesce(k.nota, s.nota), editado_en = now(), editado_por = p_quien where id = k.id;
+  update private.reservas_anotadas set cancelada_en = now(), cancelada_por = p_quien, unificada_con = k.numero where id = s.id;
+  perform private.auditar('admin', 'reservas_unificar', null, jsonb_build_object('tipo', 'anotadas', 'conserva', k.id, 'numero', k.numero, 'elimina', s.id, 'numero_eliminada', s.numero, 'por', p_quien));
+  return json_build_object('ok', true, 'conservada', 'a' || k.id, 'numero', k.numero);
+end;
+$$;
+
+-- UNIFICAR dos reservas que son la misma cargada dos veces. SOLO EL DUEÑO (lo aprueba él). Las dos se pasan como 'a41' (reserva anotada 41) o 'e55' (reserva armada 55):
+--   · anotada + armada → la anotada pasa a ser esa reserva (con su nombre y su número), sin tocar lo cobrado ni a los huéspedes (igual que recepcion_anotada_unir);
+--   · armada + armada → los huéspedes pasan a la que se conserva y la otra queda eliminada;
+--   · anotada + anotada → se queda una y la otra se cancela.
+--   Nada se borra: la que sobra queda en «Eliminadas» como «unificada con la N.º …» y se puede restaurar. p_conservar elige cuál se queda (armada+armada o anotada+anotada).
+create or replace function public.admin_reservas_unificar(p_clave text, p_a text, p_b text, p_conservar text default null)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  v_quien text;
+  ta text;
+  tb text;
+  ia bigint;
+  ib bigint;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  v_quien := coalesce(private.actor(p_clave) ->> 'alias', 'Dueño');
+  if p_a is null or p_b is null or p_a !~ '^[ae][0-9]{1,15}$' or p_b !~ '^[ae][0-9]{1,15}$' then
+    return json_build_object('ok', false, 'error', 'datos_invalidos');
+  end if;
+  if p_a = p_b then
+    return json_build_object('ok', false, 'error', 'misma_reserva');
+  end if;
+  ta := left(p_a, 1);
+  tb := left(p_b, 1);
+  ia := substr(p_a, 2)::bigint;
+  ib := substr(p_b, 2)::bigint;
+  if ta <> tb then
+    return case when ta = 'a' then public.recepcion_anotada_unir(p_clave, ia, ib) else public.recepcion_anotada_unir(p_clave, ib, ia) end;
+  elsif ta = 'e' then
+    return private.unificar_estadias(v_quien, ia, ib, p_conservar);
+  end if;
+  return private.unificar_anotadas(v_quien, ia, ib, p_conservar);
+end;
+$$;
+
+-- El dueño dice «no son la misma»: la sugerencia de «parecen repetidas» para ese par deja de mostrarse (a todos). Se puede repetir.
+create or replace function public.admin_repetida_descartar(p_clave text, p_a text, p_b text)
+returns json language plpgsql security definer set search_path = '' as $$
+declare
+  r text;
+  v_quien text;
+begin
+  r := private.comprobar_clave(p_clave);
+  if r <> 'ok' then
+    return json_build_object('ok', false, 'error', r);
+  end if;
+  if p_a is null or p_b is null or p_a !~ '^[ae][0-9]{1,15}$' or p_b !~ '^[ae][0-9]{1,15}$' or p_a = p_b then
+    return json_build_object('ok', false, 'error', 'datos_invalidos');
+  end if;
+  v_quien := coalesce(private.actor(p_clave) ->> 'alias', 'Dueño');
+  insert into private.reservas_no_repetidas (clave_a, clave_b, descartada_por) values (least(p_a, p_b), greatest(p_a, p_b), v_quien) on conflict do nothing;
+  perform private.auditar('admin', 'repetida_descartar', null, jsonb_build_object('a', p_a, 'b', p_b, 'por', v_quien));
   return json_build_object('ok', true);
 end;
 $$;
@@ -1404,11 +1593,11 @@ begin
     'estadias', (
     select coalesce(json_agg(json_build_object(
              'id', t.id, 'numero', t.numero, 'anotada_id', t.anotada_id, 'titular', t.titular, 'habitacion', t.habitacion, 'llegada', t.llegada, 'dias_para', t.llegada - v_hoy,
-             'noches', t.noches, 'esperados', t.huespedes_esperados, 'categoria', t.categoria, 'canal', t.canal, 'nota', t.nota, 'cargado_por', t.cargado_por,
+             'noches', t.noches, 'esperados', t.huespedes_esperados, 'categoria', t.categoria, 'canal', t.canal, 'nota', t.nota, 'cargado_por', t.cargado_por, 'monto', t.monto, 'moneda', t.moneda, 'pago_hotel', t.pago_hotel,
              'creado', t.creado, 'ultima', t.ultima, 'con_checkin', t.cant, 'ingresaron', t.nombres, 'cerrada_en', t.cerrada_en, 'cerrada_por', t.cerrada_por,
              'estado', case when t.cant = 0 then 'sin_ingresos' when t.cerrada_en is not null then 'cerrada' when t.cant >= t.huespedes_esperados then 'completa' else 'faltan' end)
            order by t.llegada desc, t.id desc), '[]'::json)
-      from (select e.id, e.numero, a.id as anotada_id, e.titular, e.habitacion, e.noches, e.huespedes_esperados, e.nota, e.cargado_por, e.creado, e.cerrada_en, e.cerrada_por,
+      from (select e.id, e.numero, a.id as anotada_id, e.titular, e.habitacion, e.noches, e.huespedes_esperados, e.nota, e.cargado_por, e.monto, e.moneda, e.pago_hotel, e.creado, e.cerrada_en, e.cerrada_por,
                    cg.nombre as categoria, ca.nombre as canal, private.estadia_ultima(e.id) as ultima, n.cant, n.nombres,
                    coalesce(a.fecha_ingreso, (e.creado at time zone 'America/Argentina/Buenos_Aires')::date) as llegada
               from private.estadias e
@@ -1427,16 +1616,18 @@ begin
       from (select * from (
               select 'estadia'::text as tipo, e.id, e.numero, e.titular, e.habitacion, e.noches, e.huespedes_esperados as esperados,
                      coalesce(a.fecha_ingreso, (e.creado at time zone 'America/Argentina/Buenos_Aires')::date) as llegada,
-                     e.anulada_en as cuando, e.anulada_por as por,
+                     e.anulada_en as cuando, e.anulada_por as por, e.unificada_con as unificada,
                      (select count(*)::int from private.checkins c where c.estadia_id = e.id and c.quitado_en = e.anulada_en) as huespedes
                 from private.estadias e
                 left join private.reservas_anotadas a on a.estadia_id = e.id
                where e.anulada_en is not null and e.anulada_en > now() - interval '60 days'
               union all
-              select 'anotada'::text, a.id, a.numero, a.titular, a.habitacion, a.noches, a.huespedes_esperados, a.fecha_ingreso, a.cancelada_en, a.cancelada_por, 0
+              select 'anotada'::text, a.id, a.numero, a.titular, a.habitacion, a.noches, a.huespedes_esperados, a.fecha_ingreso, a.cancelada_en, a.cancelada_por, a.unificada_con, 0
                 from private.reservas_anotadas a
                where a.cancelada_en is not null and a.estadia_id is null and a.cancelada_en > now() - interval '60 days') u
-             order by u.cuando desc, u.id desc limit 100) x) end);
+             order by u.cuando desc, u.id desc limit 100) x) end,
+    -- Las sugerencias de «parecen repetidas» que el dueño descartó, como 'a41|e55' (la pantalla no las vuelve a mostrar).
+    'descartadas', (select coalesce(json_agg(d.clave_a || '|' || d.clave_b), '[]'::json) from (select clave_a, clave_b from private.reservas_no_repetidas order by creado desc limit 500) d));
 end;
 $$;
 
@@ -2102,6 +2293,10 @@ revoke all on function public.recepcion_proximas(text) from public, anon, authen
 revoke all on function public.recepcion_estadia_cerrar(text, bigint) from public, anon, authenticated;
 revoke all on function public.admin_estadia_reabrir(text, bigint) from public, anon, authenticated;
 revoke all on function public.recepcion_anotada_unir(text, bigint, bigint) from public, anon, authenticated;
+revoke all on function private.unificar_estadias(text, bigint, bigint, text) from public, anon, authenticated;
+revoke all on function private.unificar_anotadas(text, bigint, bigint, text) from public, anon, authenticated;
+revoke all on function public.admin_reservas_unificar(text, text, text, text) from public, anon, authenticated;
+revoke all on function public.admin_repetida_descartar(text, text, text) from public, anon, authenticated;
 revoke all on function public.push_suscribir(text, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.push_desuscribir(text, text) from public, anon, authenticated;
 revoke all on function public.push_estado(text, text) from public, anon, authenticated;
@@ -2128,6 +2323,8 @@ grant execute on function public.recepcion_proximas(text) to anon, authenticated
 grant execute on function public.recepcion_estadia_cerrar(text, bigint) to anon, authenticated;
 grant execute on function public.admin_estadia_reabrir(text, bigint) to anon, authenticated;
 grant execute on function public.recepcion_anotada_unir(text, bigint, bigint) to anon, authenticated;
+grant execute on function public.admin_reservas_unificar(text, text, text, text) to anon, authenticated;
+grant execute on function public.admin_repetida_descartar(text, text, text) to anon, authenticated;
 grant execute on function public.push_suscribir(text, text, text, text, text) to anon, authenticated;
 grant execute on function public.push_desuscribir(text, text) to anon, authenticated;
 grant execute on function public.push_estado(text, text) to anon, authenticated;

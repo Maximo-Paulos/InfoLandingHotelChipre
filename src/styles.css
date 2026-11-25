@@ -857,3 +857,28 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .pasos-cobro li::before{content:'○ '}
 .pasos-cobro li.hecho{color:var(--verde-oscuro);font-weight:700}
 .pasos-cobro li.hecho::before{content:'✓ '}
+.hub-repetidas{display:grid;gap:2px;width:100%;margin:14px 0 0;padding:12px 16px;border:1px solid var(--linea);border-left:5px solid var(--terracota);border-radius:14px;background:var(--mostaza-claro);color:var(--texto);font:inherit;text-align:left;cursor:pointer}
+.hub-repetidas b{font:500 20px/1.2 var(--serif)}
+.hub-repetidas span{font-size:14px;line-height:1.4;color:var(--texto-suave)}
+.hub-repetidas:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+.rep-card{display:grid;gap:10px;padding:14px;border:1px solid var(--linea);border-left:4px solid var(--mostaza);border-radius:14px;background:var(--superficie)}
+.rep-card.alta{border-left-color:var(--terracota)}
+.rep-cab{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}
+.rep-nivel{padding:2px 10px;border-radius:999px;background:var(--hueso);font:700 12px/1.6 var(--sans);color:var(--texto-suave)}
+.rep-nivel.alta{background:var(--mostaza-claro);color:var(--terracota-texto)}
+.rep-motivos{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.rep-motivos li{padding:2px 10px;border-radius:999px;border:1px solid var(--linea);font-size:13px;line-height:1.6}
+.rep-motivos li.bien{background:var(--verde-claro);border-color:transparent;color:var(--verde-oscuro);font-weight:700}
+.rep-motivos li.duda{background:var(--hueso);color:var(--texto-suave)}
+.rep-par{display:grid;gap:8px}
+.rep-lado{display:grid;gap:2px;padding:10px 12px;border-radius:10px;background:var(--hueso)}
+.rep-acciones{display:flex;flex-wrap:wrap;gap:8px}
+.rep-acciones .btn.mini{margin:0}
+.uni-par{display:grid;gap:10px;margin:12px 0}
+.uni-lado{display:flex;align-items:flex-start;gap:12px;padding:12px;border:2px solid var(--linea);border-radius:12px;background:var(--superficie);cursor:pointer}
+.uni-lado.elegida{border-color:var(--verde);background:var(--verde-claro)}
+.uni-lado.bloqueada{cursor:default}
+.uni-lado input{flex:none;width:22px;height:22px;margin-top:2px}
+.uni-datos{display:grid;gap:2px;min-width:0}
+.uni-se-queda{font-size:13px;font-weight:700;color:var(--verde-oscuro)}
+

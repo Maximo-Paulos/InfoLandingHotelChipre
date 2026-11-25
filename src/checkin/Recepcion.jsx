@@ -6,7 +6,7 @@ import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 import { cargarCotizaciones } from '../admin/cotizaciones.js';
 import { AvisosBanner } from '../components/Avisos.jsx';
-import { adminAnotadaCancelar, adminEstadiaReabrir, adminReservaAnular, recepcionAnotadaGuardar, recepcionAnotadaUnir, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
+import { adminAnotadaCancelar, adminEstadiaReabrir, adminRepetidaDescartar, adminReservaAnular, adminReservasUnificar, recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import AnotadaForm from './AnotadaForm.jsx';
 import CobroLlegada from './CobroLlegada.jsx';
 import EditarHuesped from './EditarHuesped.jsx';
@@ -14,6 +14,8 @@ import { ventaDeHoy } from './Llegadas.jsx';
 import Modal from './Modal.jsx';
 import Planilla from './Planilla.jsx';
 import ReservaForm, { cobroLinea, detalleTexto, hoyAR, huespedesTexto } from './ReservaForm.jsx';
+import { paraUnir } from './hub.js';
+import Unificar from './Unificar.jsx';
 import Reservas from './Reservas.jsx';
 import { agruparCodigo, minSeg, useAhora } from './util.js';
 
@@ -78,6 +80,7 @@ function Panel({ clave, rol, vista, salir }) {
   const [editandoReserva, setEditandoReserva] = useState(null);
   const [anotando, setAnotando] = useState(null); // 'nueva' o la llegada que se está corrigiendo: el formulario de reserva anotada
   const [aviso, setAviso] = useState(''); // lo que pasó al anotar (por ejemplo, que se pisa con otra reserva de la misma habitación)
+  const [unificando, setUnificando] = useState(null); // la pareja de reservas repetidas que el dueño está por unificar
   const [haciendoCheckin, setHaciendoCheckin] = useState(null); // la llegada anotada a la que se le está haciendo el check-in (se elige cómo paga)
   const [cotizaciones, setCotizaciones] = useState(null); // el dólar oficial, para decir cuánto cobrar en dólares (solo se pide si hay llegadas)
   const [fotos, setFotos] = useState(null);
@@ -253,20 +256,36 @@ function Panel({ clave, rol, vista, salir }) {
       setTrabajando(null);
     }
   };
-  // Une una reserva anotada que sigue esperando con la reserva donde el huésped ya hizo el check-in (la duplicada): queda una sola, con el nombre del titular.
-  const unirAnotada = async (a, e) => {
-    if (!window.confirm(`¿Unir la reserva de ${a.titular} con la de la Hab. ${e.habitacion} que ya está abierta? Queda una sola reserva, con el nombre de ${a.titular}. No cambia lo cobrado ni a los huéspedes.`)) return { ok: false, mensaje: '' };
-    const res = await recepcionAnotadaUnir(clave, a.id, e.id);
+  // Solo el dueño: unifica dos reservas que son la misma cargada dos veces (la ventana «Unificar» le muestra las dos y le dice qué va a pasar). Nada se borra.
+  const unificarPar = async (par, conservar) => {
+    const res = await adminReservasUnificar(clave, par.a.clave, par.b.clave, conservar);
     if (!res.ok) {
-      if (['anotada_ya_empezo', 'anotada_cancelada', 'llegada_fuera_de_fecha', 'no_existe'].includes(res.error)) { setHaciendoCheckin(null); setError(textoCodigo(res.error)); setVersion((v) => v + 1); await refrescar(); }
+      if (['no_existe', 'anotada_ya_empezo', 'anotada_cancelada', 'reserva_anulada', 'estadia_ya_unida'].includes(res.error)) { setUnificando(null); setError(textoCodigo(res.error)); setVersion((v) => v + 1); await refrescar(); }
       return { ok: false, mensaje: textoCodigo(res.error) };
     }
+    setUnificando(null);
     setHaciendoCheckin(null);
     setError('');
-    setAviso(`Listo: la reserva de ${a.titular} quedó unida a la de la Hab. ${e.habitacion}. Ya no figura como que falta llegar.`);
+    setAviso(`Listo: las dos reservas quedaron unificadas en la ${res.numero != null ? `N.º ${res.numero}` : 'reserva elegida'}. La otra está en «Eliminadas», por si hay que restaurarla.`);
     setVersion((v) => v + 1);
     await refrescar();
     return { ok: true };
+  };
+  // El dueño dice «no son la misma»: esa sugerencia no se vuelve a mostrar.
+  const descartarPar = async (par) => {
+    if (!window.confirm(`¿Marcar que la ${par.a.numero != null ? `N.º ${par.a.numero}` : 'primera'} y la ${par.b.numero != null ? `N.º ${par.b.numero}` : 'segunda'} NO son la misma reserva? Dejan de sugerirse como repetidas.`)) return;
+    setTrabajando(par.id);
+    try {
+      const res = await adminRepetidaDescartar(clave, par.a.clave, par.b.clave);
+      setError(res.ok ? '' : textoCodigo(res.error));
+      if (res.ok) { setUnificando(null); setAviso('Listo: no se vuelven a sugerir esas dos como repetidas.'); }
+      setVersion((v) => v + 1);
+      await refrescar();
+    } catch {
+      setError('No se pudo conectar. Revisá tu conexión.');
+    } finally {
+      setTrabajando(null);
+    }
   };
   // Cierra a mano una reserva a la que vino menos gente de la esperada («al final no viene el otro»): deja de esperar a los que faltan y el código deja de servir.
   const cerrarEstadia = async (est) => {
@@ -420,7 +439,7 @@ function Panel({ clave, rol, vista, salir }) {
             )}
             <Reservas clave={clave} version={version} salir={salir} dueno={rol === 'admin'} apagado={!activo} trabajando={trabajando}
               onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); duplicadaAvisada.current = ''; setAnotando('nueva'); }} onRapida={() => { setAviso(''); duplicadaAvisada.current = ''; setRapida(true); }}
-              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onAnular={anular} onEliminar={eliminarReserva} onRestaurar={restaurarReserva} />
+              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onAnular={anular} onEliminar={eliminarReserva} onRestaurar={restaurarReserva} onUnificar={setUnificando} onDescartar={descartarPar} />
           </>
         )}
 
@@ -453,8 +472,12 @@ function Panel({ clave, rol, vista, salir }) {
       )}
 
       {haciendoCheckin && (
-        <CobroLlegada a={haciendoCheckin} venta={venta} medios={estado?.medios_pago ?? []} apagado={estado?.activo === false}
-          onIniciar={iniciarLlegada} onEditar={(a) => { setHaciendoCheckin(null); setAviso(''); setAnotando(a); }} onUnir={unirAnotada} onCerrar={() => setHaciendoCheckin(null)} />
+        <CobroLlegada a={haciendoCheckin} venta={venta} medios={estado?.medios_pago ?? []} apagado={estado?.activo === false} dueno={rol === 'admin'}
+          onIniciar={iniciarLlegada} onEditar={(a) => { setHaciendoCheckin(null); setAviso(''); setAnotando(a); }} onUnir={(a, e) => { setHaciendoCheckin(null); setUnificando(paraUnir(a, e)); return { ok: true }; }} onCerrar={() => setHaciendoCheckin(null)} />
+      )}
+
+      {unificando && rol === 'admin' && (
+        <Unificar par={unificando} onUnificar={unificarPar} onDescartar={descartarPar} onCerrar={() => setUnificando(null)} />
       )}
 
       {fotos && <FotosHuesped modo="recepcion" clave={clave} fila={fotos} onCerrar={() => setFotos(null)} alCambiar={refrescar} />}

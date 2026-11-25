@@ -37,7 +37,7 @@ const anotar = (extra = {}) => llamar('admin_anotada_guardar', {
   p_efectivo: 63800, p_transferencia: null, p_usd: null, p_sena: 0, p_fecha_sena: null, p_nota: 'Booking', ...extra
 });
 const iniciar = (id, hab, hues) => llamar('recepcion_llegada_iniciar', { p_clave: rec, p_id: id, p_habitacion: hab, p_monto: 63800, p_moneda: 'ARS', p_medio_pago: EFECTIVO, p_fecha: hoy, p_pago_hotel: 63800, p_fecha_sena: null, p_noches: 1, p_canal: DIRECTO, p_categoria: DOBLE, p_huespedes: hues });
-const unir = (a, e, quien = rec) => llamar('recepcion_anotada_unir', { p_clave: quien, p_anotada: a, p_estadia: e });
+const unir = (a, e, quien = dueno) => llamar('recepcion_anotada_unir', { p_clave: quien, p_anotada: a, p_estadia: e });
 const datos = async (quien = rec) => llamar('recepcion_proximas', { p_clave: quien });
 const anot = async (id, quien = rec) => (await datos(quien)).reservas.find((x) => x.id === id);
 const est = async (id, quien = rec) => (await datos(quien)).estadias.find((x) => x.id === id);
@@ -102,13 +102,12 @@ ok(r.ok === false && r.error === 'no_existe', 'ni una reserva que no existe');
 ok((await unir(a2.id, e2.id, 'clave-mala')).ok === false && (await unir(a2.id, e2.id, '')).ok === false, 'sin clave o con una mala no se une nada');
 const lejana = await anotar({ p_titular: 'Lejana', p_habitacion: '203', p_ingreso: AR(30) });
 r = await unir(lejana.id, e2.id);
-ok(r.ok === false && r.error === 'llegada_fuera_de_fecha', 'recepción no une una anotada que llega fuera de sus días');
-r = await unir(lejana.id, e2.id, dueno);
 ok(r.ok === false && r.error === 'fechas_lejanas', 'ni siquiera el dueño une reservas con más de 10 días de diferencia (no son la misma)');
 const media = await anotar({ p_titular: 'A nueve días', p_habitacion: '203', p_ingreso: AR(9) });
+r = await unir(media.id, e2.id, rec);
+ok(r.ok === false && r.error === 'sin_permiso', 'recepción no unifica: lo aprueba el dueño');
+ok((await est(e2.id, dueno)).titular == null, 'y no se tocó nada');
 r = await unir(media.id, e2.id);
-ok(r.ok === false && r.error === 'llegada_fuera_de_fecha', 'recepción, con una anotada de dentro de 9 días (fuera de sus 5), no puede');
-r = await unir(media.id, e2.id, dueno);
 ok(r.ok === true && (await est(e2.id, dueno)).titular === 'A nueve días', 'el dueño sí (con 9 días de diferencia, hasta 10)');
 
 console.log('\n== 5. Lo que ya tenía nombre lo conserva, y la reserva vencida');
@@ -124,8 +123,10 @@ const e6 = await rapida('207', 1, 30000);
 await entra('Dani');
 await back.sql(`update private.checkins set creado = now() - interval '9 days' where estadia_id = $1`, [e6.id]);
 await back.sql(`update private.estadias set creado = now() - interval '9 days' where id = $1`, [e6.id]);
+r = await unir(a6.id, e6.id, rec);
+ok(r.ok === false && r.error === 'sin_permiso', 'recepción no une, ni con una reserva cuya última actividad fue hace más de 5 días');
 r = await unir(a6.id, e6.id);
-ok(r.ok === false && r.error === 'reserva_vencida', 'recepción no une con una reserva cuya última actividad fue hace más de 5 días');
+ok(r.ok === true, 'el dueño no tiene la ventana de días de recepción: puede unir con una reserva más vieja');
 
 console.log('\n== 6. Pasar de la versión publicada hoy a esta');
 const viejo = await iniciarBackend({ puerto: 54403, estadias: false });
@@ -143,7 +144,7 @@ const sql = fs.readFileSync(new URL('../supabase/estadias.sql', import.meta.url)
 await viejo.exec(sql);
 await viejo.exec(sql);
 ok(JSON.stringify(await huella()) === JSON.stringify(h0), 'las reservas quedan idénticas, aun aplicando el archivo dos veces');
-ok((await llamarV('recepcion_anotada_unir', { p_clave: recV, p_anotada: aV.id, p_estadia: eV.id })).ok === true, 'sobre la base migrada se puede unir');
+ok((await llamarV('recepcion_anotada_unir', { p_clave: duenoV, p_anotada: aV.id, p_estadia: eV.id })).ok === true, 'sobre la base migrada se puede unir');
 ok((await llamarV('recepcion_proximas', { p_clave: recV })).estadias.find((x) => x.id === eV.id)?.titular === 'Antes', 'y la reserva queda con el nombre');
 await viejo.cerrar();
 
