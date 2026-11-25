@@ -71,7 +71,7 @@ const eU = await rapida('202', 2);
 const nA = await numeroAnotada(aU.id);
 const nE = await numeroEstadia(eU.id);
 ok(nA !== nE, `antes de unir son dos números distintos: anotada N.º ${nA} y reserva rápida N.º ${nE} (así se nota que son dos)`);
-const u = await llamar('recepcion_anotada_unir', { p_clave: rec, p_anotada: aU.id, p_estadia: eU.id });
+const u = await llamar('recepcion_anotada_unir', { p_clave: dueno, p_anotada: aU.id, p_estadia: eU.id });
 ok(u.ok === true && (await numeroEstadia(eU.id)) === nA, 'después de unir queda una sola reserva, con el número de la anotada');
 
 console.log('\n== 4. Eliminar y restaurar (solo el dueño ve «eliminadas»)');

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import { recepcionProximas, textoCodigo } from './checkinApi.js';
-import { PESTANAS, candidatasPara, cierreTexto, clasificarHub, controlLlegadas, dudaTexto, parecidaTexto, parecidas } from './hub.js';
+import { PESTANAS, candidatasDe, cierreTexto, clasificarHub, controlLlegadas, dudaTexto, motivosTexto, parecidaTexto, parecidas, repetidas } from './hub.js';
 import { cuando, fechaCorta } from './Llegadas.jsx';
 import { agruparPorDia, ingresoTexto, numeroTexto } from './proximas.js';
-import { nochesTexto } from './ReservaForm.jsx';
+import { nochesTexto, plata } from './ReservaForm.jsx';
 
 const CADA_MS = 15000;
 const personas = (n) => `${n} ${n === 1 ? 'huésped' : 'huéspedes'}`;
@@ -18,9 +18,10 @@ const personas = (n) => `${n} ${n === 1 ? 'huésped' : 'huéspedes'}`;
 //   El DUEÑO además puede eliminar cualquier reserva (no se borra: va a la pestaña «Eliminadas», desde donde la restaura).
 //   clave: la sesión · version: sube cuando algo cambió y la lista se vuelve a pedir · salir(): si la sesión ya no vale · dueno: puede reabrir una reserva cerrada, eliminar y restaurar
 //   onAbrir(anotada): abre el detalle para cobrar y hacer el check-in · onAnotar() / onRapida(): crear · onDarCodigo(estadiaId) · onCerrar(estadia) · onReabrir(estadia) · onAnular(estadia)
-//   onEliminar({ tipo: 'anotada' | 'estadia', …la reserva }) · onRestaurar({ tipo, …lo eliminado }): solo el dueño
+//   onEliminar({ tipo: 'anotada' | 'estadia', …la reserva }) · onRestaurar({ tipo, …lo eliminado }) · onUnificar(pareja) · onDescartar(pareja) («no son la misma»): solo el dueño
+//   Repetidas: las parejas que parecen la misma reserva (misma habitación, mismo día, mismo nombre). Todos las ven; solo el dueño las unifica o las descarta.
 //   trabajando: el id de la reserva a la que se le está haciendo algo (para apagar sus botones)
-export default function Reservas({ clave, version = 0, salir, dueno = false, apagado = false, trabajando = null, onAbrir, onAnotar, onRapida, onDarCodigo, onCerrar, onReabrir, onAnular, onEliminar, onRestaurar }) {
+export default function Reservas({ clave, version = 0, salir, dueno = false, apagado = false, trabajando = null, onAbrir, onAnotar, onRapida, onDarCodigo, onCerrar, onReabrir, onAnular, onEliminar, onRestaurar, onUnificar, onDescartar }) {
   const [datos, setDatos] = useState(null); // la última respuesta de la base
   const [error, setError] = useState('');
   const [buscar, setBuscar] = useState('');
@@ -58,7 +59,8 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
 
   const c = useMemo(() => clasificarHub(datos, buscar), [datos, buscar]);
   const k = useMemo(() => controlLlegadas(datos), [datos]);
-  const par = useMemo(() => parecidas(datos), [datos]); // reservas que pueden ser la misma cargada dos veces
+  const pares = useMemo(() => repetidas(datos), [datos]); // parejas que pueden ser la misma reserva cargada dos veces
+  const par = useMemo(() => parecidas(datos), [datos]); // para cada reserva, con cuáles se parece
   const pestanas = PESTANAS.filter((p) => !p.soloDueno || dueno);
   const buscando = buscar.trim() !== '';
   const hayAlgo = (datos?.reservas?.length ?? 0) + (datos?.estadias?.length ?? 0) > 0;
@@ -78,17 +80,17 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
   // Una reserva anotada que todavía no empezó el check-in: se toca para ver la habitación, cobrar y hacer el check-in.
   // Si en esa misma habitación ya hay una reserva abierta aparte (sin anotada), puede que sea la misma persona y la anotada quedó duplicada: se avisa y el detalle pide decidirlo.
   const filaAnotada = (a) => {
-    const candidatas = candidatasPara(a, datos?.estadias);
-    const repetidas = par[`a${a.id}`] ?? [];
+    const candidatas = candidatasDe(a, pares);
+    const otras = par[`a${a.id}`] ?? [];
     return (
       <li key={a.id} className="pp-item">
-        <button type="button" className={`pp-fila${a.dias_para < 0 ? ' pasada' : ''}${candidatas.length || repetidas.length ? ' duda' : ''}`} onClick={() => onAbrir({ ...a, candidatas })}>
+        <button type="button" className={`pp-fila${a.dias_para < 0 ? ' pasada' : ''}${candidatas.length || otras.length ? ' duda' : ''}`} onClick={() => onAbrir({ ...a, candidatas })}>
           <span className="pp-datos">
             <span className="pp-cab"><b className="pp-hab">Hab. {a.habitacion}</b><span className="pp-titular">{a.titular}</span>{a.numero != null && <span className="pp-num">{numeroTexto(a)}</span>}</span>
             <span className="pp-det">{[nochesTexto(a.noches), personas(a.esperados), a.categoria].filter(Boolean).join(' · ')}</span>
             {a.dias_para < 0 && <span className="pp-estado">Todavía no llegó</span>}
-            {candidatas.length > 0 && <span className="pp-duda">{dudaTexto(candidatas, a.habitacion)} Tocá para ver y unirlas.</span>}
-            {candidatas.length === 0 && repetidas.length > 0 && <span className="pp-duda">{parecidaTexto(repetidas)}</span>}
+            {candidatas.length > 0 && <span className="pp-duda">{dudaTexto(candidatas, a.habitacion)} Tocá para verla.</span>}
+            {candidatas.length === 0 && otras.length > 0 && <span className="pp-duda">{parecidaTexto(otras)}</span>}
           </span>
           <Icon name="adelante" size={22} sw={2} />
         </button>
@@ -106,7 +108,7 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
     const clase = { sin_ingresos: 'nadie', faltan: 'faltan', completa: 'completa', cerrada: 'cerrada' }[e.estado];
     const texto = e.estado === 'sin_ingresos' ? 'Todavía no entró nadie' : e.estado === 'faltan' ? ingresoTexto(e) : cierreTexto(e);
     const ocupado = trabajando === e.id;
-    const repetidas = par[`e${e.id}`] ?? [];
+    const otras = par[`e${e.id}`] ?? [];
     return (
       <li key={e.id} className={`pp-card ${clase}`}>
         <div className="pp-datos">
@@ -114,7 +116,7 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
           <span className="pp-det">{[nochesTexto(e.noches), personas(e.esperados), e.categoria].filter(Boolean).join(' · ')}</span>
           <span className={`pp-ingreso ${clase}`}>{texto}</span>
           {e.ingresaron?.length > 0 && <span className="pp-nombres">{e.ingresaron.join(', ')}</span>}
-          {repetidas.length > 0 && <span className="pp-duda">{parecidaTexto(repetidas)}</span>}
+          {otras.length > 0 && <span className="pp-duda">{parecidaTexto(otras)}</span>}
         </div>
         <div className="pp-acciones">
           {(e.estado === 'sin_ingresos' || e.estado === 'faltan') && <button type="button" className="btn mini" onClick={() => onDarCodigo(e.id)} disabled={ocupado || apagado}>{ocupado ? 'Un momento…' : 'Dar código'}</button>}
@@ -126,6 +128,16 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
       </li>
     );
   };
+
+
+  // Una de las dos reservas de una pareja, como se muestra en «Repetidas»: número, nombre, de qué tipo es, cuándo llega y quién ingresó.
+  const lado = (x) => (
+    <div className="rep-lado">
+      <span className="pp-cab"><b>{x.numero != null ? numeroTexto(x) : 'Sin número'}</b><span className="pp-titular">{x.titular || 'Reserva rápida'}</span></span>
+      <span className="pp-det">{[x.tipo === 'anotada' ? 'Reserva anotada' : x.anotada_id ? 'Reserva armada (de una anotada)' : 'Reserva armada', x.desde && `llega ${fechaCorta(x.desde)}`, nochesTexto(x.noches), x.tipo === 'estadia' && x.monto != null && `cobro ${plata(x.monto, x.moneda)}`].filter(Boolean).join(' · ')}</span>
+      <span className="pp-det">{x.tipo === 'estadia' ? (x.con > 0 ? `Ingresaron ${x.con} de ${x.esperados}: ${(x.ingresaron ?? []).join(', ')}` : 'Todavía no ingresó nadie') : 'Todavía no llegó'}</span>
+    </div>
+  );
 
   const grupo = (titulo, items, fila, ayuda) => items.length > 0 && (
     <div className="pp-dia">
@@ -174,6 +186,12 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
 
       {datos && (
         <>
+          {pares.length > 0 && pestana !== 'repetidas' && (
+            <button type="button" className="hub-repetidas" onClick={() => setPestana('repetidas')}>
+              <b>{pares.length} {pares.length === 1 ? 'posible reserva repetida' : 'posibles reservas repetidas'}</b>
+              <span>Misma habitación, mismo día y nombre parecido. Tocá para revisar{pares.length === 1 ? 'la' : 'las'}{dueno ? ' y unificar' : ''}.</span>
+            </button>
+          )}
           <div className="hub-tabs" role="tablist" aria-label="Secciones de reservas" onKeyDown={alTecla}>
             {pestanas.map((p) => (
               <button key={p.id} type="button" role="tab" id={`hub-tab-${p.id}`} aria-selected={pestana === p.id} aria-controls="hub-panel" tabIndex={pestana === p.id ? 0 : -1}
@@ -219,6 +237,34 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
                 ))}
               </>
             )}
+            {pestana === 'repetidas' && (
+              <>
+                <p className="sec-ayuda">Parecen la misma reserva cargada dos veces: la misma habitación usada el mismo día y, si se puede comparar, el mismo nombre. {dueno ? 'Mirá las dos y, si son la misma, tocá «Unificar»: queda una sola y no se pierde nada. Si no lo son, «No son la misma».' : 'Recepción no las unifica: avisale al dueño con los números y él decide.'}</p>
+                {c.repetidas.length === 0 && vacio('No hay reservas que parezcan repetidas.')}
+                {c.repetidas.length > 0 && (
+                  <ul className="ll-lista">
+                    {c.repetidas.map((p) => (
+                      <li key={p.id} className={`rep-card ${p.nivel}`}>
+                        <div className="rep-cab">
+                          <b className="pp-hab">Hab. {p.a.habitacion}</b>
+                          <span className={`rep-nivel ${p.nivel}`}>{p.nivel === 'alta' ? 'Casi seguro' : 'Posible'}</span>
+                        </div>
+                        <ul className="rep-motivos" aria-label="Por qué parecen la misma">
+                          {motivosTexto(p).map((m) => <li key={m.texto} className={m.bien ? 'bien' : 'duda'}>{m.texto}</li>)}
+                        </ul>
+                        <div className="rep-par">{lado(p.a)}{lado(p.b)}</div>
+                        {dueno && (
+                          <div className="rep-acciones">
+                            <button type="button" className="btn mini" onClick={() => onUnificar(p)} disabled={trabajando === p.id}>Unificar…</button>
+                            <button type="button" className="btn mini claro" onClick={() => onDescartar(p)} disabled={trabajando === p.id}>No son la misma</button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
             {pestana === 'eliminadas' && dueno && (
               <>
                 <p className="sec-ayuda">Lo que eliminaste en los últimos 60 días. No se borró nada: tocá «Restaurar» y vuelve a su lugar (con sus huéspedes y su número).</p>
@@ -232,7 +278,7 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
                           <div className="pp-datos">
                             <span className="pp-cab"><b className="pp-hab">Hab. {x.habitacion}</b><span className="pp-titular">{x.titular || 'Reserva rápida'}</span>{x.numero != null && <span className="pp-num">{numeroTexto(x)}</span>}</span>
                             <span className="pp-det">{[x.tipo === 'anotada' ? 'Reserva anotada' : 'Reserva armada', nochesTexto(x.noches), personas(x.esperados), x.llegada && `llegada ${fechaCorta(x.llegada)}`].filter(Boolean).join(' · ')}</span>
-                            <span className="pp-det">Eliminada{x.por ? ` por ${x.por}` : ''}{x.cuando ? ` el ${fechaCorta(String(x.cuando).slice(0, 10))}` : ''}{x.huespedes > 0 ? ` · se fueron con ella ${personas(x.huespedes)}` : ''}</span>
+                            <span className="pp-det">{x.unificada != null ? 'Unificada' : 'Eliminada'}{x.por ? ` por ${x.por}` : ''}{x.cuando ? ` el ${fechaCorta(String(x.cuando).slice(0, 10))}` : ''}{x.huespedes > 0 ? ` · se fueron con ella ${personas(x.huespedes)}` : ''}{x.unificada != null ? ` · unificada con la N.º ${x.unificada}` : ''}</span>
                           </div>
                           <div className="pp-acciones">
                             <button type="button" className="btn mini" onClick={() => onRestaurar(x)} disabled={ocupado}>{ocupado ? 'Un momento…' : 'Restaurar'}</button>

@@ -16,7 +16,7 @@ import { leerMonto, hoyAR, nochesTexto, plata } from './ReservaForm.jsx';
 const FORMAS = [['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ['usd', 'Dólares']];
 const COMO = { efectivo: 'en efectivo', transferencia: 'por transferencia', usd: 'en dólares' };
 
-export default function CobroLlegada({ a, venta, medios, apagado = false, onIniciar, onEditar = null, onUnir = null, onCerrar }) {
+export default function CobroLlegada({ a, venta, medios, apagado = false, dueno = false, onIniciar, onEditar = null, onUnir = null, onCerrar }) {
   const cobra = a.canal_cobra !== false;
   const [forma, setForma] = useState(null);
   const [medio, setMedio] = useState('');
@@ -52,7 +52,7 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
         : !montoValido ? 'Escribí cuánto cobraste (paso 2).'
           : !nadaQueCobrar && !confirmado ? 'Tildá «Ya cobré…» para confirmar el cobro (paso 2).' : null;
   const candidatas = a.candidatas ?? [];
-  const duda = candidatas.length > 0 && !distinta && !!onUnir; // hay una reserva en la misma habitación: primero se decide si ya llegó
+  const duda = candidatas.length > 0 && !distinta; // hay una reserva parecida (misma habitación, mismo día, mismo nombre): primero se decide si ya llegó
   const puede = !apagado && !falta && !enviando && !duda;
 
   const hacer = async () => {
@@ -100,13 +100,13 @@ export default function CobroLlegada({ a, venta, medios, apagado = false, onInic
       {duda && (
         <section className="paso dup" aria-labelledby="paso-0">
           <h3 className="paso-tit" id="paso-0"><span className="paso-n">?</span>¿Esta reserva ya llegó?</h3>
-          <p className="ayuda">En la Hab. {a.habitacion} ya hay {candidatas.length === 1 ? 'una reserva abierta aparte' : 'reservas abiertas aparte'}. Si es la misma persona, <b>no hagas el check-in de nuevo</b>: unilas y queda una sola reserva, con su nombre.</p>
+          <p className="ayuda">En la Hab. {a.habitacion} ya hay {candidatas.length === 1 ? 'una reserva abierta aparte' : 'reservas abiertas aparte'}. Si es la misma persona, <b>no hagas el check-in de nuevo</b>: {dueno ? 'unificalas y queda una sola reserva, con su nombre.' : `avisale al dueño que las unifique (decile los números${a.numero != null ? `: ${numeroTexto(a)} y ${candidatas.map((e) => numeroTexto(e)).join(' o ')}` : ''}). Solo él las unifica.`}</p>
           <ul className="dup-lista">
             {candidatas.map((e) => (
               <li key={e.id} className="dup-card">
                 <p><b>Hab. {e.habitacion}</b>{e.numero != null && <> · <b>{numeroTexto(e)}</b></>} · {e.titular || 'Reserva rápida'} · {nochesTexto(e.noches)} · {e.esperados} {e.esperados === 1 ? 'huésped' : 'huéspedes'}</p>
                 <p className="ll-det">{Number(e.con_checkin) > 0 ? `Ya ingresaron ${e.con_checkin}: ${(e.ingresaron ?? []).join(', ')}` : 'Todavía no ingresó nadie (tiene el código dado).'}{e.cargado_por ? ` · la abrió ${e.cargado_por}` : ''}</p>
-                <button type="button" className="btn mini" onClick={() => unir(e)} disabled={enviando}>Es la misma: unir</button>
+                {dueno && <button type="button" className="btn mini" onClick={() => unir(e)} disabled={enviando}>Es la misma: unificar…</button>}
               </li>
             ))}
           </ul>

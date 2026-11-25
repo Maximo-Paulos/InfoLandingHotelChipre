@@ -1,6 +1,6 @@
 // Las cuentas de la pantalla «Reservas» de recepción: qué reserva va en cada pestaña, el cartel de «qué falta llegar» y los textos. Sin pantalla ni red.
 //   node scripts/test-hub.mjs
-import { PESTANAS, candidatasPara, cierreTexto, clasificarHub, controlLlegadas, diasEntre, dudaTexto, parecidaTexto, parecidas } from '../src/checkin/hub.js';
+import { PESTANAS, candidatasDe, cierreTexto, clasificarHub, compararNombres, controlLlegadas, diasEntre, dudaTexto, motivosTexto, parecidaTexto, parecidas, repetidas } from '../src/checkin/hub.js';
 
 let fallas = 0;
 const ok = (c, m) => { console.log(`${c ? 'OK    ' : 'FALLA '}${m}`); if (!c) fallas += 1; };
@@ -25,7 +25,7 @@ const datos = {
 };
 
 console.log('\n== 1. Las pestañas');
-ok(PESTANAS.map((p) => p.texto).join() === 'Faltan llegar,Falta cerrar,Cerradas,Próximas,Historial,Eliminadas', 'son seis, en este orden: Faltan llegar, Falta cerrar, Cerradas, Próximas, Historial y Eliminadas');
+ok(PESTANAS.map((p) => p.texto).join() === 'Faltan llegar,Falta cerrar,Cerradas,Próximas,Historial,Repetidas,Eliminadas', 'son siete, en este orden: Faltan llegar, Falta cerrar, Cerradas, Próximas, Historial, Repetidas y Eliminadas');
 ok(PESTANAS.filter((p) => p.soloDueno).map((p) => p.id).join() === 'eliminadas', '«Eliminadas» es solo del dueño; las otras las ven todos');
 
 console.log('\n== 2. Qué va en cada una');
@@ -73,26 +73,81 @@ ok(cierreTexto({ estado: 'cerrada', con_checkin: 1, esperados: 2, cerrada_por: '
 ok(cierreTexto({ estado: 'cerrada', con_checkin: 1, esperados: 2 }) === 'Cerrada con 1 de 2', 'sin saber quién: «Cerrada con 1 de 2»');
 ok(diasEntre('2026-11-20', '2026-11-22') === 2 && diasEntre('2026-11-20', '2026-11-17') === -3 && diasEntre('2026-02-28', '2026-03-01') === 1, 'los días entre dos fechas (también cruzando meses)');
 
-console.log('\n== 7. Reservas duplicadas: ¿esta anotada ya llegó por otro lado?');
-const ana = A(30, 'Maldonado Gianfranco', -1, { habitacion: '202', fecha_ingreso: '2026-11-19' });
-const lista = [
-  E(40, null, 'completa', 2, 2, '2026-11-19', '2026-11-19T22:00:00Z', { habitacion: '202', anotada_id: null, cargado_por: 'Donato' }),
-  E(41, null, 'sin_ingresos', 0, 2, '2026-11-20', '2026-11-20T10:00:00Z', { habitacion: '202', anotada_id: null }),
-  E(42, 'Ya unida', 'completa', 1, 1, '2026-11-19', '2026-11-19T20:00:00Z', { habitacion: '202', anotada_id: 99 }),
-  E(43, null, 'completa', 1, 1, '2026-11-19', '2026-11-19T20:00:00Z', { habitacion: '203', anotada_id: null }),
-  E(44, null, 'completa', 1, 1, '2026-11-01', '2026-11-01T20:00:00Z', { habitacion: '202', anotada_id: null })
-];
-ok(JSON.stringify(ids(candidatasPara(ana, lista))) === '[40,41]', 'son candidatas las reservas sin anotada de la misma habitación y con fechas cercanas: la 202 con 2 huéspedes y la 202 con el código dado (las que ya tienen huéspedes, primero)');
-ok(!ids(candidatasPara(ana, lista)).includes(42) && !ids(candidatasPara(ana, lista)).includes(43) && !ids(candidatasPara(ana, lista)).includes(44), 'no lo son: una que ya está unida a otra anotada, una de otra habitación ni una de hace 18 días');
-ok(candidatasPara({ ...ana, habitacion: ' 202 ' }, lista).length === 2, 'la habitación se compara sin importar espacios');
-ok(candidatasPara(A(31, 'Sin parecidas', 0, { habitacion: '999' }), lista).length === 0 && candidatasPara(ana, []).length === 0 && candidatasPara(ana, undefined).length === 0, 'si no hay parecidas (o no hay lista) no hay candidatas');
-ok(dudaTexto([lista[0]], '202') === 'Puede que ya haya llegado: en la Hab. 202 hay una reserva con 2 huéspedes ingresados.', 'el aviso dice cuántos huéspedes ya ingresaron');
-ok(dudaTexto([{ con_checkin: 1 }], '7') === 'Puede que ya haya llegado: en la Hab. 7 hay una reserva con 1 huésped ingresado.', 'con uno: «1 huésped ingresado»');
-ok(dudaTexto([lista[1]], '202').includes('con el código dado'), 'si todavía no entró nadie, dice que es otra reserva abierta con el código dado');
+console.log('\n== 7. Los nombres: ¿es la misma persona?');
+ok(compararNombres(['Maldonado Gianfranco'], ['Gianfranco Maldonado']) === 'igual', '«Maldonado Gianfranco» y «Gianfranco Maldonado» son el mismo (cualquier orden)');
+ok(compararNombres(['Juan Pérez'], ['juan PEREZ']) === 'igual' && compararNombres(['José Núñez'], ['Jose Nunez']) === 'igual', 'sin importar mayúsculas ni tildes');
+ok(compararNombres(['Pérez'], ['Juan Pérez']) === 'igual', 'una sola palabra (el apellido) que está en el otro nombre, también');
+ok(compararNombres(['Juan Pérez'], ['Juan Gómez']) === 'distinto' && compararNombres(['Ana Prueba'], ['Marcos Díaz']) === 'distinto', 'solo el nombre de pila en común NO alcanza: «Juan Pérez» y «Juan Gómez» son personas distintas');
+ok(compararNombres(['Marcos Díaz'], ['Ana Prueba', 'Díaz Marcos']) === 'igual', 'con varios nombres (el titular y los que ingresaron) alcanza con que uno coincida');
+ok(compararNombres(['Marcos Díaz'], ['Gianfranco Díaz']) === 'distinto', 'el mismo apellido con otro nombre de pila son personas distintas (hermanos, por ejemplo)');
+ok(compararNombres([null], ['Ana Prueba']) === 'sin' && compararNombres([], []) === 'sin' && compararNombres(undefined, ['Ana Prueba']) === 'sin', 'si una de las dos no tiene ningún nombre, no hay con qué comparar');
+ok(compararNombres(['de la Cruz'], ['Juan de la Cruz']) === 'igual' && compararNombres(['Juan de'], ['Pedro de']) === 'distinto', 'las partículas «de», «la», «del»… no cuentan como coincidencia');
 
-ok(dudaTexto([{ ...lista[0], numero: 55 }], '202') === 'Puede que ya haya llegado: en la Hab. 202 hay una reserva (N.º 55) con 2 huéspedes ingresados.', 'con el número de la otra reserva: «hay una reserva (N.º 55)…»');
+console.log('\n== 8. Reservas repetidas: habitación, día y nombre');
+const R = (id, hab, llegada, noches, extra = {}) => ({ id, habitacion: hab, llegada, noches, anotada_id: null, numero: 100 + id, titular: null, ingresaron: [], con_checkin: 0, ultima: `${llegada}T10:00:00Z`, ...extra });
+const AN = (id, titular, hab, fecha, noches, extra = {}) => ({ id, titular, habitacion: hab, fecha_ingreso: fecha, noches, estado: 'anotada', numero: 40 + id, ...extra });
+const ids2 = (ps) => ps.map((p) => p.id).sort();
+// el caso del dueño: anotada «Maldonado» (ayer) y una reserva armada en la misma habitación con 2 huéspedes, uno con su nombre
+let reps = repetidas({ reservas: [AN(1, 'Maldonado Gianfranco', '202', '2026-11-19', 2)], estadias: [R(10, '202', '2026-11-20', 1, { ingresaron: ['Johanna Paniagua', 'Gianfranco Maldonado'], con_checkin: 2 })] });
+ok(reps.length === 1 && reps[0].nivel === 'alta' && reps[0].tipo === 'anotada-estadia' && reps[0].id === 'a1|e10', 'anotada + armada de la misma habitación, el mismo día y con el mismo nombre (aunque esté entre los que ingresaron): sugerencia segura');
+ok(reps[0].a.clave === 'a1' && reps[0].b.clave === 'e10' && reps[0].motivos.nombre === 'igual' && reps[0].motivos.dia === 'mismo', 'la anotada va primero y los motivos dicen habitación, día y nombre');
+ok(motivosTexto(reps[0]).map((m) => m.texto).join() === 'Misma habitación,Mismo día,Mismo nombre' && motivosTexto(reps[0]).every((m) => m.bien), 'y se pueden mostrar como etiquetas');
+// el mismo caso pero la armada no tiene el nombre del titular
+reps = repetidas({ reservas: [AN(1, 'Marcos Díaz', '202', '2026-11-19', 2)], estadias: [R(10, '202', '2026-11-20', 1, { ingresaron: ['Ana Prueba', 'Luis Prueba'], con_checkin: 2 })] });
+ok(reps.length === 1 && reps[0].nivel === 'media' && reps[0].motivos.nombre === 'distinto', 'anotada + armada con otro nombre (el titular puede no ser quien ingresó): sugerencia posible, no segura');
+reps = repetidas({ reservas: [AN(1, 'Marcos Díaz', '202', '2026-11-19', 1)], estadias: [R(10, '202', '2026-11-20', 1)] });
+ok(reps.length === 1 && reps[0].motivos.dia === 'cercano' && reps[0].motivos.nombre === 'sin' && reps[0].nivel === 'media' && motivosTexto(reps[0])[1].texto === 'Días cercanos', 'una noche (el 19) y la armada del 20, sin nombres: «días cercanos» (llegan con un día de diferencia)');
+reps = repetidas({ reservas: [AN(1, 'Marcos Díaz', '202', '2026-11-10', 1)], estadias: [R(10, '202', '2026-11-20', 1)] });
+ok(reps.length === 0, 'diez días de diferencia: no se sospecha');
+reps = repetidas({ reservas: [AN(1, 'Marcos Díaz', '203', '2026-11-20', 1)], estadias: [R(10, '202', '2026-11-20', 1)] });
+ok(reps.length === 0, 'otra habitación: no');
+reps = repetidas({ reservas: [AN(1, 'Marcos Díaz', '202', '2026-11-20', 1)], estadias: [R(10, '202', '2026-11-20', 1, { anotada_id: 5 })] });
+ok(reps.length === 0, 'una armada que ya sale de otra anotada no es la de esta');
+// dos armadas
+reps = repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2), R(11, '114', '2026-11-20', 2)] });
+ok(reps.length === 1 && reps[0].tipo === 'estadia-estadia' && reps[0].nivel === 'media' && reps[0].motivos.nombre === 'sin', 'dos reservas rápidas vacías de la 114 el mismo día: sugerencia posible (sin nombres)');
+ok(reps[0].a.id === 10 && reps[0].b.id === 11 && reps[0].conservar === 'e10', 'se propone conservar la más vieja');
+reps = repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2, { ingresaron: ['Ana Prueba'], con_checkin: 1 }), R(11, '114', '2026-11-20', 2, { ingresaron: ['Ana Prueba'], con_checkin: 1 })] });
+ok(reps.length === 1 && reps[0].nivel === 'alta' && reps[0].motivos.nombre === 'igual', 'dos armadas con el mismo huésped: sugerencia segura');
+reps = repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2, { ingresaron: ['Ana Prueba'], con_checkin: 1 }), R(11, '114', '2026-11-20', 2, { ingresaron: ['Beto Gómez'], con_checkin: 1 })] });
+ok(reps.length === 0, 'dos armadas con huéspedes de otro nombre NO se sospechan: son otras personas');
+reps = repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2), R(11, '114', '2026-11-20', 2, { ingresaron: ['Ana Prueba', 'Luis Prueba'], con_checkin: 2 })] });
+ok(reps.length === 1 && reps[0].conservar === 'e11', 'una vacía y otra con huéspedes: se propone conservar la que tiene huéspedes');
+reps = repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2, { ingresaron: ['Ana'], con_checkin: 1 }), R(11, '114', '2026-11-20', 2, { anotada_id: 3, ingresaron: [], con_checkin: 0 })] });
+ok(reps.length === 1 && reps[0].conservar === 'e11', 'si una sale de una anotada, se propone esa (la anotada no puede quedar sin su reserva)');
+reps = repetidas({ reservas: [], estadias: [R(10, '401', '2026-11-20', 1), R(11, '401', '2026-11-21', 1)] });
+ok(reps.length === 0, 'dos estadías seguidas de una noche cada una (20 y 21) NO se sospechan: no se pisan');
+// dos anotadas
+reps = repetidas({ reservas: [AN(1, 'Pérez Juan', '305', '2026-11-20', 2), AN(2, 'Juan Pérez', '305', '2026-11-21', 2)], estadias: [] });
+ok(reps.length === 1 && reps[0].tipo === 'anotada-anotada' && reps[0].nivel === 'alta' && reps[0].conservar === 'a1', 'dos anotadas del mismo nombre que se pisan (20 al 22 y 21 al 23): sugerencia segura, se propone la más vieja');
+reps = repetidas({ reservas: [AN(1, 'Pérez Juan', '305', '2026-11-20', 2), AN(2, 'Ana Gómez', '305', '2026-11-21', 2)], estadias: [] });
+ok(reps.length === 0, 'dos anotadas de nombres distintos que se pisan: es un choque de habitación, no una repetida');
+reps = repetidas({ reservas: [AN(1, 'Pérez Juan', '305', '2026-11-20', 1), AN(2, 'Juan Pérez', '305', '2026-11-21', 1)], estadias: [] });
+ok(reps.length === 0, 'dos anotadas seguidas (una noche y la siguiente), aunque sea la misma persona, no se pisan: no se sospechan');
+reps = repetidas({ reservas: [{ ...AN(1, 'Pérez', '305', '2026-11-20', 1), estado: 'cancelada' }, AN(2, 'Pérez', '305', '2026-11-20', 1)], estadias: [] });
+ok(reps.length === 0, 'una anotada cancelada o ya empezada no cuenta');
+// orden y descartadas
+reps = repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2), R(11, '114', '2026-11-20', 2), R(20, '500', '2026-11-22', 1, { ingresaron: ['Ana Prueba'], con_checkin: 1 }), R(21, '500', '2026-11-22', 1, { ingresaron: ['Ana Prueba'], con_checkin: 1 })] });
+ok(reps.map((p) => p.nivel).join() === 'alta,media', 'las seguras van primero');
+ok(repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2), R(11, '114', '2026-11-20', 2)], descartadas: ['e10|e11'] }).length === 0 && repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2), R(11, '114', '2026-11-20', 2)], descartadas: ['e11|e10'] }).length === 0, 'las que el dueño descartó («no son la misma») no vuelven a aparecer, en el orden que vengan');
+ok(repetidas({ reservas: [], estadias: [R(10, '114', '2026-11-20', 2), R(11, '114', '2026-11-20', 2)], descartadas: ['e10|e99'] }).length === 1, 'descartar otra pareja no afecta a esta');
+ok(repetidas(undefined).length === 0 && repetidas({}).length === 0, 'sin datos no hay nada');
 
-console.log('\n== 8. Número de reserva y eliminadas');
+console.log('\n== 9. Dónde se ve: pestaña, filas y el detalle de una anotada');
+const dd = { hoy: '2026-11-20', reservas: [AN(1, 'Maldonado Gianfranco', '202', '2026-11-19', 2), AN(3, 'Sola', '999', '2026-11-20', 1)], estadias: [R(10, '202', '2026-11-20', 1, { ingresaron: ['Gianfranco Maldonado'], con_checkin: 1, estado: 'faltan' }), R(11, '114', '2026-11-20', 2, { estado: 'sin_ingresos' }), R(12, '114', '2026-11-20', 2, { estado: 'sin_ingresos' })] };
+const hub = clasificarHub(dd);
+ok(hub.repetidas.length === 2 && hub.conteo.repetidas === 2, 'la pestaña «Repetidas» tiene las 2 parejas y su cantidad');
+ok(clasificarHub(dd, 'maldonado').repetidas.length === 1 && clasificarHub(dd, '114').repetidas.length === 1 && clasificarHub(dd, 'zzz').repetidas.length === 0, 'el buscador las filtra (por nombre, habitación o número)');
+const mapa = parecidas(dd);
+ok(Object.keys(mapa).sort().join() === 'a1,e10,e11,e12' && mapa.e11.map((x) => x.id).join() === '12' && mapa.a1[0].id === 10, 'cada fila sabe con cuál se parece (las dos de la 114 entre sí; la anotada con la armada y al revés)');
+ok(JSON.stringify(candidatasDe(dd.reservas[0], hub.repetidas).map((e) => e.id)) === '[10]' && candidatasDe(dd.reservas[1], hub.repetidas).length === 0, 'al abrir la anotada, las candidatas son las reservas armadas que se le parecen (y una sola sin parecidas no tiene)');
+ok(dudaTexto([{ con_checkin: 2, numero: 55 }], '202') === 'Puede que ya haya llegado: en la Hab. 202 hay una reserva (N.º 55) con 2 huéspedes ingresados.', 'el aviso de la anotada nombra a la otra por su número y dice cuántos ingresaron');
+ok(dudaTexto([{ con_checkin: 1 }], '7') === 'Puede que ya haya llegado: en la Hab. 7 hay una reserva con 1 huésped ingresado.' && dudaTexto([{ con_checkin: 0 }], '7').includes('con el código dado'), 'con uno, sin número, o sin huéspedes todavía');
+const tx = parecidaTexto([{ numero: 55, titular: 'Maldonado' }]);
+ok(tx.includes('la N.º 55 (Maldonado)') && tx.includes('Mirala en «Repetidas»'), 'el aviso de la fila nombra a la otra por su número y manda a «Repetidas»');
+ok(motivosTexto({ motivos: { dia: 'mismo', nombre: 'sin' } })[2].texto === 'Sin nombre para comparar' && motivosTexto({ motivos: { dia: 'mismo', nombre: 'distinto' } })[2].bien === false, 'las etiquetas dicen cuándo el nombre no coincide o no se puede comparar');
+
+console.log('\n== 10. Número de reserva y eliminadas');
 const conNumero = {
   hoy: '2026-11-20',
   reservas: [A(1, 'Ana', 0, { numero: 41 }), A(2, 'Beto', 1, { numero: 42 })],
@@ -107,26 +162,6 @@ ok(clasificarHub(conNumero, '43').conteo.cerradas === 1, '«43» encuentra la re
 ok(clasificarHub(conNumero).eliminadas.length === 2 && clasificarHub(conNumero).conteo.eliminadas === 2, 'las eliminadas (solo si la base se las manda al dueño) van en su pestaña, con su cantidad');
 ok(clasificarHub(conNumero, '45').eliminadas.map((x) => x.id).join() === '8' && clasificarHub(conNumero, '202').eliminadas.map((x) => x.id).join() === '7', 'y se buscan por número o por habitación');
 ok(clasificarHub(datos).eliminadas.length === 0 && clasificarHub(undefined).conteo.eliminadas === 0, 'si la base no manda eliminadas (recepción), la pestaña queda vacía');
-
-console.log('\n== 9. Parecidas: dos reservas que pueden ser la misma cargada dos veces');
-const R = (id, hab, llegada, noches, extra = {}) => ({ id, habitacion: hab, llegada, noches, anotada_id: null, numero: 100 + id, titular: null, ...extra });
-const par = parecidas({
-  reservas: [A(1, 'Maldonado', -1, { habitacion: '202', fecha_ingreso: '2026-11-19', numero: 41, noches: 1 }), A(2, 'Pérez', 0, { habitacion: '305', fecha_ingreso: '2026-11-20', noches: 2, numero: 61 }), A(3, 'Pérez bis', 0, { habitacion: '305', fecha_ingreso: '2026-11-21', noches: 2, numero: 62 }),
-             A(4, 'Seguida uno', 0, { habitacion: '401', fecha_ingreso: '2026-11-20', noches: 1 }), A(5, 'Seguida dos', 1, { habitacion: '401', fecha_ingreso: '2026-11-21', noches: 1 })],
-  estadias: [R(10, '202', '2026-11-19', 1, { numero: 55 }), R(11, '202', '2026-11-19', 1, { numero: 56 }), R(12, '202', '2026-11-19', 1, { anotada_id: 9, numero: 57 }),
-             R(13, '500', '2026-11-19', 3), R(14, '500', '2026-11-22', 1), R(15, '500', '2026-11-20', 1)]
-});
-ok(JSON.stringify((par.e10 ?? []).map((x) => x.id).sort()) === '[1,11,12]' || JSON.stringify((par.e10 ?? []).map((x) => x.id).sort((a, b) => a - b)) === '[1,11,12]', 'dos reservas armadas de la 202 con los mismos días se señalan entre sí; la reserva rápida también apunta a la anotada que sigue esperando');
-ok((par.e12 ?? []).map((x) => x.id).sort((a, b) => a - b).join() === '10,11', 'la que ya salió de una anotada no apunta a otras anotadas, pero sí a las armadas que se le pisan');
-ok(JSON.stringify((par.a2 ?? []).map((x) => x.id)) === '[3]' && JSON.stringify((par.a3 ?? []).map((x) => x.id)) === '[2]', 'dos anotadas de la 305 que se pisan (20 al 22 y 21 al 23) se señalan entre sí');
-ok(!par.a4 && !par.a5, 'dos anotadas seguidas de la misma habitación (una noche y la siguiente) NO se señalan: no se pisan');
-ok(!par.e14 && (par.e13 ?? []).map((x) => x.id).join() === '15' && (par.e15 ?? []).map((x) => x.id).join() === '13', 'en la 500: la estadía del 19 al 22 se pisa con la del 20, pero no con la del 22');
-const lejos = parecidas({ reservas: [A(8, 'Lejana', 10, { habitacion: '600', fecha_ingreso: '2026-11-30', noches: 1 })], estadias: [R(16, '600', '2026-11-20', 1), R(17, '600', '2026-11-26', 1)] });
-ok(!lejos.e16 && (lejos.e17 ?? []).map((x) => x.id).join() === '8', 'una anotada que llega 10 días después no se señala con la reserva armada (hasta 5 días sí: la del 26 con la anotada del 30)');
-ok(!par.a1 || par.a1.length === 0, 'la anotada que espera no se señala por este camino (ella ya avisa con «Puede que ya haya llegado»)');
-ok(Object.keys(parecidas(undefined)).length === 0 && Object.keys(parecidas({})).length === 0, 'sin datos no hay parecidas');
-const tx = parecidaTexto([{ numero: 55, titular: 'Maldonado' }]);
-ok(tx.includes('la N.º 55 (Maldonado)') && tx.includes('el dueño elimina la que sobra'), `el aviso nombra a la otra por su número: «${tx.slice(0, 60)}…»`);
 
 console.log(fallas ? `\n${fallas} fallas` : '\nTodo bien');
 process.exit(fallas ? 1 : 0);

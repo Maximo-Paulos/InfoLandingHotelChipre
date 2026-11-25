@@ -1,6 +1,6 @@
 // La pantalla «Reservas» de recepción: cuentas puras (sin pantalla ni red) que reparten lo que manda la base en las pestañas de arriba y arman el cartel de «qué falta llegar».
 //   datos: la respuesta de recepcion_proximas → { hoy, dias, reservas (las reservas anotadas), estadias (todas las reservas con actividad en esos días) }
-import { filtrarProximas, numeroTexto } from './proximas.js';
+import { filtrarProximas, normalizar, numeroTexto } from './proximas.js';
 
 // Las pestañas, en este orden: lo urgente primero.
 export const PESTANAS = [
@@ -9,6 +9,7 @@ export const PESTANAS = [
   { id: 'cerradas', texto: 'Cerradas' },
   { id: 'proximas', texto: 'Próximas' },
   { id: 'historial', texto: 'Historial' },
+  { id: 'repetidas', texto: 'Repetidas' }, // las que parecen la misma reserva cargada dos veces; el dueño las unifica
   { id: 'eliminadas', texto: 'Eliminadas', soloDueno: true } // solo el dueño: lo que se eliminó, para restaurarlo
 ];
 
@@ -20,6 +21,7 @@ const masReciente = (x, y) => String(y.ultima ?? '').localeCompare(String(x.ulti
 //   cerradas  → ya están: entraron todos (completa) o se cerró a mano con menos de los esperados (cerrada)
 //   proximas  → las anotadas que llegan de mañana en adelante
 //   historial → las que ya llegaron (con al menos un huésped), por día de llegada, de la más reciente a la más vieja
+//   repetidas → parejas de reservas que parecen la misma (ver `repetidas`)
 //   eliminadas → (solo le llega al dueño) lo eliminado en los últimos 60 días: reservas anuladas y anotadas canceladas, para restaurarlas
 export function clasificarHub(datos, consulta = '') {
   const anotadas = filtrarProximas((datos?.reservas ?? []).filter((a) => a.estado === 'anotada'), consulta);
@@ -39,9 +41,11 @@ export function clasificarHub(datos, consulta = '') {
   }
   dias.sort((x, y) => y.fecha.localeCompare(x.fecha));
   const eliminadas = filtrarProximas(datos?.eliminadas ?? [], consulta);
+  const todasRepetidas = repetidas(datos);
+  const repes = consulta.trim() === '' ? todasRepetidas : todasRepetidas.filter((p) => filtrarProximas([p.a, p.b], consulta).length > 0);
   return {
-    faltan: { atrasadas, hoy, sinIngresos }, cerrar, cerradas, proximas, historial: dias, eliminadas,
-    conteo: { faltan: atrasadas.length + hoy.length + sinIngresos.length, cerrar: cerrar.length, cerradas: cerradas.length, proximas: proximas.length, historial: dias.reduce((s, d) => s + d.items.length, 0), eliminadas: eliminadas.length }
+    faltan: { atrasadas, hoy, sinIngresos }, cerrar, cerradas, proximas, historial: dias, eliminadas, repetidas: repes,
+    conteo: { faltan: atrasadas.length + hoy.length + sinIngresos.length, cerrar: cerrar.length, cerradas: cerradas.length, proximas: proximas.length, historial: dias.reduce((s, d) => s + d.items.length, 0), repetidas: repes.length, eliminadas: eliminadas.length }
   };
 }
 
@@ -73,12 +77,97 @@ export const cierreTexto = (e) => {
   return con === 1 ? 'Ingresó 1 huésped' : `Ingresaron los ${con}`;
 };
 
-// Reservas duplicadas: una anotada que sigue esperando puede ser la misma que otra reserva ya abierta aparte (por ejemplo una reserva rápida en la misma habitación, donde el huésped
-// ya hizo el check-in). Son candidatas las reservas sin anotada, de la misma habitación y con fechas cercanas (hasta 5 días); las que ya tienen huéspedes adentro, primero.
+// ---------------------------------------------------------------- reservas repetidas
+// Una reserva puede quedar cargada dos veces (por ejemplo una anotada que sigue «sin llegar» y, aparte, una reserva rápida donde el huésped ya hizo el check-in). Se sospecha por tres cosas:
+//   · la HABITACIÓN: la misma;
+//   · el DÍA: las fechas de las dos se pisan (la habitación está usada el mismo día). Una anotada y una reserva armada sin anotada también cuentan si llegan con hasta 2 días de diferencia;
+//   · el NOMBRE: el del titular o el de quienes ya ingresaron. «Maldonado Gianfranco» y «Gianfranco Maldonado» son el mismo; «Juan Pérez» y «Juan Gómez», no.
+// Nivel «alta» = habitación + día + mismo nombre; «media» = habitación + día y no hay nombre para comparar (o, entre una anotada y una armada, el nombre no coincide: el titular puede no ser quien ingresó).
+// Dos reservas armadas con nombres distintos, o dos anotadas con nombres distintos, NO se sospechan: son personas distintas.
 const hab = (x) => String(x ?? '').trim().toLowerCase();
-export function candidatasPara(a, estadias = []) {
-  return (estadias ?? [])
-    .filter((e) => !e.anotada_id && hab(e.habitacion) === hab(a.habitacion) && a.fecha_ingreso && e.llegada && Math.abs(diasEntre(a.fecha_ingreso, e.llegada)) <= 5)
+const PARTICULAS = new Set(['de', 'del', 'la', 'las', 'los', 'el', 'y', 'e', 'da', 'do', 'di', 'van', 'von']);
+const fichas = (nombre) => normalizar(nombre).split(' ').filter((t) => t.length >= 2 && !PARTICULAS.has(t));
+
+// Compara dos listas de nombres (el titular y los que ingresaron): 'igual' | 'distinto' | 'sin' (alguna de las dos no tiene ningún nombre).
+// Son el mismo si comparten dos palabras (en cualquier orden, sin importar tildes ni mayúsculas) o si uno solo tiene una palabra y está en el otro («Pérez» y «Juan Pérez»).
+export function compararNombres(nombresA = [], nombresB = []) {
+  const A = nombresA.map(fichas).filter((f) => f.length > 0);
+  const B = nombresB.map(fichas).filter((f) => f.length > 0);
+  if (!A.length || !B.length) return 'sin';
+  for (const fa of A) {
+    for (const fb of B) {
+      const comunes = fa.filter((t) => fb.includes(t)).length;
+      if (comunes >= 2 || (comunes >= 1 && Math.min(fa.length, fb.length) === 1)) return 'igual';
+    }
+  }
+  return 'distinto';
+}
+
+const desdeDia = (fecha) => diasEntre('2000-01-01', fecha);
+const seTapan = (f1, n1, f2, n2) => !!f1 && !!f2 && desdeDia(f1) < desdeDia(f2) + n2 && desdeDia(f2) < desdeDia(f1) + n1;
+
+// Todas las parejas que parecen la misma reserva, de la más segura a la menos. Cada una: { id: 'a41|e55', tipo: 'anotada-estadia' | 'estadia-estadia' | 'anotada-anotada', nivel, a, b, motivos, conservar }.
+//   a y b son las reservas (con clave 'a41' = anotada 41, 'e55' = armada 55, tipo, numero, titular, nombres…) · motivos: { habitacion, dia: 'mismo' | 'cercano', nombre: 'igual' | 'distinto' | 'sin' }
+//   conservar: la clave de la que se propone conservar (la que viene de una anotada, o la que tiene más huéspedes, o la más vieja); en anotada + armada se queda siempre la armada con el nombre de la anotada.
+//   Las que el dueño descartó («no son la misma», datos.descartadas) no vuelven a aparecer.
+export function repetidas(datos) {
+  const descartadas = new Set(datos?.descartadas ?? []);
+  const anotadas = (datos?.reservas ?? []).filter((a) => a.estado === 'anotada')
+    .map((a) => ({ ...a, clave: `a${a.id}`, tipo: 'anotada', desde: a.fecha_ingreso, nombres: [a.titular], con: 0 }));
+  const estadias = (datos?.estadias ?? [])
+    .map((e) => ({ ...e, clave: `e${e.id}`, tipo: 'estadia', desde: e.llegada, nombres: [e.titular, ...(e.ingresaron ?? [])], con: Number(e.con_checkin) || 0 }));
+  const todos = [...anotadas, ...estadias];
+  const noches = (x) => Math.max(1, Number(x.noches) || 1);
+  const pares = [];
+  for (let i = 0; i < todos.length; i += 1) {
+    for (let j = i + 1; j < todos.length; j += 1) {
+      let x = todos[i];
+      let y = todos[j];
+      if (hab(x.habitacion) !== hab(y.habitacion) || !x.desde || !y.desde) continue;
+      const cruzada = x.tipo !== y.tipo;
+      const solapan = seTapan(x.desde, noches(x), y.desde, noches(y));
+      let cerca = false;
+      if (cruzada) {
+        const armada = x.tipo === 'estadia' ? x : y;
+        if (armada.anotada_id) continue; // esa armada ya sale de una anotada: no es la de esta
+        cerca = Math.abs(diasEntre(x.desde, y.desde)) <= 2;
+        if (!solapan && !cerca) continue;
+      } else if (!solapan) continue;
+      const nombre = compararNombres(x.nombres, y.nombres);
+      if (!cruzada && nombre !== 'igual' && !(x.tipo === 'estadia' && nombre === 'sin')) continue;
+      const id = [x.clave, y.clave].sort().join('|');
+      const alReves = [y.clave, x.clave].join('|');
+      if (descartadas.has(id) || descartadas.has(alReves)) continue;
+      if (cruzada) { if (x.tipo === 'estadia') [x, y] = [y, x]; } // la anotada primero
+      else if (x.id > y.id) [x, y] = [y, x]; // la más vieja primero
+      let conservar = null;
+      if (x.tipo === 'estadia' && y.tipo === 'estadia') conservar = x.anotada_id ? x.clave : y.anotada_id ? y.clave : y.con > x.con ? y.clave : x.clave;
+      else if (x.tipo === 'anotada' && y.tipo === 'anotada') conservar = x.clave;
+      pares.push({
+        id, tipo: `${x.tipo}-${y.tipo}`, nivel: nombre === 'igual' ? 'alta' : 'media', a: x, b: y, conservar,
+        motivos: { habitacion: true, dia: solapan ? 'mismo' : 'cercano', nombre }
+      });
+    }
+  }
+  return pares.sort((p, q) => (p.nivel === q.nivel ? 0 : p.nivel === 'alta' ? -1 : 1) || String(p.a.desde).localeCompare(String(q.a.desde)));
+}
+
+// Para cada reserva, las otras con las que parece repetida: { 'e12': [reserva, …], 'a7': […] }. Es lo que se avisa en la fila de cada una.
+export function parecidas(datos) {
+  const mapa = {};
+  for (const p of repetidas(datos)) {
+    (mapa[p.a.clave] ??= []).push(p.b);
+    (mapa[p.b.clave] ??= []).push(p.a);
+  }
+  return mapa;
+}
+
+// Las reservas ya armadas con las que parece repetida esta anotada que espera (para preguntar «¿esta reserva ya llegó?» al abrirla), con huéspedes ingresados primero.
+export function candidatasDe(a, pares = []) {
+  const clave = `a${a.id}`;
+  return pares
+    .filter((p) => p.tipo === 'anotada-estadia' && p.a.clave === clave)
+    .map((p) => p.b)
     .sort((x, y) => (Number(y.con_checkin) || 0) - (Number(x.con_checkin) || 0) || String(y.ultima ?? '').localeCompare(String(x.ultima ?? '')));
 }
 
@@ -92,34 +181,29 @@ export const dudaTexto = (candidatas, habitacion) => {
     : `Puede que sea la misma: en la Hab. ${habitacion} hay otra reserva abierta${num} con el código dado.`;
 };
 
-// Reservas que se parecen y pueden ser la misma cargada dos veces (el dueño las reconoce por el número y elimina la que sobra). Devuelve { 'e12': [reserva, …], 'a7': […] } (e = reserva
-// armada, a = anotada) con las demás reservas de la MISMA habitación que se pisan con ella:
-//   · dos reservas armadas (o dos anotadas) cuyas fechas se pisan (misma habitación, mismos días);
-//   · una reserva armada que no salió de ninguna anotada y una anotada que sigue esperando, con hasta 5 días de diferencia (la anotada ya avisa por su lado: ver candidatasPara).
-export function parecidas(datos) {
-  const anotadas = (datos?.reservas ?? []).filter((a) => a.estado === 'anotada');
-  const estadias = datos?.estadias ?? [];
-  const noches = (x) => Math.max(1, Number(x.noches) || 1);
-  const salen = (fecha, n) => diasEntre('2000-01-01', fecha) + n;
-  const seTapan = (f1, n1, f2, n2) => !!f1 && !!f2 && diasEntre('2000-01-01', f1) < salen(f2, n2) && diasEntre('2000-01-01', f2) < salen(f1, n1);
-  const mapa = {};
-  const sumar = (clave, otra) => { (mapa[clave] ??= []).push(otra); };
-  for (const x of estadias) {
-    for (const y of estadias) {
-      if (x.id !== y.id && hab(x.habitacion) === hab(y.habitacion) && seTapan(x.llegada, noches(x), y.llegada, noches(y))) sumar(`e${x.id}`, y);
-    }
-    if (!x.anotada_id) for (const a of anotadas) if (hab(a.habitacion) === hab(x.habitacion) && a.fecha_ingreso && x.llegada && Math.abs(diasEntre(a.fecha_ingreso, x.llegada)) <= 5) sumar(`e${x.id}`, a);
-  }
-  for (const x of anotadas) {
-    for (const y of anotadas) {
-      if (x.id !== y.id && hab(x.habitacion) === hab(y.habitacion) && seTapan(x.fecha_ingreso, noches(x), y.fecha_ingreso, noches(y))) sumar(`a${x.id}`, y);
-    }
-  }
-  return mapa;
-}
-
-// «Parece repetida: la N.º 55 (Hab. 202, Maldonado) tiene los mismos días.»
+// «Parece repetida: la N.º 55 (Maldonado) es de la misma habitación y de los mismos días.»
 export const parecidaTexto = (otras) => {
   const nombres = otras.slice(0, 2).map((o) => `${o.numero != null ? `la ${numeroTexto(o)}` : 'otra'}${o.titular ? ` (${o.titular})` : ''}`).join(' y ');
-  return `Parece repetida: ${nombres}${otras.length > 2 ? ' y más' : ''} es de la misma habitación y fechas parecidas. Si es la misma, el dueño elimina la que sobra.`;
+  return `Parece repetida: ${nombres}${otras.length > 2 ? ' y más' : ''} es de la misma habitación y de días parecidos. Mirala en «Repetidas».`;
 };
+
+// Los tres motivos de una pareja, como etiquetas para mostrar: [{ texto, bien }]
+export function motivosTexto(par) {
+  const m = par.motivos;
+  return [
+    { texto: 'Misma habitación', bien: true },
+    { texto: m.dia === 'mismo' ? 'Mismo día' : 'Días cercanos', bien: true },
+    m.nombre === 'igual' ? { texto: 'Mismo nombre', bien: true } : m.nombre === 'sin' ? { texto: 'Sin nombre para comparar', bien: false } : { texto: 'Nombre distinto', bien: false }
+  ];
+}
+
+// La pareja «anotada + reserva armada» para unificar desde el detalle de la anotada (sin pasar por la lista de repetidas): si la detección no las marca, igual se arma con lo que se sabe.
+export function paraUnir(anotada, estadia) {
+  const hallada = repetidas({ reservas: [{ ...anotada, estado: 'anotada' }], estadias: [{ ...estadia, anotada_id: null }] })[0];
+  if (hallada) return hallada;
+  return {
+    id: `a${anotada.id}|e${estadia.id}`, tipo: 'anotada-estadia', nivel: 'media', conservar: null, motivos: { habitacion: true, dia: 'cercano', nombre: 'sin' },
+    a: { ...anotada, clave: `a${anotada.id}`, tipo: 'anotada', desde: anotada.fecha_ingreso, nombres: [anotada.titular], con: 0 },
+    b: { ...estadia, clave: `e${estadia.id}`, tipo: 'estadia', desde: estadia.llegada, nombres: [estadia.titular, ...(estadia.ingresaron ?? [])], con: Number(estadia.con_checkin) || 0 }
+  };
+}
