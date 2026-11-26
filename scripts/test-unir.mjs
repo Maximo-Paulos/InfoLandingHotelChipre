@@ -60,7 +60,8 @@ const ini = await iniciar(a1.id, '202', 2);
 ok(ini.ok === true, 'se hace el check-in desde la anotada: se abre otra reserva con el código dado');
 fila = await est(ini.id);
 ok(fila.estado === 'sin_ingresos' && fila.anotada_id === a1.id && fila.con_checkin === 0, 'figura «con el código dado y nadie adentro» (lo que se ve en la pantalla)');
-ok((await llamar('recepcion_reserva_anular', { p_clave: rec, p_id: ini.id })).ok === true, 'recepción la anula (esa reserva no tenía huéspedes)');
+ok((await llamar('recepcion_reserva_anular', { p_clave: rec, p_id: ini.id })).ok === false, 'recepción NO la puede anular (eliminar es del dueño)');
+ok((await llamar('admin_reserva_anular', { p_clave: dueno, p_id: ini.id })).ok === true, 'el dueño la anula (esa reserva no tenía huéspedes)');
 ok((await anot(a1.id)).estado === 'anotada', 'la anotada vuelve a «anotada» (a la espera), lista para unirla');
 
 console.log('\n== 3. Unir');
@@ -91,7 +92,7 @@ const e3 = await rapida('204', 1, 40000);
 r = await unir(a3.id, e3.id);
 ok(r.ok === false && r.error === 'anotada_cancelada', 'una anotada cancelada no se une');
 const e4 = await rapida('205', 1, 40000);
-await llamar('recepcion_reserva_anular', { p_clave: rec, p_id: e4.id });
+await llamar('admin_reserva_anular', { p_clave: dueno, p_id: e4.id });
 const a4 = await anotar({ p_titular: 'Con anulada', p_habitacion: '205' });
 r = await unir(a4.id, e4.id);
 ok(r.ok === false && r.error === 'reserva_anulada', 'una reserva anulada no se une');

@@ -33,9 +33,8 @@ const deReserva = (r) => ({
 export const recepcionReservaNueva = (clave, r) => rpc('recepcion_reserva_nueva', { p_clave: clave, ...deReserva(r) });
 // Apaga el código que se ve (no cierra la reserva: si faltan huéspedes sigue abierta) o, con extender, le da más minutos.
 export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcion_reserva_cerrar', { p_clave: clave, p_extender: extender });
-// Le vuelve a dar código a una reserva abierta (el huésped que llegó después) y anula una que no tiene huéspedes (nunca borra: queda marcada).
+// Le vuelve a dar código a una reserva abierta (el huésped que llegó después). Recepción NO elimina ni anula reservas: eso es solo del dueño (adminReservaAnular).
 export const recepcionReservaAbrir = (clave, id) => rpc('recepcion_reserva_abrir', { p_clave: clave, p_id: id });
-export const recepcionReservaAnular = (clave, id) => rpc('recepcion_reserva_anular', { p_clave: clave, p_id: id });
 // Reservas anotadas (por adelantado): las carga, corrige y cancela el dueño; recepción las ve en «Llegadas» y hace el check-in eligiendo cómo paga.
 // `r` = { titular, ingreso, habitacion, noches, categoria, canal, huespedes, efectivo, transferencia?, usd?, sena?, fechaSena?, nota? } (precios en pesos, salvo usd; seña en pesos).
 const deAnotada = (r) => ({

@@ -129,19 +129,23 @@ ok((await numero('select count(*)::int n from private.checkins where estadia_id 
 ok((await numero(`select count(*)::int n from private.checkins where datos->>'nombre' = 'Fede'`)) === 0, 'Fede no quedó registrado en ninguna parte');
 ok((await llamar('checkin_enviar', { p_token: sC.token, p_datos: DATOS('Fede', docN++), p_idioma: 'es', p_acepta: true })).ok === false, 'y su sesión tampoco sirve para reintentar');
 
-console.log('\n== 8. Anular una reserva de prueba (sin huéspedes)');
+console.log('\n== 8. Anular una reserva de prueba (sin huéspedes): SOLO el dueño');
 r = await llamar('recepcion_reserva_nueva', reserva(lucia, { p_habitacion: '999', p_huespedes: 2, p_monto: 1 }));
 const R3 = r.id;
 const codR3 = (await estado(lucia)).codigo.valor;
 const sP = await canjear(codR3); // alguien ya había canjeado el código
 const totalAntes = await numero('select count(*)::int n from private.estadias');
 r = await llamar('recepcion_reserva_anular', { p_clave: lucia, p_id: R3 });
-ok(r.ok === true, 'recepción anula la reserva sin huéspedes');
+ok(r.ok === false && r.error === 'sin_permiso', 'recepción NO puede anular ni una reserva sin huéspedes (eliminar es del dueño)');
+ok(!(await fila(R3)).anulada_en && (await abiertas(lucia)).some((x) => x.id === R3), 'y la reserva sigue como estaba, en la lista de abiertas');
+ok((await llamar('admin_reserva_anular', { p_clave: lucia, p_id: R3 })).ok === false, 'ni por la puerta del dueño con la clave de recepción');
+r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: R3 });
+ok(r.ok === true, 'el dueño la anula');
 est = await estado(lucia);
 ok(est.codigo === null && est.reserva === null && !est.reservas_abiertas.some((x) => x.id === R3), 'el código se apaga y sale de la lista');
 ok(await numero('select count(*)::int n from private.estadias') === totalAntes, 'no se borra nada: la fila sigue en la base');
 const anul = await fila(R3);
-ok(anul.anulada_en && anul.anulada_por === 'Recepción', 'queda marcada con cuándo y quién');
+ok(anul.anulada_en && anul.anulada_por !== 'Recepción', 'queda marcada con cuándo y quién (el dueño)');
 ok((await canjear(codR3)).error === 'codigo_invalido', 'su código ya no sirve');
 const envA = await enviar(sP.token, 'Gabi');
 ok(envA.ok === false && envA.error === 'reserva_cerrada', 'quien ya había canjeado el código y la manda recibe «reserva cerrada»');
@@ -149,7 +153,7 @@ st = await stats();
 ok(!st.reservas.some((x) => x.id === R3) && st.pendientes.find((x) => x.id === R3)?.anulada_en, 'las estadísticas no la cuentan; el dueño la ve entre las anuladas');
 ok((await numero(`select count(*)::int n from private.checkin_auditoria where accion = 'reserva_anular'`)) === 1, 'queda en el historial');
 r = await llamar('recepcion_reserva_anular', { p_clave: lucia, p_id: R1 });
-ok(r.ok === false && r.error === 'tiene_huespedes', 'una reserva con huéspedes no se puede anular');
+ok(r.ok === false && r.error === 'sin_permiso', 'una reserva con huéspedes tampoco la puede anular recepción');
 // (el dueño sí puede anular una reserva con huéspedes: ver scripts/test-quitar.mjs)
 ok((await llamar('admin_reserva_anular', { p_clave: lucia, p_id: R3, p_anular: false })).ok === false, 'recepción no puede restaurar una anulada (puerta del dueño)');
 ok((await llamar('recepcion_reserva_abrir', { p_clave: lucia, p_id: R3 })).error === 'reserva_anulada', 'ni darle código a una anulada');
@@ -157,7 +161,7 @@ r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: R3, p_anular: f
 ok(r.ok === true && !(await fila(R3)).anulada_en, 'el dueño la restaura');
 ok((await abiertas(lucia)).some((x) => x.id === R3), 'y vuelve a la lista de abiertas');
 ok((await llamar('recepcion_reserva_anular', { p_clave: 'clave-mala', p_id: R3 })).ok === false, 'sin clave de recepción no se anula nada');
-await llamar('recepcion_reserva_anular', { p_clave: lucia, p_id: R3 });
+await llamar('admin_reserva_anular', { p_clave: dueno, p_id: R3 });
 
 console.log('\n== 9. A los 3 días desaparece de recepción (el dueño la sigue viendo)');
 r = await llamar('recepcion_reserva_nueva', reserva(lucia, { p_habitacion: '305', p_huespedes: 3 }));
@@ -181,7 +185,7 @@ await viejoDias(R5, 5);
 ok(!(await abiertas(lucia)).some((x) => x.id === R5) && !(await abiertas(martin)).some((x) => x.id === R5), 'una reserva en espera de hace 5 días tampoco se ve en recepción');
 ok((await stats()).pendientes.some((x) => x.id === R5), 'pero el dueño la sigue viendo');
 r = await llamar('recepcion_reserva_anular', { p_clave: lucia, p_id: R5 });
-ok(r.ok === false && r.error === 'reserva_vencida', 'recepción no anula lo que ya no ve');
+ok(r.ok === false && r.error === 'sin_permiso', 'recepción no anula nada (tampoco lo que ya no ve)');
 ok((await llamar('admin_reserva_anular', { p_clave: dueno, p_id: R5 })).ok === true, 'el dueño sí');
 
 console.log('\n== 10. Solo el dueño la reabre (subiendo la cantidad de huéspedes)');

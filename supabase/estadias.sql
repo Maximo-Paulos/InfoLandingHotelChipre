@@ -1006,11 +1006,11 @@ begin
 end;
 $$;
 
--- Anula una reserva (por ejemplo, una de prueba o una a la que al final no llegó nadie), o la restaura. NO borra nada: la fila queda marcada con quién y
+-- Anula (elimina) una reserva (por ejemplo, una de prueba o una a la que al final no llegó nadie), o la restaura. NO borra nada: la fila queda marcada con quién y
 -- cuándo, y se puede restaurar.
---   Recepción solo anula las que ve (las abiertas de los últimos días) y solo si no tienen huéspedes: son personas registradas.
---   El dueño anula cualquiera. Si tenía huéspedes, se quitan junto con la reserva (con la misma marca de tiempo) y vuelven cuando la restaura; los que
---   ya se habían quitado antes por separado siguen quitados. Solo el dueño restaura.
+--   SOLO EL DUEÑO, para anular y para restaurar: recepción NO puede eliminar ni anular ninguna reserva (control: que una eliminación no pase desapercibida).
+--   Si tenía huéspedes, se quitan junto con la reserva (con la misma marca de tiempo) y vuelven cuando la restaura; los que ya se habían quitado antes por
+--   separado siguen quitados.
 create or replace function private.estadia_anular(p_quien text, p_dueno boolean, p_id bigint, p_anular boolean)
 returns json language plpgsql security definer set search_path = '' as $$
 declare
@@ -1018,6 +1018,9 @@ declare
   e private.estadias;
   v_n int := 0;
 begin
+  if not coalesce(p_dueno, false) then
+    return json_build_object('ok', false, 'error', 'sin_permiso'); -- eliminar y restaurar es solo del dueño
+  end if;
   select * into cfg from private.checkin_config where id = 1;
   select * into e from private.estadias where id = p_id for update;
   if not found then
@@ -1028,23 +1031,14 @@ begin
       return json_build_object('ok', true); -- ya estaba anulada
     end if;
     select count(*)::int into v_n from private.checkins_activos where estadia_id = e.id;
-    if v_n > 0 and not p_dueno then
-      return json_build_object('ok', false, 'error', 'tiene_huespedes');
-    end if;
-    if not p_dueno and private.estadia_ultima(e.id) <= now() - make_interval(days => cfg.dias_recepcion) then
-      return json_build_object('ok', false, 'error', 'reserva_vencida');
-    end if;
     update private.estadias set anulada_en = now(), anulada_por = p_quien where id = e.id;
     if v_n = 0 then
       update private.reservas_anotadas set estadia_id = null where estadia_id = e.id; -- si venía de una reserva anotada, vuelve a las llegadas (se cargó mal el cobro)
     end if;
     update private.checkins set quitado_en = now(), quitado_por = p_quien where estadia_id = e.id and quitado_en is null;
     perform private.estadia_cerrar_codigos(e.id);
-    perform private.auditar(case when p_dueno then 'admin' else 'recepcion' end, 'reserva_anular', null, jsonb_build_object('estadia', e.id, 'por', p_quien, 'huespedes', v_n));
+    perform private.auditar('admin', 'reserva_anular', null, jsonb_build_object('estadia', e.id, 'por', p_quien, 'huespedes', v_n));
   else
-    if not p_dueno then
-      return json_build_object('ok', false, 'error', 'sin_permiso');
-    end if;
     if e.anulada_en is not null then
       update private.checkins set quitado_en = null, quitado_por = null where estadia_id = e.id and quitado_en = e.anulada_en; -- los que se quitaron con ella
       update private.estadias set anulada_en = null, anulada_por = null, unificada_con = null, reabierta_en = now() where id = e.id;
@@ -1058,6 +1052,7 @@ begin
 end;
 $$;
 
+-- Ninguna pantalla de recepción la usa: eliminar una reserva es solo del dueño (admin_reserva_anular). Con una sesión de recepción devuelve «sin_permiso» y no toca nada.
 create or replace function public.recepcion_reserva_anular(p_clave text, p_id bigint)
 returns json language plpgsql security definer set search_path = '' as $$
 declare r text;

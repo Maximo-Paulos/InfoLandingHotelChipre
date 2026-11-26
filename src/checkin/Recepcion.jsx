@@ -6,7 +6,7 @@ import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 import { cargarCotizaciones } from '../admin/cotizaciones.js';
 import { AvisosBanner } from '../components/Avisos.jsx';
-import { adminAnotadaCancelar, adminEstadiaReabrir, adminRepetidaDescartar, adminReservaAnular, adminReservasUnificar, recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaAnular, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
+import { adminAnotadaCancelar, adminEstadiaReabrir, adminRepetidaDescartar, adminReservaAnular, adminReservasUnificar, recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import AnotadaForm from './AnotadaForm.jsx';
 import CobroLlegada from './CobroLlegada.jsx';
 import EditarHuesped from './EditarHuesped.jsx';
@@ -241,21 +241,6 @@ function Panel({ clave, rol, vista, salir }) {
       setTrabajando(null);
     }
   };
-  // Anula una reserva que no tiene ningún huésped (una de prueba, o a la que al final no llegó nadie). No se borra: queda marcada.
-  const anular = async (est) => {
-    if (!window.confirm(`¿Anular la reserva de la habitación ${est.habitacion}? Todavía no tiene huéspedes. Deja de verse y no suma en nada.`)) return;
-    setTrabajando(est.id);
-    try {
-      const r = await recepcionReservaAnular(clave, est.id);
-      setError(r.ok ? '' : textoCodigo(r.error));
-      setVersion((v) => v + 1);
-      await refrescar();
-    } catch {
-      setError('No se pudo conectar. Revisá tu conexión.');
-    } finally {
-      setTrabajando(null);
-    }
-  };
   // Solo el dueño: unifica dos reservas que son la misma cargada dos veces (la ventana «Unificar» le muestra las dos y le dice qué va a pasar). Nada se borra.
   const unificarPar = async (par, conservar) => {
     const res = await adminReservasUnificar(clave, par.a.clave, par.b.clave, conservar);
@@ -430,7 +415,7 @@ function Panel({ clave, rol, vista, salir }) {
                 {segundosReserva(estado.reserva.estadia) > 0 && <button type="button" className="btn mini claro" onClick={() => setEditandoReserva(estado.reserva.estadia)}>Corregir reserva</button>}
                 <button type="button" className="btn mini claro" onClick={() => cerrarReserva(false)}>Ocultar el código</button>
                 {estado.reserva.huespedes.length > 0 && estado.reserva.huespedes.length < estado.reserva.estadia.esperados && <button type="button" className="btn mini claro" onClick={() => cerrarEstadia(estado.reserva.estadia)} disabled={trabajando === estado.reserva.estadia.id}>Cerrar reserva</button>}
-                      {estado.reserva.huespedes.length === 0 && <button type="button" className="btn mini claro" onClick={() => anular(estado.reserva.estadia)} disabled={trabajando === estado.reserva.estadia.id}>Anular reserva</button>}
+                {rol === 'admin' && <button type="button" className="btn mini claro" onClick={() => eliminarReserva({ tipo: 'estadia', ...estado.reserva.estadia, con_checkin: estado.reserva.huespedes.length })} disabled={trabajando === estado.reserva.estadia.id}>Eliminar reserva</button>}
                 <button type="button" className="btn mini" onClick={() => setRapida(true)}>Otra reserva rápida</button>
               </div>
               {segundosReserva(estado.reserva.estadia) <= 0 && <p className="codigo-quien">Para corregir esta reserva, avisale al dueño.</p>}
@@ -439,7 +424,7 @@ function Panel({ clave, rol, vista, salir }) {
             )}
             <Reservas clave={clave} version={version} salir={salir} dueno={rol === 'admin'} apagado={!activo} trabajando={trabajando}
               onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); duplicadaAvisada.current = ''; setAnotando('nueva'); }} onRapida={() => { setAviso(''); duplicadaAvisada.current = ''; setRapida(true); }}
-              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onAnular={anular} onEliminar={eliminarReserva} onRestaurar={restaurarReserva} onUnificar={setUnificando} onDescartar={descartarPar} />
+              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onEliminar={eliminarReserva} onRestaurar={restaurarReserva} onUnificar={setUnificando} onDescartar={descartarPar} />
           </>
         )}
 

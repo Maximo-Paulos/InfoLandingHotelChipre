@@ -68,10 +68,12 @@ ok(r.ok === true && (await de(r1.id)).cerrada_por === 'Recepción', 'cerrarla de
 console.log('\n== 2. Cuándo no se puede cerrar');
 const r2 = await reserva({ p_habitacion: '13' });
 r = await cerrar(r2.id);
-ok(r.ok === false && r.error === 'sin_huespedes', 'una reserva sin ningún huésped no se cierra (se anula)');
+ok(r.ok === false && r.error === 'sin_huespedes', 'una reserva sin ningún huésped no se cierra (la anula el dueño)');
 ok((await de(r2.id)).estado === 'sin_ingresos', 'y figura como «sin ingresos»');
 r = await llamar('recepcion_reserva_anular', { p_clave: rec, p_id: r2.id });
-ok(r.ok === true, 'esa se anula');
+ok(r.ok === false && r.error === 'sin_permiso', 'recepción no la puede anular (eliminar es solo del dueño)');
+r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: r2.id });
+ok(r.ok === true, 'el dueño la anula');
 r = await cerrar(r2.id);
 ok(r.ok === false && r.error === 'reserva_anulada', 'y una anulada no se puede cerrar');
 ok(!(await estadias()).some((x) => x.id === r2.id), 'ni aparece en la lista de reservas');

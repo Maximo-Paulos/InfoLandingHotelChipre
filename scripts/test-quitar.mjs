@@ -113,7 +113,7 @@ st = await stats();
 const sumaAntes = st.reservas.length;
 ok(st.reservas.find((x) => x.id === E.id).huespedes === 2, '(la 401 tenía 3; Juan ya estaba quitado: cuenta 2)');
 r = await llamar('recepcion_reserva_anular', { p_clave: rec, p_id: E.id });
-ok(r.ok === false && r.error === 'tiene_huespedes', 'recepción NO puede anular una reserva con huéspedes');
+ok(r.ok === false && r.error === 'sin_permiso' && (await n('select count(*)::int n from private.estadias where id = $1 and anulada_en is not null', [E.id])) === 0, 'recepción NO puede anular una reserva con huéspedes (no se toca nada)');
 await llamar('recepcion_reserva_abrir', { p_clave: dueno, p_id: E.id }); // el dueño tiene un código a la vista de esa reserva
 const eliminados = await n('select count(*)::int n from private.checkins');
 r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: E.id });
