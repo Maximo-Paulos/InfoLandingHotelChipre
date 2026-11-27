@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BarraPersonal from '../BarraPersonal.jsx';
 import Icon from '../components/Icon.jsx';
-import { adminCatalogos, adminEstadiaEditar, adminHuespedEditar, adminHuespedEstadia, adminHuespedQuitar, adminHuespedes, adminHuespedesQuitados, adminMediosPago, adminReservaAnular, textoCodigo } from '../checkin/checkinApi.js';
+import { adminCatalogos, adminCheckinManual, adminCheckinManualEditar, adminEstadiaEditar, adminHuespedEditar, adminHuespedEstadia, adminHuespedQuitar, adminHuespedes, adminHuespedesQuitados, adminMediosPago, adminReservaAnular, textoCodigo } from '../checkin/checkinApi.js';
+import CheckinManual from '../checkin/CheckinManual.jsx';
 import EditarHuesped from '../checkin/EditarHuesped.jsx';
 import Modal from '../checkin/Modal.jsx';
 import Planilla from '../checkin/Planilla.jsx';
@@ -29,6 +30,8 @@ function Contenido({ clave, salir }) {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [editando, setEditando] = useState(null);
+  const [editandoMano, setEditandoMano] = useState(null); // un huésped cargado a mano al que se le completan los datos (los demás se corrigen con el editor de siempre)
+  const [cargandoMano, setCargandoMano] = useState(null); // la reserva a la que se le suma un huésped a mano
   const [fotosDe, setFotosDe] = useState(null); // el huésped cuyas fotos se están viendo
   const [aviso, setAviso] = useState('');
   const [editandoReserva, setEditandoReserva] = useState(null);
@@ -99,6 +102,23 @@ function Contenido({ clave, salir }) {
     return { ok: false, mensaje: textoCodigo(r.error), campos: r.campos };
   };
 
+  // Check-in a mano: ningún dato es obligatorio (solo se controla lo que se escribe). Los datos ya cargados se pueden completar después.
+  const guardarMano = async (datos) => {
+    const r = await adminCheckinManualEditar(clave, editandoMano.id, datos);
+    if (!r.ok) return { ok: false, mensaje: textoCodigo(r.error), campos: r.campos };
+    setEditandoMano(null);
+    setAviso('Datos guardados.');
+    cargar('refrescar');
+    return { ok: true };
+  };
+  const sumarMano = async (huespedes) => {
+    const r = await adminCheckinManual(clave, cargandoMano.id, huespedes);
+    if (!r.ok) return { ok: false, mensaje: textoCodigo(r.error), indice: r.indice, campos: r.campos };
+    setCargandoMano(null);
+    setAviso(`Listo: se ${huespedes.length === 1 ? 'cargó 1 huésped' : `cargaron ${huespedes.length} huéspedes`} a mano en la reserva${r.numero != null ? ` N.º ${r.numero}` : ''}.`);
+    cargar('refrescar');
+    return { ok: true };
+  };
   const recargarQuitados = async () => {
     try {
       const r = await adminHuespedesQuitados(clave);
@@ -175,7 +195,7 @@ function Contenido({ clave, salir }) {
         {aviso && <p className="ed-ok" role="status">{aviso}</p>}
         {error && <p className="ed-error" role="alert">{error}</p>}
         {cargando && !filas.length ? <p className="intro" role="status">Cargando…</p> : (
-          <Planilla filas={filas} onEditarReserva={setEditandoReserva} reservas={reservas} onAsignar={asignar} onEditar={(f) => { setAviso(''); setEditando(f); }} onFotos={fotosListas ? (f) => { setAviso(''); setFotosDe(f); } : undefined} vacio={busqueda ? 'No hay huéspedes que coincidan con la búsqueda.' : 'Todavía no hay huéspedes cargados.'} />
+          <Planilla filas={filas} onEditarReserva={setEditandoReserva} reservas={reservas} onAsignar={asignar} onEditar={(f) => { setAviso(''); if (f.origen === 'manual') setEditandoMano(f); else setEditando(f); }} onAgregarMano={(e) => { setAviso(''); setCargandoMano({ tipo: 'estadia', ...e }); }} onFotos={fotosListas ? (f) => { setAviso(''); setFotosDe(f); } : undefined} vacio={busqueda ? 'No hay huéspedes que coincidan con la búsqueda.' : 'Todavía no hay huéspedes cargados.'} />
         )}
         {filas.length > 0 && <p className="ayuda" role="status">Mostrando {filas.length} {filas.length === 1 ? 'huésped' : 'huéspedes'}{hayMas ? '. Tocá «Cargar más» para ver a los anteriores.' : '.'}</p>}
         {hayMas && <div className="btns"><button type="button" className="btn claro" onClick={() => cargar('mas')} disabled={cargando}>{cargando ? 'Cargando…' : 'Cargar más'}</button></div>}
@@ -191,7 +211,7 @@ function Contenido({ clave, salir }) {
                 <li key={h.id}>
                   <span className="caja-hab">{h.habitacion || '—'}</span>
                   <span className="caja-cuerpo">
-                    <b>{h.apellido}, {h.nombre}</b>
+                    <b>{[h.apellido, h.nombre].filter(Boolean).join(', ') || 'Sin nombre'}</b>
                     <small>{h.reserva_anulada ? 'Eliminado con su reserva · ' : ''}{`eliminó ${h.quitado_por ?? '—'}`}</small>
                   </span>
                   {h.reserva_anulada ? null : <button type="button" className="btn mini claro" onClick={() => restaurarHuesped(h)}>Restaurar</button>}
@@ -229,6 +249,8 @@ function Contenido({ clave, salir }) {
           </div>
         </Modal>
       )}
+      {editandoMano && <CheckinManual huesped={editandoMano} onGuardar={guardarMano} onCerrar={() => setEditandoMano(null)} />}
+      {cargandoMano && <CheckinManual reserva={cargandoMano} onGuardar={sumarMano} onCerrar={() => setCargandoMano(null)} />}
       {fotosDe && <FotosHuesped clave={clave} fila={fotosDe} onCerrar={() => setFotosDe(null)} alCambiar={() => cargar('refrescar')} />}
     </div>
   );

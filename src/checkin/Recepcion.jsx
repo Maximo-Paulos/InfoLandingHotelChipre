@@ -6,8 +6,9 @@ import { useNoIndexar } from '../personal.js';
 import { cerrarSesion, entrarConClave, leerSesion } from '../sesion.js';
 import { cargarCotizaciones } from '../admin/cotizaciones.js';
 import { AvisosBanner } from '../components/Avisos.jsx';
-import { adminAnotadaCancelar, adminEstadiaReabrir, adminRepetidaDescartar, adminReservaAnular, adminReservasUnificar, recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
+import { adminAnotadaCancelar, adminCheckinManual, adminCheckinManualAnotada, adminCheckinManualEditar, adminEstadiaReabrir, adminRepetidaDescartar, adminReservaAnular, adminReservasUnificar, recepcionAnotadaGuardar, recepcionCodigoNuevo, recepcionEditar, recepcionEstadiaCerrar, recepcionEstadiaEditar, recepcionEstado, recepcionLlegadaIniciar, recepcionReservaAbrir, recepcionReservaCerrar, recepcionReservaNueva, textoCodigo } from './checkinApi.js';
 import AnotadaForm from './AnotadaForm.jsx';
+import CheckinManual from './CheckinManual.jsx';
 import CobroLlegada from './CobroLlegada.jsx';
 import EditarHuesped from './EditarHuesped.jsx';
 import { ventaDeHoy } from './Llegadas.jsx';
@@ -83,6 +84,8 @@ function Panel({ clave, rol, vista, salir }) {
   const [unificando, setUnificando] = useState(null); // la pareja de reservas repetidas que el dueño está por unificar
   const [haciendoCheckin, setHaciendoCheckin] = useState(null); // la llegada anotada a la que se le está haciendo el check-in (se elige cómo paga)
   const [cotizaciones, setCotizaciones] = useState(null); // el dólar oficial, para decir cuánto cobrar en dólares (solo se pide si hay llegadas)
+  const [cargandoMano, setCargandoMano] = useState(null); // la reserva a la que el dueño le carga el check-in a mano (con los datos que tenga)
+  const [editandoMano, setEditandoMano] = useState(null); // un huésped cargado a mano al que el dueño le completa los datos
   const [fotos, setFotos] = useState(null);
   const [version, setVersion] = useState(0); // sube cuando algo cambia (se anotó, se hizo un check-in): la lista de próximas reservas se vuelve a pedir
   const ahora = useAhora(250);
@@ -340,6 +343,29 @@ function Panel({ clave, rol, vista, salir }) {
       setTrabajando(null);
     }
   };
+  // Solo el dueño: carga a mano el check-in de una reserva (anotada que todavía no tiene check-in, o armada a la que le faltan huéspedes) con los datos que haya: ninguno es obligatorio.
+  // Los huéspedes quedan marcados «a mano», cuentan como el check-in de la reserva y entran en las estadísticas. Si algún dato está mal no se guarda ninguno.
+  const guardarManual = async (huespedes, cobro) => {
+    const x = cargandoMano;
+    const res = x.tipo === 'anotada' ? await adminCheckinManualAnotada(clave, x.id, huespedes, cobro) : await adminCheckinManual(clave, x.id, huespedes);
+    if (!res.ok) {
+      if (['no_existe', 'anotada_ya_empezo', 'anotada_cancelada', 'reserva_anulada'].includes(res.error)) { setCargandoMano(null); setError(textoCodigo(res.error)); setVersion((v) => v + 1); await refrescar(); }
+      return { ok: false, mensaje: textoCodigo(res.error), indice: res.indice, campos: res.campos };
+    }
+    setCargandoMano(null);
+    setError('');
+    setAviso(`Listo: se cargó el check-in a mano${res.numero != null ? ` de la reserva N.º ${res.numero}` : ''} (${huespedes.length} ${huespedes.length === 1 ? 'huésped' : 'huéspedes'}). Queda marcado «a mano» con tu nombre. Para completar datos después, andá a «Huéspedes» del panel.`);
+    setVersion((v) => v + 1);
+    await refrescar();
+    return { ok: true };
+  };
+  const guardarManualEditar = async (datos) => {
+    const res = await adminCheckinManualEditar(clave, editandoMano.id, datos);
+    if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
+    setEditandoMano(null);
+    await refrescar();
+    return { ok: true };
+  };
   const guardarReserva = async (r) => {
     const res = await recepcionEstadiaEditar(clave, editandoReserva.id, r);
     if (!res.ok) return { ok: false, mensaje: textoCodigo(res.error), campos: res.campos };
@@ -349,6 +375,8 @@ function Panel({ clave, rol, vista, salir }) {
   };
 
   const segundosEdicion = (f) => (estado?.config?.edicion_activa ? Math.max(0, f.editable_seg - (ahora - estado.recibido) / 1000) : 0);
+  // Un check-in cargado a mano por el dueño lo corrige solo el dueño (sin límite de tiempo); para recepción queda cerrado.
+  const restanteDe = (f) => (f.origen === 'manual' ? (rol === 'admin' ? null : 0) : segundosEdicion(f));
 
   const guardar = async (datos, habitacion, medioPago) => {
     const r = await recepcionEditar(clave, editando.id, datos, habitacion, medioPago);
@@ -424,7 +452,8 @@ function Panel({ clave, rol, vista, salir }) {
             )}
             <Reservas clave={clave} version={version} salir={salir} dueno={rol === 'admin'} apagado={!activo} trabajando={trabajando}
               onAbrir={(a) => { setAviso(''); setHaciendoCheckin(a); }} onAnotar={() => { setAviso(''); duplicadaAvisada.current = ''; setAnotando('nueva'); }} onRapida={() => { setAviso(''); duplicadaAvisada.current = ''; setRapida(true); }}
-              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onEliminar={eliminarReserva} onRestaurar={restaurarReserva} onUnificar={setUnificando} onDescartar={descartarPar} />
+              onDarCodigo={darCodigo} onCerrar={cerrarEstadia} onReabrir={reabrirEstadia} onEliminar={eliminarReserva} onRestaurar={restaurarReserva} onUnificar={setUnificando} onDescartar={descartarPar}
+              onCheckinMano={(x) => { setAviso(''); setCargandoMano(x); }} />
           </>
         )}
 
@@ -438,7 +467,7 @@ function Panel({ clave, rol, vista, salir }) {
                 ? `Podés corregir los datos y la reserva durante ${estado.config.edicion_min} minutos desde que el huésped envía el formulario.`
                 : 'Por ahora recepción no puede editar los datos. Si hay que corregir algo, avisale al administrador.'}
             </p>
-            <Planilla filas={huespedes} restante={estado.config.edicion_activa ? segundosEdicion : () => 0} onEditar={(f) => setEditando({ ...f, venceEn: estado.recibido + f.editable_seg * 1000 })} onEditarReserva={(e) => setEditandoReserva(e)} reservaEditable={(e) => (estado.config.edicion_activa ? Math.max(0, e.editable_seg - (ahora - estado.recibido) / 1000) : 0) > 0} onFotos={setFotos} vacio="Todavía no hay huéspedes cargados en estos días." />
+            <Planilla filas={huespedes} restante={estado.config.edicion_activa ? restanteDe : (f) => (f.origen === 'manual' && rol === 'admin' ? null : 0)} onEditar={(f) => (f.origen === 'manual' ? setEditandoMano(f) : setEditando({ ...f, venceEn: estado.recibido + f.editable_seg * 1000 }))} onEditarReserva={(e) => setEditandoReserva(e)} reservaEditable={(e) => (estado.config.edicion_activa ? Math.max(0, e.editable_seg - (ahora - estado.recibido) / 1000) : 0) > 0} onFotos={setFotos} vacio="Todavía no hay huéspedes cargados en estos días." />
           </>
         )}
       </main>
@@ -461,9 +490,15 @@ function Panel({ clave, rol, vista, salir }) {
           onIniciar={iniciarLlegada} onEditar={(a) => { setHaciendoCheckin(null); setAviso(''); setAnotando(a); }} onUnir={(a, e) => { setHaciendoCheckin(null); setUnificando(paraUnir(a, e)); return { ok: true }; }} onCerrar={() => setHaciendoCheckin(null)} />
       )}
 
+      {cargandoMano && rol === 'admin' && (
+        <CheckinManual reserva={cargandoMano} medios={estado?.medios_pago ?? []} onGuardar={guardarManual} onCerrar={() => setCargandoMano(null)} />
+      )}
+
       {unificando && rol === 'admin' && (
         <Unificar par={unificando} onUnificar={unificarPar} onDescartar={descartarPar} onCerrar={() => setUnificando(null)} />
       )}
+
+      {editandoMano && rol === 'admin' && <CheckinManual huesped={editandoMano} onGuardar={guardarManualEditar} onCerrar={() => setEditandoMano(null)} />}
 
       {fotos && <FotosHuesped modo="recepcion" clave={clave} fila={fotos} onCerrar={() => setFotos(null)} alCambiar={refrescar} />}
 

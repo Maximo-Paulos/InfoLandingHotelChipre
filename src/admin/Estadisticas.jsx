@@ -190,7 +190,19 @@ function Pantalla({ clave, salir, inicial, periodoInicial }) {
                 <Cifra etiqueta="Extranjeros" valor={porc(res.pctExtranjeros)} sub="del total de huéspedes" />
                 <Cifra etiqueta="Menores de edad" valor={porc(res.pctMenores)} sub="con año de nacimiento cargado" />
               </div>
-              <p className="ayuda">La edad es aproximada (se cuenta por el año de nacimiento, sin el día). Los check-ins de antes de las reservas no tienen monto: no suman ingresos, pero sí cuentan en países, edades y localidades.</p>
+              <h2 className="sub">Qué datos dejan</h2>
+              <div className="gr-cifras cinco">
+                {res.datos.filas.filter((f) => ['con_nombre', 'con_documento', 'con_domicilio'].includes(f.campo)).map((f) => (
+                  <Cifra key={f.campo} etiqueta={f.campo === 'con_nombre' ? 'Dejaron nombre y apellido' : f.campo === 'con_documento' ? 'Dejaron su documento' : 'Dejaron su domicilio'} valor={porc(f.todos)} sub="del total de huéspedes" />
+                ))}
+                <Cifra etiqueta="Cargados a mano" valor={porc(res.datos.pctAMano)} sub={res.datos.aMano ? `${res.datos.aMano} de ${res.datos.total} los cargó el dueño` : 'ninguno: todos hicieron su check-in'} />
+              </div>
+              <Tarjeta ancha titulo="De cada dato, cuántos lo dejaron"
+                ayuda={res.datos.aMano ? 'Separado entre quienes hicieron el check-in solos y quienes cargó el dueño a mano (cuando no se llegó a hacerlo): los de a mano suelen traer menos datos, y así no bajan el porcentaje de los demás.' : 'Cuántos de los huéspedes dejaron cada dato.'}
+                tabla={tablaDe(['Dato', 'Todos', 'Hicieron el check-in', 'Cargados a mano'], res.datos.filas.map((f) => [f.texto, porc(f.todos), porc(f.propios), porc(f.mano)]))}>
+                <BarrasH datos={res.datos.filas.map((f) => ({ texto: f.texto, valor: Math.round(f.todos ?? 0), nota: res.datos.aMano ? `check-in solos ${porc(f.propios)} · a mano ${porc(f.mano)}` : undefined }))} max={100} formato={(v) => `${v}%`} />
+              </Tarjeta>
+              <p className="ayuda">La edad es aproximada (se cuenta por el año de nacimiento, sin el día). Los check-ins de antes de las reservas no tienen monto: no suman ingresos, pero sí cuentan en países, edades y localidades. Los cargados a mano pueden no tener nacionalidad, edad o localidad: figuran como «Sin dato».</p>
             </>
           )}
 

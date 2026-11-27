@@ -38,11 +38,14 @@ const antes = {
 const cuentaSesiones = async () => n(`select count(*)::int n from private.sesiones`).catch(() => 0);
 const sesAntes = await cuentaSesiones();
 const dejaPasar = [];
+const frenadasTarde = [];
 for (const f of funciones) {
   for (const [que, clave] of [['recepción', rec], ['clave mala', 'clave-mala-123'], ['sin clave', '']]) {
     let r;
     try { r = await llamar(f.nombre, argumentos(f, clave)); } catch { r = { ok: false }; }
     if (r?.ok === true) dejaPasar.push(`${f.nombre} (${que})`);
+    // Además tiene que frenarse EN LA PUERTA: con argumentos inventados una función que dejara pasar a recepción igual devolvería ok:false (datos inválidos) y pasaría desapercibida.
+    else if (!['clave_incorrecta', 'sin_permiso', 'demasiados_intentos'].includes(r?.error)) frenadasTarde.push(`${f.nombre} (${que}): ${r?.error}`);
   }
 }
 ok(dejaPasar.length === 0, `ninguna de las ${funciones.length} funciones del dueño acepta una sesión de recepción, una clave mala ni la falta de clave${dejaPasar.length ? ` — dejan pasar: ${dejaPasar.join(', ')}` : ''}`);
@@ -51,6 +54,7 @@ const despues = {
   chk: await n(`select count(*)::int n from private.checkins`), chkq: await n(`select count(*)::int n from private.checkins where quitado_en is not null`),
   anot: await n(`select count(*)::int n from private.reservas_anotadas`), anotc: await n(`select count(*)::int n from private.reservas_anotadas where cancelada_en is not null`)
 };
+ok(frenadasTarde.length === 0, `todas se frenan en la puerta (clave incorrecta o sin permiso), antes de mirar ningún dato${frenadasTarde.length ? ` — se frenan tarde: ${frenadasTarde.join(' · ')}` : ''}`);
 ok(JSON.stringify(antes) === JSON.stringify(despues) && (await cuentaSesiones()) === sesAntes, 'y no se tocó nada en la base');
 
 console.log('\n== 2. La lista de funciones de recepción es cerrada');

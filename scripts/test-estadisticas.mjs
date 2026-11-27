@@ -52,7 +52,7 @@ const e = await llamar('admin_estadisticas', { p_clave: dueno });
 ok(e.ok === true && e.reservas.length === demo.reservas && e.huespedes.length === demo.huespedes, `el dueño recibe todo: ${e.reservas?.length} reservas y ${e.huespedes?.length} huéspedes`);
 const claves = new Set(e.huespedes.flatMap((h) => Object.keys(h)));
 ok(!['nombre', 'apellido', 'email', 'telefono', 'doc_numero', 'domicilio', 'datos'].some((k) => claves.has(k)), 'ningún huésped trae nombre, documento, email, teléfono ni domicilio');
-ok([...claves].sort().join() === 'anio_nac,con_email,con_telefono,doc_tipo,estadia_id,fecha,habilito,hora,id,localidad,nacionalidad,visitas', 'solo las columnas pensadas para estadísticas');
+ok([...claves].sort().join() === 'a_mano,anio_nac,con_documento,con_domicilio,con_email,con_nombre,con_telefono,doc_tipo,estadia_id,fecha,habilito,hora,id,localidad,nacionalidad,visitas', 'solo las columnas pensadas para estadísticas (de cada dato, solo si se dejó o no)');
 ok(e.reservas.every((r) => ['id', 'habitacion', 'monto', 'moneda', 'medio_pago', 'fecha_cobro', 'cargado_por', 'huespedes', 'noches', 'canal', 'canal_cobra', 'categoria'].every((k) => k in r)), 'cada reserva trae habitación, monto, moneda, medio, fecha, quién, huéspedes, noches, canal y categoría');
 const corto = await llamar('admin_estadisticas', { p_clave: dueno, p_desde: sumarDias(e.hoy, -6), p_hasta: e.hoy });
 ok(corto.ok && corto.reservas.length > 0 && corto.reservas.length < e.reservas.length && corto.reservas.every((r) => r.fecha_cobro >= sumarDias(e.hoy, -6)), 'se puede pedir solo una semana');
