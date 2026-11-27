@@ -160,6 +160,23 @@ function resumenGrupos(items, clave, vacio = null) {
     .sort((x, y) => y.n - x.n || y.usd - x.usd || x.texto.localeCompare(y.texto, 'es'));
 }
 
+// Qué datos dejan los huéspedes: de cada dato (campo de la base que dice si lo dejó), el porcentaje de los que lo dejaron. Se compara entre los que hicieron el check-in ellos
+// mismos y los que cargó el dueño a mano (a_mano), que suelen traer menos datos: sin esa separación, los check-ins a mano bajarían los porcentajes y parecería que los huéspedes dejan menos.
+export const DATOS_QUE_DEJAN = [['con_nombre', 'Nombre y apellido'], ['con_documento', 'Número de documento'], ['con_email', 'Mail'], ['con_telefono', 'Teléfono'], ['con_domicilio', 'Domicilio'], ['nacionalidad', 'Nacionalidad']];
+export function datosQueDejan(huespedes) {
+  const pct = (a, b) => (b ? (a / b) * 100 : null);
+  const mano = huespedes.filter((h) => h.a_mano);
+  const propios = huespedes.filter((h) => !h.a_mano);
+  const tasa = (hs, campo) => pct(hs.filter((h) => (campo === 'nacionalidad' ? !!h.nacionalidad : !!h[campo])).length, hs.length);
+  return {
+    total: huespedes.length,
+    aMano: mano.length,
+    propios: propios.length,
+    pctAMano: pct(mano.length, huespedes.length),
+    filas: DATOS_QUE_DEJAN.map(([campo, texto]) => ({ campo, texto, todos: tasa(huespedes, campo), propios: tasa(propios, campo), mano: tasa(mano, campo) }))
+  };
+}
+
 // Todo lo que se dibuja, para un período.
 //   datos: { reservas, huespedes } de la base · cotizaciones: lista de dólares (o null si no se pudo bajar) · rango: { desde, hasta } · anterior: rango o null
 export function calcular(datos, cotizaciones, rango, anterior = null) {
@@ -250,6 +267,7 @@ export function calcular(datos, cotizaciones, rango, anterior = null) {
     edadProm, edadesN: edades.length, porEdad, paises, localidades,
     pctExtranjeros: pct(extranjeros, conNacionalidad),
     pctMenores: pct(porEdad[0].n, edades.length),
+    datos: datosQueDejan(huespedes),
     pctEmail: pct(huespedes.filter((h) => h.con_email).length, huespedes.length),
     pctTelefono: pct(huespedes.filter((h) => h.con_telefono).length, huespedes.length),
     recurrentes: huespedes.filter((h) => h.visitas > 1).length,

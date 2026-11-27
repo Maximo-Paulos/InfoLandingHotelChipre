@@ -1,17 +1,18 @@
 import { useState } from 'react';
 import Icon from '../components/Icon.jsx';
 import Modal from './Modal.jsx';
+import { esMano, faltantes, marcaMano, nombreCompleto } from './mano.js';
 import { cobroLinea, detalleTexto, huespedesTexto, plata } from './ReservaForm.jsx';
 import { fechaHora, urlDrive } from './util.js';
 
 const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_id: f.foto_id, nombre: f.foto_nombre }] : []);
-const nombreDe = (f) => `${f.datos?.apellido ?? ''}, ${f.datos?.nombre ?? ''}`.replace(/^, |, $/g, '');
+const nombreDe = nombreCompleto;
 const ddmm = (iso) => iso.split('-').reverse().slice(0, 2).join('/');
 
 // La lista de huéspedes para el celular: una reserva por bloque y una fila corta por persona. Al tocar una persona se abre su ficha con todo
 // (y desde ahí se llama, se escribe, se edita o se ven sus fotos). Es la misma información que la planilla, pero sin tener que deslizar.
 // Recibe lo mismo que Planilla; `grupos` ya viene armado (ver agrupar.js).
-export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarReserva, reservaEditable, reservas, onAsignar, restante, vacio }) {
+export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarReserva, onAgregarMano, reservaEditable, reservas, onAsignar, restante, vacio }) {
   const [ficha, setFicha] = useState(null);
   if (!grupos.length) return <p className="planilla-vacia">{vacio}</p>;
   return (
@@ -34,6 +35,7 @@ export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarRese
                       <Icon name="lapiz" size={16} sw={1.8} /> Corregir
                     </button>
                   )}
+                  {onAgregarMano && <button type="button" className="rg-editar" onClick={() => onAgregarMano(g.estadia)}>Sumar a mano</button>}
                 </>
               ) : (
                 <div className="rg-tit"><b className="rg-hab pendiente">Sin reserva</b><span className="rg-cuenta">check-ins de antes</span></div>
@@ -46,7 +48,7 @@ export default function ListaHuespedes({ grupos, onEditar, onFotos, onEditarRese
                   <li key={f.id}>
                     <button type="button" className="hf" onClick={() => setFicha(f)} aria-label={`Ver a ${nombreDe(f)}`}>
                       <span className="hf-datos">
-                        <b>{nombreDe(f)}</b>
+                        <b>{nombreDe(f)}{esMano(f) && <span className="chip-mano" title="Lo cargó el dueño a mano, no el huésped">{marcaMano(f)}</span>}</b>
                         <small>{[!g.estadia && f.habitacion ? `Hab. ${f.habitacion}` : null, d.nacionalidad, d.anio_nac, fechaHora(f.creado)].filter(Boolean).join(' · ')}</small>
                       </span>
                       <Icon name="adelante" size={20} sw={1.8} />
@@ -86,7 +88,13 @@ function Ficha({ fila, puedeEditar, onCerrar, onEditar, onFotos, reservas, onAsi
   const tel = d.telefono ? String(d.telefono) : '';
   const wa = tel.replace(/\D/g, '');
   return (
-    <Modal titulo={nombreDe(fila) || 'Huésped'} onCerrar={onCerrar}>
+    <Modal titulo={nombreDe(fila)} onCerrar={onCerrar}>
+      {esMano(fila) && (
+        <p className="ficha-mano" role="note">
+          <b>Check-in cargado a mano</b> por {fila.cargado_por || 'el dueño'}: no lo hizo el huésped.
+          {faltantes(d).length > 0 && <> Sin dato: {faltantes(d).join(', ')}.</>}
+        </p>
+      )}
       <dl className="ficha">
         <Dato etiqueta="Habitación">{fila.habitacion ? `Hab. ${fila.habitacion}` : 'Sin asignar'}</Dato>
         {fila.estadia && <Dato etiqueta="Reserva">{detalleTexto(fila.estadia)}</Dato>}
@@ -99,7 +107,7 @@ function Ficha({ fila, puedeEditar, onCerrar, onEditar, onFotos, reservas, onAsi
         <Dato etiqueta="Domicilio">{d.domicilio}</Dato>
         <Dato etiqueta="Email">{d.email && <a href={`mailto:${d.email}`}>{d.email}</a>}</Dato>
         <Dato etiqueta="Teléfono">{tel && (<><a href={`tel:${tel}`}>{tel}</a>{wa && <> · <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer">WhatsApp</a></>}</>)}</Dato>
-        <Dato etiqueta="Check-in">{fechaHora(fila.creado)}{fila.habilitado_por ? ` · habilitó ${fila.habilitado_por}` : ''}</Dato>
+        <Dato etiqueta="Check-in">{fechaHora(fila.creado)}{esMano(fila) ? ` · cargado a mano por ${fila.cargado_por || 'el dueño'}` : fila.habilitado_por ? ` · habilitó ${fila.habilitado_por}` : ''}</Dato>
         <Dato etiqueta="Fotos del documento">
           {fotos.length ? fotos.map((p, i) => <a key={p.foto_id} className="ver-foto" href={urlDrive(p.foto_id)} target="_blank" rel="noopener noreferrer">Ver {fotos.length > 1 ? i + 1 : 'foto'}</a>) : 'Sin foto'}
         </Dato>

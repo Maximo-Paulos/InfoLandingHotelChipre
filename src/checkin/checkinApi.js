@@ -33,9 +33,8 @@ const deReserva = (r) => ({
 export const recepcionReservaNueva = (clave, r) => rpc('recepcion_reserva_nueva', { p_clave: clave, ...deReserva(r) });
 // Apaga el código que se ve (no cierra la reserva: si faltan huéspedes sigue abierta) o, con extender, le da más minutos.
 export const recepcionReservaCerrar = (clave, extender = false) => rpc('recepcion_reserva_cerrar', { p_clave: clave, p_extender: extender });
-// Le vuelve a dar código a una reserva abierta (el huésped que llegó después) y anula una que no tiene huéspedes (nunca borra: queda marcada).
+// Le vuelve a dar código a una reserva abierta (el huésped que llegó después). Recepción NO elimina ni anula reservas: eso es solo del dueño (adminReservaAnular).
 export const recepcionReservaAbrir = (clave, id) => rpc('recepcion_reserva_abrir', { p_clave: clave, p_id: id });
-export const recepcionReservaAnular = (clave, id) => rpc('recepcion_reserva_anular', { p_clave: clave, p_id: id });
 // Reservas anotadas (por adelantado): las carga, corrige y cancela el dueño; recepción las ve en «Llegadas» y hace el check-in eligiendo cómo paga.
 // `r` = { titular, ingreso, habitacion, noches, categoria, canal, huespedes, efectivo, transferencia?, usd?, sena?, fechaSena?, nota? } (precios en pesos, salvo usd; seña en pesos).
 const deAnotada = (r) => ({
@@ -74,6 +73,14 @@ export const pushDesuscribir = (clave, endpoint) => rpc('push_desuscribir', { p_
 export const pushEstado = (clave, endpoint) => rpc('push_estado', { p_clave: clave, p_endpoint: endpoint ?? null });
 export const pushPrueba = (clave, endpoint) => rpc('push_prueba', { p_clave: clave, p_endpoint: endpoint });
 export const adminPushConfig = (clave, nombre = null, checkinRecepcion = null) => rpc('admin_push_config', { p_clave: clave, p_nombre: nombre, p_checkin_recepcion: checkinRecepcion });
+// CHECK-IN A MANO (solo el dueño): cuando en el apuro no se llegó a hacer el check-in, el dueño carga a los huéspedes con los datos que tenga (ninguno es obligatorio). Quedan marcados
+// como «cargados a mano». `huespedes` = lista de 1 a 12 con { nombre, apellido, email, telefono, doc_tipo, doc_numero, nacionalidad, localidad, domicilio, anio_nac } (los que haya).
+export const adminCheckinManual = (clave, estadia, huespedes) => rpc('admin_checkin_manual', { p_clave: clave, p_estadia: estadia, p_huespedes: huespedes });
+// Lo mismo en una reserva anotada que todavía no tiene check-in: arma la reserva con lo anotado. `cobro` = { forma: 'efectivo' | 'transferencia', medio } (el medio de pago es opcional).
+export const adminCheckinManualAnotada = (clave, anotada, huespedes, cobro = null) =>
+  rpc('admin_checkin_manual_anotada', { p_clave: clave, p_anotada: anotada, p_huespedes: huespedes, p_forma: cobro?.forma ?? 'efectivo', p_medio_pago: cobro?.medio ?? null });
+// Completa o corrige los datos de uno ya cargado a mano.
+export const adminCheckinManualEditar = (clave, id, datos) => rpc('admin_checkin_manual_editar', { p_clave: clave, p_id: id, p_datos: datos });
 export const adminReservaMin = (clave, minutos) => rpc('admin_reserva_min', { p_clave: clave, p_min: minutos });
 
 // Admin general
@@ -143,7 +150,9 @@ export const MENSAJES = {
   fechas_lejanas: 'Las fechas están muy lejos una de otra (más de 10 días): no parecen ser la misma reserva.',
   ambas_con_anotada: 'Las dos reservas salen de reservas anotadas distintas: no se pueden unificar.',
   conservar_invalido: 'Esa no se puede conservar: tiene que quedar la que sale de una reserva anotada.',
-  misma_reserva: 'Elegiste la misma reserva dos veces.'
+  misma_reserva: 'Elegiste la misma reserva dos veces.',
+  demasiados_huespedes: 'Una reserva puede tener hasta 12 huéspedes. Con esos ya se pasa.',
+  no_es_manual: 'Ese huésped hizo su propio check-in: se corrige desde «Huéspedes», no desde acá.'
 };
 
 export const textoError = (e) => (e?.codigo ? MENSAJES[e.codigo] ?? e.codigo : 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.');

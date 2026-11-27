@@ -3,6 +3,7 @@ import Icon from '../components/Icon.jsx';
 import { cargarTelefono } from './telefono.js';
 import { porReserva } from './agrupar.js';
 import ListaHuespedes from './ListaHuespedes.jsx';
+import { esMano, marcaMano, nombreCompleto } from './mano.js';
 import { cobroLinea, detalleTexto, huespedesTexto, plata } from './ReservaForm.jsx';
 import { fechaHora, minSeg, urlDrive, useMedia } from './util.js';
 
@@ -15,9 +16,10 @@ const fotosDe = (f) => (Array.isArray(f.fotos) ? f.fotos : f.foto_id ? [{ foto_i
 //   Los huéspedes de una misma reserva (fila.estadia_id) se muestran juntos, bajo una cabecera con la habitación y lo cobrado.
 //   En pantallas chicas (celular) se muestra como lista (ListaHuespedes.jsx) en lugar de tabla.
 //   onEditarReserva(estadia): si viene, la cabecera tiene «Corregir reserva» · reservaEditable(estadia) -> false la deja cerrada (sin esta función, siempre se puede)
+//   onAgregarMano(estadia): si viene (solo el dueño), la cabecera tiene «Sumar a mano» para cargar a un huésped que no hizo el check-in, con los datos que haya
 //   reservas: [{ id, habitacion, ... }] y onAsignar(fila, estadiaId | null): si vienen, cada huésped se puede mover a otra reserva, o dejar sin reserva con null (solo el dueño)
 //   onFotos(fila): si viene, cada fila tiene un botón para ver y agregar sus fotos (el dueño también puede quitarlas; recepción no)
-export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, reservaEditable, reservas, onAsignar, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
+export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, onAgregarMano, reservaEditable, reservas, onAsignar, restante, vacio = 'Todavía no hay huéspedes cargados.' }) {
   const [lib, setLib] = useState(null);
   useEffect(() => {
     let vivo = true;
@@ -35,7 +37,7 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
 
   if (!filas.length) return <p className="planilla-vacia">{vacio}</p>;
   // En el celular no hay tabla: una lista corta por reserva, y la ficha de cada persona al tocarla.
-  if (celular) return <ListaHuespedes grupos={grupos} onEditar={onEditar} onFotos={onFotos} onEditarReserva={onEditarReserva} reservaEditable={reservaEditable} reservas={reservas} onAsignar={onAsignar} restante={restante} vacio={vacio} />;
+  if (celular) return <ListaHuespedes grupos={grupos} onEditar={onEditar} onFotos={onFotos} onEditarReserva={onEditarReserva} onAgregarMano={onAgregarMano} reservaEditable={reservaEditable} reservas={reservas} onAsignar={onAsignar} restante={restante} vacio={vacio} />;
   return (
     <div className="planilla-scroll" role="region" aria-label="Planilla de huéspedes" tabIndex={0}>
       {/* En el celular cada fila se ve como una tarjeta (ver styles.css), por eso los roles explícitos: así se sigue leyendo como tabla. */}
@@ -71,6 +73,7 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                       {onEditarReserva && (!reservaEditable || reservaEditable(g.estadia)) && (
                         <button type="button" className="btn mini claro" onClick={() => onEditarReserva(g.estadia)}><Icon name="lapiz" size={16} sw={1.8} /> Corregir reserva</button>
                       )}
+                      {onAgregarMano && <button type="button" className="btn mini claro" onClick={() => onAgregarMano(g.estadia)}>Sumar huésped a mano</button>}
                     </>
                   ) : <span className="pendiente">Sin reserva (check-ins de antes)</span>}
                 </td>
@@ -85,7 +88,7 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                 <th className="fija" scope="row" role="rowheader">
                   {/* La habitación es lo primero que carga recepción: tocarla abre la edición sin tener que deslizar hasta el final. */}
                   {onEditar && puede ? (
-                    <button type="button" className="hab-boton" onClick={() => onEditar(f)} aria-label={`Editar a ${d.apellido ?? ''} ${d.nombre ?? ''}`.trim()}>
+                    <button type="button" className="hab-boton" onClick={() => onEditar(f)} aria-label={`Editar a ${nombreCompleto(f)}`}>
                       {f.habitacion ? <b>{f.habitacion}</b> : <span className="pendiente">Sin asignar</span>}
                       <Icon name="lapiz" size={14} sw={1.8} />
                     </button>
@@ -93,8 +96,8 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                 </th>
                 <td role="cell" className="c-pago" data-label="Pago">{f.medio_pago ? <span className="pago">{f.medio_pago}</span> : <span className="muted">—</span>}</td>
                 <td role="cell" className="c-cargado" data-label="Cargado">{fechaHora(f.creado)}</td>
-                <td role="cell" className="c-hab-por" data-label="Habilitó">{f.habilitado_por ?? ''}</td>
-                <td role="cell" className="c-ape" data-label="Apellido">{d.apellido}</td>
+                <td role="cell" className="c-hab-por" data-label="Habilitó">{esMano(f) ? <span className="chip-mano" title="Lo cargó el dueño a mano, no el huésped">{marcaMano(f)}</span> : f.habilitado_por ?? ''}</td>
+                <td role="cell" className="c-ape" data-label="Apellido">{d.apellido || (!d.nombre && <span className="muted">Sin nombre</span>)}</td>
                 <td role="cell" className="c-nom" data-label="Nombre">{d.nombre}</td>
                 <td role="cell" className="c-doc" data-label="Documento"><span className="doc-tipo">{d.doc_tipo}</span> {d.doc_numero}</td>
                 <td role="cell" className="c-nac" data-label="Nacionalidad">{d.nacionalidad}</td>
@@ -111,14 +114,14 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                     </a>
                   ))}
                   {onFotos && (
-                    <button type="button" className="btn mini claro foto-gestion" onClick={() => onFotos(f)} aria-label={`${fotos.length ? 'Fotos' : 'Agregar foto'} de ${d.apellido ?? ''} ${d.nombre ?? ''}`.trim()}>
+                    <button type="button" className="btn mini claro foto-gestion" onClick={() => onFotos(f)} aria-label={`${fotos.length ? 'Fotos' : 'Agregar foto'} de ${nombreCompleto(f)}`}>
                       {fotos.length ? 'Fotos' : 'Agregar foto'}
                     </button>
                   )}
                 </td>
                 <td role="cell" className="acciones c-acciones">
                   {onAsignar && (reservas?.length > 0 || f.estadia_id) && (
-                    <select className="asignar" aria-label={`${f.estadia_id ? 'Mover' : 'Asignar'} a ${d.apellido ?? ''} ${d.nombre ?? ''} ${f.estadia_id ? 'a otra reserva' : 'a una reserva'}`.trim()} value="" onChange={(e) => e.target.value && onAsignar(f, e.target.value === 'ninguna' ? null : Number(e.target.value))}>
+                    <select className="asignar" aria-label={`${f.estadia_id ? 'Mover' : 'Asignar'} a ${nombreCompleto(f)} ${f.estadia_id ? 'a otra reserva' : 'a una reserva'}`} value="" onChange={(e) => e.target.value && onAsignar(f, e.target.value === 'ninguna' ? null : Number(e.target.value))}>
                       <option value="">{f.estadia_id ? 'Mover a otra reserva…' : 'Asignar a reserva…'}</option>
                       {f.estadia_id && <option value="ninguna">Dejar sin reserva</option>}
                       {(reservas ?? []).filter((r) => r.id !== f.estadia_id).map((r) => <option key={r.id} value={r.id}>Hab. {r.habitacion} · {r.canal_cobra === false ? 'sin cobro' : plata(r.monto, r.moneda)} · {huespedesTexto(r)}</option>)}
@@ -129,7 +132,7 @@ export default function Planilla({ filas, onEditar, onFotos, onEditarReserva, re
                       ? <button type="button" className="btn mini claro" onClick={() => onEditar(f)}>
                           <Icon name="lapiz" size={16} sw={1.8} /> Editar{seg !== null && <small>{minSeg(seg)}</small>}
                         </button>
-                      : <span className="candado" title="Se pasó el tiempo para editar"><Icon name="candado" size={16} sw={1.8} /> Cerrado</span>
+                      : <span className="candado" title={esMano(f) ? 'Lo cargó el dueño a mano: lo corrige solo él' : 'Se pasó el tiempo para editar'}><Icon name="candado" size={16} sw={1.8} /> {esMano(f) ? 'Solo el dueño' : 'Cerrado'}</span>
                   )}
                 </td>
               </tr>

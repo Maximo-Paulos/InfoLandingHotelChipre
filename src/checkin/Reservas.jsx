@@ -8,6 +8,8 @@ import { nochesTexto, plata } from './ReservaForm.jsx';
 
 const CADA_MS = 15000;
 const personas = (n) => `${n} ${n === 1 ? 'huésped' : 'huéspedes'}`;
+// Cuántos de los que ya ingresaron los cargó el dueño a mano: «Cargado a mano por el dueño» · «2 de los 3 cargados a mano».
+const manoTexto = (mano, con) => (Number(mano) >= Number(con) ? (Number(mano) === 1 ? 'Cargado a mano por el dueño' : `Los ${mano} cargados a mano por el dueño`) : `${mano} de los ${con} cargados a mano por el dueño`);
 
 // La pantalla «Reservas» de recepción: todo lo de las reservas en un solo lugar.
 //   · Arriba, un cartel que dice si todavía falta llegar alguien («estar atento») o si ya llegaron todas las de hoy («quedarse tranquilo»).
@@ -17,11 +19,12 @@ const personas = (n) => `${n} ${n === 1 ? 'huésped' : 'huéspedes'}`;
 //   Cada reserva muestra su NÚMERO («N.º 41») para distinguir una de otra; el buscador también la encuentra por número. Si dos parecen la misma, se avisa.
 //   El DUEÑO además puede eliminar cualquier reserva (no se borra: va a la pestaña «Eliminadas», desde donde la restaura).
 //   clave: la sesión · version: sube cuando algo cambió y la lista se vuelve a pedir · salir(): si la sesión ya no vale · dueno: puede reabrir una reserva cerrada, eliminar y restaurar
-//   onAbrir(anotada): abre el detalle para cobrar y hacer el check-in · onAnotar() / onRapida(): crear · onDarCodigo(estadiaId) · onCerrar(estadia) · onReabrir(estadia) · onAnular(estadia)
+//   onAbrir(anotada): abre el detalle para cobrar y hacer el check-in · onAnotar() / onRapida(): crear · onDarCodigo(estadiaId) · onCerrar(estadia) · onReabrir(estadia)
 //   onEliminar({ tipo: 'anotada' | 'estadia', …la reserva }) · onRestaurar({ tipo, …lo eliminado }) · onUnificar(pareja) · onDescartar(pareja) («no son la misma»): solo el dueño
+//   onCheckinMano({ tipo, …la reserva }): el dueño carga el check-in a mano (con los datos que tenga) cuando en el apuro no se llegó a hacer. Todos ven la marca «a mano».
 //   Repetidas: las parejas que parecen la misma reserva (misma habitación, mismo día, mismo nombre). Todos las ven; solo el dueño las unifica o las descarta.
 //   trabajando: el id de la reserva a la que se le está haciendo algo (para apagar sus botones)
-export default function Reservas({ clave, version = 0, salir, dueno = false, apagado = false, trabajando = null, onAbrir, onAnotar, onRapida, onDarCodigo, onCerrar, onReabrir, onAnular, onEliminar, onRestaurar, onUnificar, onDescartar }) {
+export default function Reservas({ clave, version = 0, salir, dueno = false, apagado = false, trabajando = null, onAbrir, onAnotar, onRapida, onDarCodigo, onCerrar, onReabrir, onEliminar, onRestaurar, onUnificar, onDescartar, onCheckinMano }) {
   const [datos, setDatos] = useState(null); // la última respuesta de la base
   const [error, setError] = useState('');
   const [buscar, setBuscar] = useState('');
@@ -96,6 +99,7 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
         </button>
         {dueno && (
           <div className="pp-solo">
+            <button type="button" className="btn mini" onClick={() => onCheckinMano({ tipo: 'anotada', ...a })} disabled={trabajando === `a${a.id}`}>Check-in a mano</button>
             <button type="button" className="btn mini claro" onClick={() => onEliminar({ tipo: 'anotada', ...a })} disabled={trabajando === `a${a.id}`}>{trabajando === `a${a.id}` ? 'Un momento…' : 'Eliminar'}</button>
           </div>
         )}
@@ -116,13 +120,15 @@ export default function Reservas({ clave, version = 0, salir, dueno = false, apa
           <span className="pp-det">{[nochesTexto(e.noches), personas(e.esperados), e.categoria].filter(Boolean).join(' · ')}</span>
           <span className={`pp-ingreso ${clase}`}>{texto}</span>
           {e.ingresaron?.length > 0 && <span className="pp-nombres">{e.ingresaron.join(', ')}</span>}
+          {e.a_mano > 0 && <span className="pp-mano">{manoTexto(e.a_mano, e.con_checkin)}</span>}
           {otras.length > 0 && <span className="pp-duda">{parecidaTexto(otras)}</span>}
+          {!dueno && e.estado === 'sin_ingresos' && <span className="pp-det">Si se cargó por error, avisale al dueño: solo él elimina reservas.</span>}
         </div>
         <div className="pp-acciones">
           {(e.estado === 'sin_ingresos' || e.estado === 'faltan') && <button type="button" className="btn mini" onClick={() => onDarCodigo(e.id)} disabled={ocupado || apagado}>{ocupado ? 'Un momento…' : 'Dar código'}</button>}
           {e.estado === 'faltan' && <button type="button" className="btn mini claro" onClick={() => onCerrar(e)} disabled={ocupado}>Cerrar reserva</button>}
-          {e.estado === 'sin_ingresos' && !dueno && <button type="button" className="btn mini claro" onClick={() => onAnular(e)} disabled={ocupado}>Anular</button>}
           {e.estado === 'cerrada' && dueno && <button type="button" className="btn mini claro" onClick={() => onReabrir(e)} disabled={ocupado}>Reabrir</button>}
+          {dueno && (e.estado === 'sin_ingresos' || e.estado === 'faltan') && <button type="button" className="btn mini" onClick={() => onCheckinMano({ tipo: 'estadia', ...e })} disabled={ocupado}>Check-in a mano</button>}
           {dueno && <button type="button" className="btn mini claro" onClick={() => onEliminar({ tipo: 'estadia', ...e })} disabled={ocupado}>Eliminar</button>}
         </div>
       </li>

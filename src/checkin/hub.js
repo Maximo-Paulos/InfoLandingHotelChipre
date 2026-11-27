@@ -90,9 +90,11 @@ const fichas = (nombre) => normalizar(nombre).split(' ').filter((t) => t.length 
 
 // Compara dos listas de nombres (el titular y los que ingresaron): 'igual' | 'distinto' | 'sin' (alguna de las dos no tiene ningún nombre).
 // Son el mismo si comparten dos palabras (en cualquier orden, sin importar tildes ni mayúsculas) o si uno solo tiene una palabra y está en el otro («Pérez» y «Juan Pérez»).
+// «Sin nombre» es lo que se muestra de un huésped cargado a mano sin ningún nombre: no es un nombre, no sirve para comparar.
+const hayNombre = (n) => normalizar(n) !== 'sin nombre';
 export function compararNombres(nombresA = [], nombresB = []) {
-  const A = nombresA.map(fichas).filter((f) => f.length > 0);
-  const B = nombresB.map(fichas).filter((f) => f.length > 0);
+  const A = nombresA.filter(hayNombre).map(fichas).filter((f) => f.length > 0);
+  const B = nombresB.filter(hayNombre).map(fichas).filter((f) => f.length > 0);
   if (!A.length || !B.length) return 'sin';
   for (const fa of A) {
     for (const fb of B) {

@@ -209,7 +209,9 @@ r = await cobro(D, { p_habitacion: '111', p_monto: 90000, p_pago_hotel: 70000, p
 const ED = r.id;
 ok(r.ok === true && !(await llegadas()).some((x) => x.id === D), 'se hace el check-in de la «Después» (cobro 90.000 con seña 20.000)');
 r = await llamar('recepcion_reserva_anular', { p_clave: rec, p_id: ED });
-ok(r.ok === true, 'recepción se equivocó en el cobro: anula la reserva (todavía sin huéspedes)');
+ok(r.ok === false && r.error === 'sin_permiso' && (await fila(D)).estadia_id === ED, 'recepción se equivocó en el cobro: NO puede anular la reserva (le avisa al dueño)');
+r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: ED });
+ok(r.ok === true, 'el dueño anula la reserva (todavía sin huéspedes)');
 ok((await fila(D)).estadia_id === null && (await llegadas()).some((x) => x.id === D), 'la reserva anotada vuelve a las llegadas para hacer el check-in bien');
 r = await cobro(D, { p_habitacion: '111', p_monto: 90000, p_pago_hotel: 70000, p_noches: 3, p_huespedes: 2 });
 ok(r.ok === true, 'y se hace de nuevo');

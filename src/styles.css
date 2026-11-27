@@ -882,3 +882,18 @@ a,button,select,summary,[role=tab],[role=radio]{touch-action:manipulation}
 .uni-datos{display:grid;gap:2px;min-width:0}
 .uni-se-queda{font-size:13px;font-weight:700;color:var(--verde-oscuro)}
 
+
+/* Check-in a mano (lo carga el dueño cuando en el apuro no se llegó a hacer el check-in): marca visible en todas las listas y el formulario con todos los datos opcionales. */
+.chip-mano{display:inline-block;margin-left:8px;padding:1px 10px;border-radius:999px;background:var(--mostaza-claro);border:1px solid var(--mostaza);color:var(--terracota-texto);font:700 12px/1.6 var(--sans);vertical-align:middle;white-space:nowrap}
+.pp-mano{display:inline-block;align-self:flex-start;padding:1px 10px;border-radius:999px;background:var(--mostaza-claro);border:1px solid var(--mostaza);color:var(--terracota-texto);font:700 13px/1.6 var(--sans)}
+.ficha-mano{margin:0 0 12px;padding:10px 12px;border-left:4px solid var(--mostaza);border-radius:10px;background:var(--mostaza-claro);font-size:15px;line-height:1.45}
+.mano-reserva{margin:10px 0 0;font-size:15px;line-height:1.45}
+.mano-huesped{margin:14px 0 0;padding:6px 14px 14px;border:1px solid var(--linea);border-radius:14px;background:var(--superficie)}
+.mano-huesped.con-error{border-color:#a23b25}
+.mano-huesped legend{padding:0 8px;font:700 15px var(--sans);color:var(--verde-oscuro)}
+.mano-grilla{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:0 12px}
+.mano-mas{margin-top:12px}
+.mano-mas summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:700;color:var(--terracota-texto)}
+.mano-huesped>.btn.mini{margin-top:12px}
+.mano-cobro{margin-top:18px;padding-top:14px;border-top:1px solid var(--linea)}
+.mano-cobro h3{margin:0 0 4px;font:500 20px/1.2 var(--serif)}

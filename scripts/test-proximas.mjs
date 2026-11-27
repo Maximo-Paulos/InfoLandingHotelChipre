@@ -162,6 +162,8 @@ await cobro(anul.id, { p_habitacion: '88' });
 const idAnul = (await lista()).find((x) => x.titular === 'Se equivocaron');
 ok(idAnul.estado === 'en_curso' && idAnul.con_checkin === 0, 'otra reserva con el código dado y nadie adentro');
 r = await llamar('recepcion_reserva_anular', { p_clave: rec, p_id: idAnul.estadia_id });
+ok(r.ok === false && r.error === 'sin_permiso', 'recepción no puede anular esa reserva');
+r = await llamar('admin_reserva_anular', { p_clave: dueno, p_id: idAnul.estadia_id });
 ok(r.ok === true && (await lista()).find((x) => x.titular === 'Se equivocaron').estado === 'anotada', 'si se anula esa reserva, vuelve a «anotada» (falta ingresar) para hacer el check-in bien');
 
 console.log('\n== 8. El límite de la lista, y que solo lee');
