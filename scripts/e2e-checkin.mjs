@@ -269,10 +269,21 @@ await seccion('3. Check-in completo: recepción muestra el código, el huésped 
   await hue.page.goto(BASE);
   await hue.page.getByRole('link', { name: 'Realizar check-in' }).waitFor();
   ok(true, 'con el check-in prendido el botón aparece en el menú');
-  const ultimo = await hue.page.locator('.menu > *:last-child, .menu .btns:last-of-type').last().innerText().catch(() => '');
-  ok((await hue.page.locator('.link-terminos').boundingBox()).y < (await hue.page.getByRole('link', { name: 'Realizar check-in' }).boundingBox()).y, 'el botón está debajo de "Términos y condiciones"');
+  const boton = hue.page.getByRole('link', { name: 'Realizar check-in' });
+  const caja = await boton.boundingBox();
+  ok(caja.y < (await hue.page.locator('.tile').first().boundingBox()).y, 'el botón está ARRIBA de todo: antes del primer cuadradito (Check-in, Wi-Fi…)');
+  ok(caja.y < (await hue.page.locator('.link-terminos').boundingBox()).y && caja.y + caja.height < hue.page.viewportSize().height, 'y se ve sin bajar la pantalla');
+  ok((await hue.page.getByRole('link', { name: 'Realizar check-in' }).count()) === 1, 'hay un solo botón en el menú (no quedó repetido abajo)');
   await sinDesborde(hue.page, 'menú con el botón nuevo');
   await captura(hue.page, '10-menu-con-boton', { fullPage: true });
+  // Si tocan «Check-in» (la información) en vez de «Realizar check-in», el botón también está ahí, arriba de todo.
+  await hue.page.locator('a.tile', { hasText: /^Check-in$/ }).click();
+  await hue.page.getByRole('link', { name: 'Realizar check-in' }).waitFor();
+  const enInfo = await hue.page.getByRole('link', { name: 'Realizar check-in' }).boundingBox();
+  ok(enInfo.y < (await hue.page.locator('.big').boundingBox()).y, 'dentro de «Check-in» también está el botón «Realizar check-in», arriba de la información');
+  await captura(hue.page, '10b-checkin-info-con-boton');
+  await hue.page.goto(BASE);
+  await hue.page.getByRole('link', { name: 'Realizar check-in' }).waitFor();
   await hue.page.getByRole('link', { name: 'Realizar check-in' }).click();
   await hue.page.locator('#registro-codigo').waitFor();
   await sinDesborde(hue.page, 'pantalla del código');

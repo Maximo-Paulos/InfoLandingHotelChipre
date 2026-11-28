@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import qrcode from 'qrcode-generator';
 import Icon from '../components/Icon.jsx';
+import BotonCheckin from '../components/BotonCheckin.jsx';
 import { Btn, Cajas, Lista, T, V } from '../components/Editable.jsx';
 import { Box, Cabecera, Datos, Pasos, useToast } from '../components/ui.jsx';
 import { useDatos } from '../data/DataContext.jsx';
@@ -11,6 +12,8 @@ export function Checkin() {
   return (
     <>
       <Cabecera num="01" id="checkin" />
+      {/* Por si tocan «Check-in» (la información) en vez de «Realizar check-in»: el botón también está acá, arriba de todo. */}
+      <BotonCheckin />
       <section className="big" aria-label="Horario de check-in">
         <div><p><V p="checkin.horaLead" /></p><p className="hora"><V p="hotel.horarios.checkin" /></p></div>
         <p className="al"><V p="checkin.recepcion" /></p>
