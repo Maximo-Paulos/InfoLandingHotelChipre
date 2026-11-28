@@ -76,6 +76,11 @@ h2{margin:0;font:500 22px/1.2 var(--serif)}
 .btn.claro{background:var(--superficie);color:var(--texto);border:1px solid rgba(34,51,42,.16)}
 .btn.negro{background:var(--verde-oscuro);color:var(--hueso)}
 .btn.terra{background:var(--terracota);color:var(--texto)}
+/* «Realizar check-in»: grande y arriba de todo, para que sea lo primero que se toque */
+.checkin-rapido{margin-top:18px}
+.checkin-rapido .btn{margin:0}
+.btn.grande{min-height:68px;font-size:20px;gap:12px;box-shadow:0 6px 16px rgba(158,82,45,.28)}
+.menu header+.checkin-rapido+.grid{margin-top:16px}
 .btn.mini{display:inline-flex;width:auto;min-height:44px;margin-top:12px;font-size:14px}
 .btn.fila{justify-content:space-between;min-height:56px;padding:0 20px;text-align:left}
 

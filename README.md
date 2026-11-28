@@ -23,7 +23,7 @@ Los íconos y el orden de las pantallas no se editan desde el panel. Cada pantal
    - Reseñas, lista de mapa y teléfono de recepción: su link o número está en la caja del botón.
 
 ## Check-in digital
-El huésped carga sus datos antes de llegar (o en el mostrador) con un **código de 6 números** que le da recepción, y recepción ve la planilla. No reemplaza al QR: la guía sigue igual y el check-in es **un botón más**, abajo de todo, que solo aparece cuando lo encendés.
+El huésped carga sus datos antes de llegar (o en el mostrador) con un **código de 6 números** que le da recepción, y recepción ve la planilla. No reemplaza al QR: la guía sigue igual y el check-in es **un botón más** —el botón grande **«Realizar check-in» va arriba de todo del menú**, antes de los cuadraditos, y **se repite arriba de la pantalla «Check-in»** (la de la información) por si el huésped toca esa primero—, que solo aparece cuando lo encendés.
 
 ```
 Huésped ─ código de 6 números ─▶ formulario ─▶ "¡Check-in realizado!" ─▶ vuelve al menú
